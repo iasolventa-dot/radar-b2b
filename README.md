@@ -57,3 +57,4 @@ Ver `docs/08_registro_decisiones.md` (sección "Estado actual") y la guía perso
 - Migraciones SQL siempre numeradas y en `supabase/migrations/`, nunca editadas a mano en Supabase sin migración correspondiente.
 - Ningún cambio en reglas de normalización/matching se da por bueno sin tests y sin evaluarlo contra el golden set (`worker/tests/golden/`).
 - Ver `docs/01_INSTRUCCIONES_DEL_PROYECTO.md` para el resto de principios de trabajo.
+"# radar-b2b" 
