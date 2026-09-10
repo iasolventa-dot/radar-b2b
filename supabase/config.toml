@@ -1,0 +1,17 @@
+# Configuración mínima de Supabase CLI. `supabase init` puede sobrescribir
+# este archivo con la plantilla completa la primera vez que se ejecuta en
+# el repo — está bien, este es solo un punto de partida razonable.
+
+project_id = "radar-b2b"
+
+[db]
+port = 54322
+major_version = 16
+
+[api]
+enabled = true
+port = 54321
+
+[studio]
+enabled = true
+port = 54323
