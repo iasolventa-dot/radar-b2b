@@ -94,24 +94,23 @@ def comparar(a: dict, b: dict, telefonos_compartidos: set | None = None) -> dict
 
     p = 0.0
     # --- Nombre ---
-    if a.get("nombre_norm") or a.get("comercial_norm"):
-        if b.get("nombre_norm") or b.get("comercial_norm"):
-            if sim >= 0.95:
-                aporte = PESOS["nombre_095"]
-            elif sim >= 0.88:
-                aporte = PESOS["nombre_088"]
-            elif sim >= 0.80:
-                aporte = PESOS["nombre_080"]
-            elif sim < 0.50:
-                aporte = PESOS["nombre_bajo"]
-            else:
-                aporte = 0.0
-            if aporte > 0 and not distintivas:
-                aporte = min(aporte, PESOS["nombre_solo_genericas"])
-                senales.append("nombres parecidos pero solo con palabras genéricas en común")
-            if aporte:
-                senales.append(f"similitud de nombre {sim:.2f} ({aporte:+.2f})")
-            p += aporte
+    if (a.get("nombre_norm") or a.get("comercial_norm")) and (b.get("nombre_norm") or b.get("comercial_norm")):
+        if sim >= 0.95:
+            aporte = PESOS["nombre_095"]
+        elif sim >= 0.88:
+            aporte = PESOS["nombre_088"]
+        elif sim >= 0.80:
+            aporte = PESOS["nombre_080"]
+        elif sim < 0.50:
+            aporte = PESOS["nombre_bajo"]
+        else:
+            aporte = 0.0
+        if aporte > 0 and not distintivas:
+            aporte = min(aporte, PESOS["nombre_solo_genericas"])
+            senales.append("nombres parecidos pero solo con palabras genéricas en común")
+        if aporte:
+            senales.append(f"similitud de nombre {sim:.2f} ({aporte:+.2f})")
+        p += aporte
     # --- Forma jurídica ---
     if a.get("forma_juridica") and b.get("forma_juridica") and a["forma_juridica"] != b["forma_juridica"]:
         p += PESOS["forma_distinta"]

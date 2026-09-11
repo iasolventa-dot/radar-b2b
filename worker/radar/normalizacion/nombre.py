@@ -43,8 +43,10 @@ _FORMAS: list[tuple[str, str]] = [
     (r"sociedad limitada unipersonal|s\.?\s?l\.?\s?u\.?(?=\W|$)", "SLU"),
     (r"sociedad limitada nueva empresa|s\.?\s?l\.?\s?n\.?\s?e\.?(?=\W|$)", "SLNE"),
     (
-        r"sociedad de responsabilidad limitada|sociedad limitada"
-        r"|s\.?\s?r\.?\s?l\.?(?=\W|$)|s\.?\s?l\.?(?=\W|$)",
+        (
+            r"sociedad de responsabilidad limitada|sociedad limitada"
+            r"|s\.?\s?r\.?\s?l\.?(?=\W|$)|s\.?\s?l\.?(?=\W|$)"
+        ),
         "SL",
     ),
     (r"sociedad anonima laboral|s\.?\s?a\.?\s?l\.?(?=\W|$)", "SAL"),
