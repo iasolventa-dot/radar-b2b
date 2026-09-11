@@ -4,10 +4,22 @@ de la skill `agente-busqueda-empresas`). Solo se llama cuando
 (`radar.extraccion.reglas`) van primero siempre.
 
 Modelo rápido y barato (`settings.modelo_extraccion`, doc 07 §2: "Alto
-volumen"). La salida se valida con pydantic; si no es JSON válido o no
-cumple el esquema, se reintenta pasando el error de vuelta al modelo, máx.
-2 veces (prompts.md, cabecera) — a la 3ª se rinde y deja `None`, nunca
-inventa un resultado.
+volumen"). Proveedor configurable con `settings.proveedor_llm` (doc 02 §3:
+"API de Anthropic y OpenAI opcional"; por defecto openai desde 2026-09-11,
+ver `08_registro_decisiones.md`):
+
+- **openai** (por defecto): `chat.completions.parse()` con
+  `response_format=RespuestaExtraccionLLM` — OpenAI fuerza el JSON a
+  cumplir el esquema en el propio servidor (structured outputs, verificado
+  contra el SDK instalado 2026-09-11: `openai/lib/_pydantic.py` convierte
+  cualquier modelo pydantic a un schema "strict" — no hace falta tocar
+  nuestros modelos). Por eso aquí NO hay bucle de reintento por JSON
+  inválido: si el servidor lo garantiza, reintentar no añade nada. Sí se
+  captura un rechazo del modelo (`message.refusal`) o un fallo de red/API.
+- **anthropic**: sin salida estructurada nativa equivalente en este SDK —
+  se le pide JSON por prompt y se reintenta pasando el error de vuelta al
+  modelo, máx. `MAX_REINTENTOS` veces (prompts.md, cabecera) — a la última
+  se rinde y deja `None`, nunca inventa un resultado.
 """
 
 from __future__ import annotations
@@ -15,13 +27,14 @@ from __future__ import annotations
 import dataclasses
 import json
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 from anthropic import Anthropic
-from anthropic.types import MessageParam
+from anthropic.types import MessageParam, TextBlock
+from openai import OpenAI
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from radar.config import get_settings
+from radar.config import Settings, get_settings
 from radar.extraccion.reglas import DatosLegalesExtraidos
 
 MAX_REINTENTOS = 2
@@ -114,14 +127,58 @@ def extraer_con_llm(
     texto_paginas: str,
     dominio: str | None,
     resultado_reglas: DatosLegalesExtraidos,
-    cliente: Anthropic | None = None,
+    cliente: Any | None = None,
+) -> ResultadoLLM:
+    """Punto de entrada único; despacha según `settings.proveedor_llm` (ver
+    docstring del módulo). `cliente`, si se pasa, debe ser del tipo que
+    espera ese proveedor (`openai.OpenAI` o `anthropic.Anthropic`) — se usa
+    sobre todo para tests/inyección; en producción se construye solo."""
+    settings = get_settings()
+    if settings.proveedor_llm == "openai":
+        return _extraer_con_llm_openai(texto_paginas, dominio, resultado_reglas, cliente, settings)
+    return _extraer_con_llm_anthropic(texto_paginas, dominio, resultado_reglas, cliente, settings)
+
+
+def _extraer_con_llm_openai(
+    texto_paginas: str,
+    dominio: str | None,
+    resultado_reglas: DatosLegalesExtraidos,
+    cliente: OpenAI | None,
+    settings: Settings,
+) -> ResultadoLLM:
+    if not settings.openai_api_key:
+        return ResultadoLLM(respuesta=None, intentos=0, error="OPENAI_API_KEY no configurada")
+    cliente = cliente or OpenAI(api_key=settings.openai_api_key)
+    prompt = construir_prompt(texto_paginas, dominio, resultado_reglas)
+    try:
+        completado = cliente.chat.completions.parse(
+            model=settings.modelo_extraccion,
+            messages=[{"role": "user", "content": prompt}],
+            response_format=RespuestaExtraccionLLM,
+        )
+    except Exception as exc:  # noqa: BLE001 — cualquier fallo de red/API se reporta, nunca se inventa una respuesta
+        return ResultadoLLM(respuesta=None, intentos=1, error=str(exc))
+
+    mensaje = completado.choices[0].message
+    if mensaje.refusal:
+        return ResultadoLLM(respuesta=None, intentos=1, error=f"el modelo rehusó responder: {mensaje.refusal}")
+    if mensaje.parsed is None:
+        return ResultadoLLM(respuesta=None, intentos=1, error="respuesta sin JSON parseado (revisar finish_reason)")
+    return ResultadoLLM(respuesta=mensaje.parsed, intentos=1)
+
+
+def _extraer_con_llm_anthropic(
+    texto_paginas: str,
+    dominio: str | None,
+    resultado_reglas: DatosLegalesExtraidos,
+    cliente: Anthropic | None,
+    settings: Settings,
 ) -> ResultadoLLM:
     """Llama al modelo de extracción con reintento (máx. `MAX_REINTENTOS`)
     pasando el error de validación de vuelta, como pide `prompts.md`
     (cabecera). Si tras agotar los reintentos sigue sin ser JSON válido,
     devuelve `respuesta=None` — nunca un resultado a medio validar.
     """
-    settings = get_settings()
     if not settings.anthropic_api_key:
         return ResultadoLLM(respuesta=None, intentos=0, error="ANTHROPIC_API_KEY no configurada")
     cliente = cliente or Anthropic(api_key=settings.anthropic_api_key)
@@ -130,7 +187,8 @@ def extraer_con_llm(
     ultimo_error: str | None = None
     for intento in range(1, MAX_REINTENTOS + 2):
         respuesta = cliente.messages.create(model=settings.modelo_extraccion, max_tokens=1024, messages=mensajes)
-        texto_respuesta = "".join(bloque.text for bloque in respuesta.content if bloque.type == "text")
+        # isinstance (no `bloque.type == "text"`) para que mypy narrowee de verdad el Union de bloques.
+        texto_respuesta = "".join(bloque.text for bloque in respuesta.content if isinstance(bloque, TextBlock))
         try:
             return ResultadoLLM(respuesta=parsear_respuesta(texto_respuesta), intentos=intento)
         except (json.JSONDecodeError, ValidationError) as exc:

@@ -10,6 +10,7 @@ por defecto acordados.
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -32,22 +33,37 @@ class Settings(BaseSettings):
     )
 
     # --- LLM ---------------------------------------------------------------
+    # Doc 02 §3 deja los dos como opción ("API de Anthropic y OpenAI opcional");
+    # `proveedor_llm` decide cuál usa de verdad `radar.extraccion.llm` y
+    # `radar.fuentes.buscador_web` en cada momento — por defecto OpenAI
+    # (2026-09-11: el proyecto solo tiene contratada esa cuenta). Cambiar a
+    # "anthropic" en cuanto haya clave de Anthropic no requiere tocar código,
+    # solo esta variable (y `MODELO_PLANIFICADOR`/`MODELO_EXTRACCION`, que son
+    # específicos de cada proveedor).
+    proveedor_llm: Literal["openai", "anthropic"] = Field(default="openai")
     anthropic_api_key: str = Field(default="")
-    openai_api_key: str = Field(default="", description="Opcional (doc 02 §3)")
+    openai_api_key: str = Field(default="")
     modelo_planificador: str = Field(
-        default="claude-sonnet-4-5",
-        description="Modelo potente: interpretar, planificar, arbitrar (doc 07 §2). Verificar el vigente.",
+        default="gpt-5.6-sol",
+        description=(
+            "Modelo potente: interpretar, planificar, arbitrar (doc 07 §2). "
+            "Verificado 2026-09-11 contra developers.openai.com/api/docs/models — "
+            "cambia si `proveedor_llm` es 'anthropic' (ahí usar algo tipo claude-sonnet-*, verificar el vigente)."
+        ),
     )
     modelo_extraccion: str = Field(
-        default="claude-haiku-4-5",
-        description="Modelo rápido y barato: extracción masiva (doc 07 §2). Verificar el vigente.",
+        default="gpt-5.6-luna",
+        description=(
+            "Modelo rápido y barato: extracción masiva (doc 07 §2). "
+            "Verificado 2026-09-11 (soporta salida estructurada) — mismo comentario que modelo_planificador."
+        ),
     )
 
     # --- Fuentes (D-06, D-07) ----------------------------------------------
     google_places_api_key: str = Field(default="")
     search_api_provider: str = Field(
-        default="anthropic",
-        description="anthropic | tavily | exa | serper (D-06: comparar antes de escalar)",
+        default="openai",
+        description="openai | anthropic | tavily | exa | serper (D-06: comparar antes de escalar)",
     )
     search_api_key: str = Field(default="")
 

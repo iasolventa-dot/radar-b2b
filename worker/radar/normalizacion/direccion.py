@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import re
+from typing import Any
 
 from radar.normalizacion.nombre import normalizar_texto
 
@@ -65,8 +66,15 @@ def validar_cp(cp: object, provincia: object = None) -> dict:
     return r
 
 
-def distancia_m(lat1: object, lon1: object, lat2: object, lon2: object) -> float | None:
-    """Distancia de Haversine en metros, o None si falta alguna coordenada."""
+def distancia_m(lat1: Any, lon1: Any, lat2: Any, lon2: Any) -> float | None:
+    """Distancia de Haversine en metros, o None si falta alguna coordenada.
+
+    Los parámetros son ``Any`` (no ``object``) a propósito: llegan de sitios
+    con tipos distintos según la fuente (``float``, ``Decimal`` de psycopg,
+    ``str`` de un CSV...) y el try/except de abajo ya hace la validación en
+    tiempo de ejecución — no tiene sentido que mypy exija un tipo más
+    estricto que el que de verdad comprobamos aquí.
+    """
     try:
         f_lat1, f_lon1, f_lat2, f_lon2 = map(float, (lat1, lon1, lat2, lon2))
     except (TypeError, ValueError):

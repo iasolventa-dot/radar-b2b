@@ -11,7 +11,8 @@ dependencies = [
   "rapidfuzz>=3.9",
   "phonenumbers>=8.13",
   "pandas>=2.2",
-  "anthropic>=0.34",
+  "anthropic>=0.34",  # solo si PROVEEDOR_LLM=anthropic (doc 02 §3) — el proveedor por defecto es openai
+  "openai>=3.0",  # verificado contra la 3.13.0 instalada 2026-09-11 (Responses API, .parse(), max_tool_calls)
   "supabase>=2.7",
   "psycopg[binary]>=3.2",
   "pydantic>=2.8",
@@ -39,7 +40,14 @@ line-length = 100
 target-version = "py311"
 
 [tool.mypy]
-python_version = "3.11"
+# "3.12", no "3.11" (requires-python arriba sigue en >=3.11: esto NO cambia
+# el runtime, solo la gramática que mypy se permite entender al leer
+# *stubs* de dependencias). Numpy 2.4.x (que trae pandas) usa `type X = ...`
+# (PEP 695) en su __init__.pyi, sintaxis que mypy solo parsea si
+# python_version >= 3.12 — con 3.11 falla con "Type statement is only
+# supported in Python 3.12 and greater" al mirar ese stub, aunque el
+# archivo que de verdad se está comprobando no tenga nada que ver con numpy.
+python_version = "3.12"
 ignore_missing_imports = true
 disallow_untyped_defs = false
 
