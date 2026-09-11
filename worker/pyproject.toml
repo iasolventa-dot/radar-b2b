@@ -19,6 +19,8 @@ dependencies = [
   "pydantic-settings>=2.4",
   "python-dotenv>=1.0",
   "tenacity>=8.5",
+  "fastapi>=0.115",  # tarea #22 (radar.api) — verificado contra la 0.141.1 instalada 2026-09-11
+  "uvicorn[standard]>=0.30",  # servidor ASGI para radar.api en Railway (D-07)
 ]
 
 [project.optional-dependencies]

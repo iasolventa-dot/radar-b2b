@@ -81,6 +81,17 @@ class Settings(BaseSettings):
         ),
     )
 
+    # --- API HTTP (tarea #22, radar.api) ------------------------------------
+    cors_allow_origins: str = Field(
+        default="",
+        description=(
+            "Orígenes permitidos para radar.api, separados por comas (p. ej. "
+            "'https://radar-b2b-web.vercel.app,http://localhost:3000'). Vacío "
+            "por defecto = sin CORS abierto a ningún origen (falla cerrado, "
+            "nunca '*' — esto habla con claves de LLM y con Postgres)."
+        ),
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:

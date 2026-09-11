@@ -36,11 +36,20 @@ Reglas del bucle (doc 07 §4, "Termina si..."):
   el `coste_eur` que devuelve cada herramienta con coste (`buscar_web`,
   `descubrir_borme`) — nunca una estimación — y se resta del presupuesto
   restante antes de la siguiente ronda.
+
+`planificar()` acepta un `on_ronda` opcional, invocado justo después de
+cada ronda (antes de decidir si el bucle sigue) — pensado para que quien
+llame (p. ej. `radar.api`, tarea #22) pueda persistir el progreso en la
+tabla `busquedas` sin esperar a que termine todo el bucle, que puede tardar
+varios minutos. Si `on_ronda` lanza, el bucle se detiene con
+`motivo_fin='error'` — un fallo guardando progreso es tan grave como un
+fallo de la API del LLM, nunca se ignora en silencio.
 """
 
 from __future__ import annotations
 
 import json
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, cast
 
@@ -63,6 +72,8 @@ from radar.agente.prompts import PROMPT_PLANIFICADOR_SISTEMA
 from radar.config import Settings, get_settings
 
 HERRAMIENTAS_QUE_CONSUMEN_PRESUPUESTO = {"buscar_web", "descubrir_borme"}
+
+OnRonda = Callable[["RondaPlanificador"], Awaitable[None]]
 
 
 @dataclass
@@ -114,16 +125,17 @@ async def planificar(
     presupuesto_eur: float,
     max_rondas: int = 10,
     cliente: Any | None = None,
+    on_ronda: OnRonda | None = None,
 ) -> ResultadoPlanificador:
     """Punto de entrada único; despacha según `settings.proveedor_llm` (ver
     docstring del módulo). `cliente`, si se pasa, debe ser del cliente
     nativo del proveedor del planificador (`openai.OpenAI` o
     `anthropic.Anthropic`) — para tests/inyección; en producción se
-    construye solo."""
+    construye solo. `on_ronda`: ver docstring del módulo."""
     settings = get_settings()
     if settings.proveedor_llm == "openai":
-        return await _planificar_openai(conn, cliente_http, filtros, presupuesto_eur, max_rondas, cliente, settings)
-    return await _planificar_anthropic(conn, cliente_http, filtros, presupuesto_eur, max_rondas, cliente, settings)
+        return await _planificar_openai(conn, cliente_http, filtros, presupuesto_eur, max_rondas, cliente, settings, on_ronda)
+    return await _planificar_anthropic(conn, cliente_http, filtros, presupuesto_eur, max_rondas, cliente, settings, on_ronda)
 
 
 # --- Proveedor: OpenAI (Responses API) --------------------------------
@@ -137,6 +149,7 @@ async def _planificar_openai(
     max_rondas: int,
     cliente: OpenAI | None,
     settings: Settings,
+    on_ronda: OnRonda | None,
 ) -> ResultadoPlanificador:
     if cliente is None:
         if not settings.openai_api_key:
@@ -193,7 +206,14 @@ async def _planificar_openai(
             coste = _coste_de(llamada.name, resultado_h)
             contexto.presupuesto_restante_eur -= coste
             resultado_final.coste_gastado_eur += coste
-            resultado_final.rondas.append(RondaPlanificador(numero_ronda, llamada.name, argumentos, resultado_h))
+            ronda = RondaPlanificador(numero_ronda, llamada.name, argumentos, resultado_h)
+            resultado_final.rondas.append(ronda)
+            if on_ronda is not None:
+                try:
+                    await on_ronda(ronda)
+                except Exception as exc:  # noqa: BLE001 — no persistir progreso es tan grave como un fallo de la API
+                    resultado_final.error = f"fallo guardando progreso: {exc}"
+                    terminar = True
             salidas.append(
                 {"type": "function_call_output", "call_id": llamada.call_id, "output": json.dumps(resultado_h, ensure_ascii=False, default=str)}
             )
@@ -236,6 +256,7 @@ async def _planificar_anthropic(
     max_rondas: int,
     cliente: Anthropic | None,
     settings: Settings,
+    on_ronda: OnRonda | None,
 ) -> ResultadoPlanificador:
     if cliente is None:
         if not settings.anthropic_api_key:
@@ -277,7 +298,14 @@ async def _planificar_anthropic(
             coste = _coste_de(llamada.name, resultado_h)
             contexto.presupuesto_restante_eur -= coste
             resultado_final.coste_gastado_eur += coste
-            resultado_final.rondas.append(RondaPlanificador(numero_ronda, llamada.name, dict(llamada.input), resultado_h))
+            ronda = RondaPlanificador(numero_ronda, llamada.name, dict(llamada.input), resultado_h)
+            resultado_final.rondas.append(ronda)
+            if on_ronda is not None:
+                try:
+                    await on_ronda(ronda)
+                except Exception as exc:  # noqa: BLE001 — no persistir progreso es tan grave como un fallo de la API
+                    resultado_final.error = f"fallo guardando progreso: {exc}"
+                    terminar = True
             resultados_tool.append(
                 {"type": "tool_result", "tool_use_id": llamada.id, "content": json.dumps(resultado_h, ensure_ascii=False, default=str)}
             )

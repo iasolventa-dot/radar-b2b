@@ -1,0 +1,209 @@
+"""App de FastAPI (tarea #22, ver `radar.api` para el porqué). Dos
+endpoints escriben, tres leen:
+
+1. ``POST /busquedas`` — interpreta la petición (`radar.agente.interpretacion`)
+   y la guarda con `estado='interpretada'`, SIN gastar presupuesto todavía
+   (doc 02 §2, paso 1: "confirmación del usuario" antes de planificar).
+2. ``POST /busquedas/{id}/confirmar`` — lanza `radar.agente.planificador.planificar`
+   EN SEGUNDO PLANO (`BackgroundTasks`) y devuelve al momento; la web sigue
+   el progreso con el GET de abajo (los resultados llegan a
+   `busquedas.rondas`/`estadisticas` ronda a ronda, no solo al final).
+3. ``GET /busquedas/{id}`` / ``GET /busquedas`` / ``GET /salud`` — lectura.
+
+Simplificación conocida (documentada también en `PeticionBusquedaIn.usuario_id`):
+sin autenticación todavía — `usuario_id` se guarda tal cual lo manda la web,
+sin verificar el JWT de Supabase. Vale para D-03 (uso estrictamente
+interno, red no expuesta a terceros) pero es lo primero a cerrar si esto
+se expone más allá del equipo.
+
+`BackgroundTasks` (no una cola de verdad) es intencionadamente la solución
+más simple que funciona: un solo proceso Railway, sin infraestructura
+adicional. Si el proceso se reinicia a mitad de una búsqueda, esa búsqueda
+se queda en `estado='en_curso'` sin terminar nunca — no hay recuperación
+automática todavía (mismo tipo de simplificación que ya declara
+`radar.orquestador.procesar` en su docstring; a resolver cuando haya cola
+de verdad, doc 07 §5 `lanzar_descubrimiento`/`estado_trabajos`).
+"""
+
+from __future__ import annotations
+
+import asyncio
+
+import httpx
+import psycopg
+from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+
+from radar.agente.interpretacion import FiltrosBusqueda, interpretar_peticion
+from radar.agente.planificador import (
+    HERRAMIENTAS_QUE_CONSUMEN_PRESUPUESTO,
+    ResultadoPlanificador,
+    RondaPlanificador,
+    planificar,
+)
+from radar.api.bd_busquedas import (
+    crear_busqueda,
+    finalizar_busqueda_db,
+    guardar_progreso_ronda,
+    listar_busquedas,
+    marcar_en_curso,
+    obtener_busqueda,
+)
+from radar.api.esquemas import (
+    BusquedaInterpretadaOut,
+    BusquedaOut,
+    ConfirmarBusquedaIn,
+    ConfirmarBusquedaOut,
+    PeticionBusquedaIn,
+)
+from radar.api.estado import estado_final_de
+from radar.config import get_settings
+
+app = FastAPI(title="Radar B2B — worker API", version="0.1.0")
+
+_settings_arranque = get_settings()
+if _settings_arranque.cors_allow_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[o.strip() for o in _settings_arranque.cors_allow_origins.split(",") if o.strip()],
+        allow_methods=["GET", "POST"],
+        allow_headers=["*"],
+    )
+
+
+def _requerir_db_url() -> str:
+    settings = get_settings()
+    if not settings.supabase_db_url:
+        raise HTTPException(status_code=500, detail="SUPABASE_DB_URL no está configurada en el worker")
+    return settings.supabase_db_url
+
+
+def _coste_de_ronda(ronda: RondaPlanificador) -> float:
+    if ronda.herramienta not in HERRAMIENTAS_QUE_CONSUMEN_PRESUPUESTO:
+        return 0.0
+    return float(ronda.resultado.get("coste_eur", 0.0) or 0.0)
+
+
+@app.get("/salud")
+def salud() -> dict[str, bool]:
+    """Para el healthcheck de Railway — no toca BD ni LLM, solo confirma que el proceso responde."""
+    return {"ok": True}
+
+
+@app.post("/busquedas", response_model=BusquedaInterpretadaOut)
+async def crear(peticion_in: PeticionBusquedaIn) -> BusquedaInterpretadaOut:
+    db_url = _requerir_db_url()
+    # a un hilo aparte: interpretar_peticion es una llamada de red bloqueante (no async) — no
+    # queremos parar el event loop de FastAPI mientras responde el LLM.
+    resultado = await asyncio.to_thread(interpretar_peticion, peticion_in.peticion, peticion_in.contexto)
+    if resultado.error or resultado.filtros is None:
+        raise HTTPException(status_code=502, detail=f"la interpretación falló: {resultado.error}")
+
+    with psycopg.connect(db_url) as conn:
+        busqueda_id = crear_busqueda(
+            conn, peticion=peticion_in.peticion, filtros=resultado.filtros,
+            presupuesto_eur=peticion_in.presupuesto_eur, usuario_id=peticion_in.usuario_id,
+        )
+    return BusquedaInterpretadaOut(
+        id=busqueda_id, filtros=resultado.filtros, supuestos=resultado.filtros.supuestos, preguntas=resultado.filtros.preguntas
+    )
+
+
+async def _ejecutar_planificador_en_fondo(busqueda_id: str, max_rondas: int) -> None:
+    """Corre fuera del ciclo de vida del request — abre sus propias
+    conexiones (la del request ya se habrá cerrado). Nunca lanza: un fallo
+    aquí no tiene a quién devolvérselo (la respuesta HTTP ya se mandó), así
+    que se captura y se deja constancia en la propia fila de `busquedas`."""
+    settings = get_settings()
+    db_url = settings.supabase_db_url
+    if not db_url:
+        return  # _requerir_db_url ya lo comprobó al confirmar; defensivo por si settings cambió entretanto
+
+    with psycopg.connect(db_url) as conn_lectura:
+        busqueda = obtener_busqueda(conn_lectura, busqueda_id)
+    if busqueda is None:
+        return
+
+    filtros = FiltrosBusqueda.model_validate(busqueda.filtros)
+    presupuesto_eur = busqueda.presupuesto_eur
+    max_rondas_reales = busqueda.estadisticas.get("max_rondas", max_rondas)
+
+    rondas_persistidas: list[RondaPlanificador] = []
+
+    async def on_ronda(ronda: RondaPlanificador) -> None:
+        rondas_persistidas.append(ronda)
+        coste_acumulado = sum(_coste_de_ronda(r) for r in rondas_persistidas)
+        # conexión propia por ronda: son pocas rondas (máx. `max_rondas`), no vale la pena
+        # mantener una conexión abierta durante minutos entre rondas del LLM.
+        with psycopg.connect(db_url) as conn:
+            guardar_progreso_ronda(
+                conn, busqueda_id, rondas_hasta_ahora=rondas_persistidas, max_rondas=max_rondas_reales, coste_gastado_eur=coste_acumulado
+            )
+
+    try:
+        # `httpx.AsyncClient` es un context manager async; `psycopg.connect(...)` es sync — no se
+        # pueden combinar en un solo `async with` (mypy lo marca, y de hecho no funcionaría en runtime).
+        async with httpx.AsyncClient() as cliente_http:
+            with psycopg.connect(db_url, autocommit=False) as conn_trabajo:
+                resultado = await planificar(
+                    conn_trabajo, cliente_http, filtros, presupuesto_eur=presupuesto_eur, max_rondas=max_rondas_reales, on_ronda=on_ronda
+                )
+    except Exception as exc:  # noqa: BLE001 — nunca dejar la búsqueda en 'en_curso' colgada para siempre
+        resultado_error = ResultadoPlanificador(error=str(exc))
+        with psycopg.connect(db_url) as conn:
+            finalizar_busqueda_db(
+                conn, busqueda_id, estado="error", rondas=rondas_persistidas, max_rondas=max_rondas_reales,
+                coste_gastado_eur=sum(_coste_de_ronda(r) for r in rondas_persistidas), resultado=resultado_error,
+            )
+        return
+
+    with psycopg.connect(db_url) as conn:
+        finalizar_busqueda_db(
+            conn, busqueda_id, estado=estado_final_de(resultado), rondas=resultado.rondas,
+            max_rondas=max_rondas_reales, coste_gastado_eur=resultado.coste_gastado_eur, resultado=resultado,
+        )
+
+
+@app.post("/busquedas/{busqueda_id}/confirmar", response_model=ConfirmarBusquedaOut)
+async def confirmar(busqueda_id: str, confirmar_in: ConfirmarBusquedaIn, tareas: BackgroundTasks) -> ConfirmarBusquedaOut:
+    db_url = _requerir_db_url()
+    with psycopg.connect(db_url) as conn:
+        busqueda = obtener_busqueda(conn, busqueda_id)
+        if busqueda is None:
+            raise HTTPException(status_code=404, detail="búsqueda no encontrada")
+        if busqueda.estado not in ("interpretada", "esperando_respuesta"):
+            raise HTTPException(status_code=409, detail=f"la búsqueda está en estado '{busqueda.estado}', no se puede (re)confirmar")
+
+        filtros = confirmar_in.filtros or FiltrosBusqueda.model_validate(busqueda.filtros)
+        marcar_en_curso(conn, busqueda_id, filtros=filtros, max_rondas=confirmar_in.max_rondas)
+
+    tareas.add_task(_ejecutar_planificador_en_fondo, busqueda_id, confirmar_in.max_rondas)
+    return ConfirmarBusquedaOut(id=busqueda_id, estado="en_curso")
+
+
+@app.get("/busquedas/{busqueda_id}", response_model=BusquedaOut)
+async def obtener(busqueda_id: str) -> BusquedaOut:
+    db_url = _requerir_db_url()
+    with psycopg.connect(db_url) as conn:
+        busqueda = obtener_busqueda(conn, busqueda_id)
+    if busqueda is None:
+        raise HTTPException(status_code=404, detail="búsqueda no encontrada")
+    return BusquedaOut(
+        id=busqueda.id, peticion=busqueda.peticion, filtros=FiltrosBusqueda.model_validate(busqueda.filtros),
+        presupuesto_eur=busqueda.presupuesto_eur, estado=busqueda.estado, rondas=busqueda.rondas,
+        estadisticas=busqueda.estadisticas, coste_eur=busqueda.coste_eur, creado_en=busqueda.creado_en, finalizado_en=busqueda.finalizado_en,
+    )
+
+
+@app.get("/busquedas", response_model=list[BusquedaOut])
+async def listar(limite: int = 20) -> list[BusquedaOut]:
+    db_url = _requerir_db_url()
+    with psycopg.connect(db_url) as conn:
+        busquedas = listar_busquedas(conn, limite=limite)
+    return [
+        BusquedaOut(
+            id=b.id, peticion=b.peticion, filtros=FiltrosBusqueda.model_validate(b.filtros), presupuesto_eur=b.presupuesto_eur,
+            estado=b.estado, rondas=b.rondas, estadisticas=b.estadisticas, coste_eur=b.coste_eur, creado_en=b.creado_en, finalizado_en=b.finalizado_en,
+        )
+        for b in busquedas
+    ]
