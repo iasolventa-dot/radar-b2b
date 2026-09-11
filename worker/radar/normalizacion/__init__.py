@@ -1,12 +1,9 @@
-"""Normalización determinista de campos (doc 05 §1).
+"""Normalización y validación deterministas de datos de empresas españolas
+(doc 05 §1): NIF, teléfono, email/dominio, nombre/forma jurídica, dirección.
 
-Un módulo por campo: `nif.py`, `telefono.py`, `direccion.py`, `nombre.py`,
-`dominio.py`. Deben coincidir con la lógica ya implementada en la skill
-`verificacion-empresas-es` (`scripts/lib_empresas.py`) — si se cambia una
-regla, se cambia en los dos sitios (ver doc 05, cabecera).
-
-Cada módulo lleva sus tests en `worker/tests/unit/` antes de darse por
-bueno, evaluados además contra el golden set (doc 07 §6).
-
-Pendiente: Fase 1, Paso 12 de la guía de montaje.
+Punto de entrada: `radar.normalizacion.registro.normalizar_registro`.
 """
+
+from radar.normalizacion.registro import normalizar_registro
+
+__all__ = ["normalizar_registro"]

@@ -1,9 +1,9 @@
-"""Resolución de entidades: blocking, puntuación, fusión, cola de revisión (doc 05 §2-3).
-
-Implementa las reglas duras y la puntuación por señales del doc 05, usando
-`buscar_candidatos_empresa()` (función SQL de la migración inicial) como
-paso de blocking. Toda fusión automática (puntuación >= 0.80) se registra
-en `fusiones` con instantánea para poder deshacer.
-
-Pendiente: Fase 1.
+"""Resolución de entidades (doc 05 §2): bloqueo (`blocking`) + puntuación de
+duplicados (`scoring`). La decisión de fusionar, mandar a revisión o crear
+una empresa nueva la toma el orquestador del pipeline a partir de
+`scoring.comparar(...)["decision"]`.
 """
+
+from radar.resolucion.scoring import UMBRAL_FUSION_AUTO, UMBRAL_REVISION, comparar
+
+__all__ = ["UMBRAL_FUSION_AUTO", "UMBRAL_REVISION", "comparar"]
