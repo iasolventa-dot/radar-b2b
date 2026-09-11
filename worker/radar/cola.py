@@ -53,7 +53,13 @@ class Cola:
                 "select * from pgmq.send(%s, %s::jsonb, %s)",
                 (self.nombre, json.dumps(mensaje), retraso_s),
             )
-            (msg_id,) = cur.fetchone()
+            fila = cur.fetchone()
+            # `fetchone()` está tipado `Sequence[Any] | None` (psycopg no puede saber en tiempo de
+            # tipado que un `select pgmq.send(...)` siempre devuelve una fila) — si de verdad viniera
+            # vacío es un fallo real de pgmq, no algo que debamos tragar en silencio.
+            if fila is None:
+                raise RuntimeError(f"pgmq.send no devolvió ningún msg_id para la cola '{self.nombre}'")
+            (msg_id,) = fila
             conn.commit()
             return int(msg_id)
 
@@ -65,8 +71,13 @@ class Cola:
                 "from pgmq.read(%s, %s, %s)",
                 (self.nombre, vt_segundos, n),
             )
+            # `cur.description` está tipado `list[Column] | None` (es `None` antes de ejecutar
+            # cualquier consulta) — aquí ya se ejecutó un SELECT, así que psycopg siempre lo rellena;
+            # el guard es solo para que mypy lo sepa, no un caso real esperado.
+            if cur.description is None:
+                raise RuntimeError("pgmq.read no devolvió descripción de columnas (¿cursor sin ejecutar?)")
             columnas = [d.name for d in cur.description]
-            return [dict(zip(columnas, fila)) for fila in cur.fetchall()]
+            return [dict(zip(columnas, fila, strict=True)) for fila in cur.fetchall()]
 
     def eliminar(self, msg_id: int) -> None:
         with self._conectar() as conn, conn.cursor() as cur:

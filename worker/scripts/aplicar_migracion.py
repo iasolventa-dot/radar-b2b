@@ -65,7 +65,10 @@ def main() -> None:
             print(f"  - {t}")
 
         cur.execute("select count(*) from fuentes")
-        (n,) = cur.fetchone()
+        fila = cur.fetchone()
+        if fila is None:
+            sys.exit("select count(*) from fuentes no devolvió ninguna fila (no debería pasar nunca)")
+        (n,) = fila
         print(f"\nFilas en 'fuentes': {n} (esperado: 11)")
         if n != 11:
             print("Ojo: no son 11 — revisa la sección 12 de la migración.")
