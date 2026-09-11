@@ -15,6 +15,9 @@ venv/
 .coverage
 htmlcov/
 
+# Caché local de descargas web (radar/extraccion/descarga.py)
+worker/.cache/
+
 # Node / Next.js
 node_modules/
 .next/

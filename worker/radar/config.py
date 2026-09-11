@@ -57,6 +57,13 @@ class Settings(BaseSettings):
 
     # --- Caché de descargas web ---------------------------------------------
     cache_descargas_dias: int = Field(default=30)
+    cache_descargas_dir: str = Field(
+        default=".cache/descargas_web",
+        description=(
+            "Caché local en disco de radar.extraccion.descarga. En un contenedor "
+            "efímero (Railway) no sobrevive a un redeploy — ver docstring de ese módulo."
+        ),
+    )
 
 
 @lru_cache
