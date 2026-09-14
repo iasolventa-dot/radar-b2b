@@ -299,9 +299,22 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
               </p>
             )}
             <p className="mt-2 text-xs text-amber-700">
-              El planificador se ha detenido aquí — este primer agente todavía no es interactivo. Lanza una
-              nueva búsqueda añadiendo la respuesta como contexto.
+              Este primer agente todavía no es interactivo: no puede continuar ESTA búsqueda con tu
+              respuesta. Lánzala de nuevo con la respuesta como contexto.
             </p>
+            <Link
+              href={{
+                pathname: "/",
+                query: {
+                  peticion: busqueda.peticion,
+                  contexto: `El agente preguntó: "${busqueda.estadisticas.pregunta.pregunta}". Mi respuesta: `,
+                },
+              }}
+              className="btn-secondary mt-3 inline-flex"
+            >
+              <RotateCw className="h-4 w-4" />
+              Responder y relanzar
+            </Link>
           </div>
         </div>
       )}

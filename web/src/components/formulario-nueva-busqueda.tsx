@@ -12,12 +12,20 @@ type Estado = "formulario" | "interpretando" | "revision" | "confirmando";
 const PRESUPUESTO_POR_DEFECTO_EUR = 20;
 const MAX_RONDAS_POR_DEFECTO = 10;
 
-export function FormularioNuevaBusqueda({ usuarioId }: { usuarioId: string | null }) {
+export function FormularioNuevaBusqueda({
+  usuarioId,
+  peticionInicial,
+  contextoInicial,
+}: {
+  usuarioId: string | null;
+  peticionInicial?: string;
+  contextoInicial?: string;
+}) {
   const router = useRouter();
 
   const [estado, setEstado] = useState<Estado>("formulario");
-  const [peticion, setPeticion] = useState("");
-  const [contexto, setContexto] = useState("");
+  const [peticion, setPeticion] = useState(peticionInicial ?? "");
+  const [contexto, setContexto] = useState(contextoInicial ?? "");
   const [presupuestoEur, setPresupuestoEur] = useState(PRESUPUESTO_POR_DEFECTO_EUR);
   const [maxRondas, setMaxRondas] = useState(MAX_RONDAS_POR_DEFECTO);
   const [interpretacion, setInterpretacion] = useState<BusquedaInterpretadaOut | null>(null);
