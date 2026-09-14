@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, ListChecks, ShieldCheck, type LucideIcon } from "lucide-react";
+import { History, ListChecks, Search, ShieldCheck, type LucideIcon } from "lucide-react";
 
 const ENLACES: { href: string; etiqueta: string; icono: LucideIcon }[] = [
-  { href: "/", etiqueta: "Resumen", icono: LayoutDashboard },
+  { href: "/", etiqueta: "Nueva búsqueda", icono: Search },
+  { href: "/busquedas", etiqueta: "Búsquedas", icono: History },
   { href: "/revision", etiqueta: "Cola de revisión", icono: ListChecks },
   { href: "/entidades", etiqueta: "Golden set", icono: ShieldCheck },
 ];

@@ -101,3 +101,170 @@ export const ETIQUETA_CATEGORIA_CANDIDATO: Record<string, string> = {
   candidato_traslado: "Traslado",
   revisar_objeto_generico: "Objeto social genérico (revisar)",
 };
+
+// ---------------------------------------------------------------------
+// Agente de búsqueda (tarea #23) — reflejan worker/radar/agente/interpretacion.py
+// (FiltrosBusqueda y anidados) y worker/radar/api/esquemas.py. Si cambia el
+// esquema Python, cambiar esto a la vez (no hay generación automática todavía).
+// ---------------------------------------------------------------------
+
+export type EstadoEmpresa =
+  | "activa"
+  | "probablemente_activa"
+  | "dudosa"
+  | "inactiva"
+  | "en_liquidacion"
+  | "en_concurso"
+  | "disuelta"
+  | "extinguida"
+  | "desconocida";
+
+export interface UbicacionFiltro {
+  tipo: "provincias" | "municipios" | "ccaa" | "radio" | "poligono";
+  provincias: string[];
+  municipios: string[];
+  ccaa: string[];
+  centro: string | null;
+  radio_km: number | null;
+}
+
+export interface SectorFiltro {
+  sector_interno: string;
+  codigos_cnae: string[];
+  palabras_clave: string[];
+  exclusiones: string[];
+}
+
+export interface TamanoFiltro {
+  empleados_min: number | null;
+  empleados_max: number | null;
+}
+
+export interface RequisitosFiltro {
+  web: boolean;
+  telefono: boolean;
+  email_generico: boolean;
+}
+
+export interface CalidadFiltro {
+  confianza_minima: number;
+  frescura_max_dias: number;
+}
+
+export interface FiltrosBusqueda {
+  ubicacion: UbicacionFiltro;
+  sector: SectorFiltro;
+  tamano: TamanoFiltro;
+  formas_juridicas: string[];
+  incluir_autonomos: boolean;
+  estados: EstadoEmpresa[];
+  requisitos: RequisitosFiltro;
+  calidad: CalidadFiltro;
+  limite_resultados: number | null;
+  presupuesto_eur: number | null;
+  supuestos: string[];
+  preguntas: string[];
+}
+
+// worker/radar/api/estado.py::EstadoBusqueda
+export type EstadoBusqueda = "interpretada" | "en_curso" | "completada" | "esperando_respuesta" | "error";
+
+export interface RondaEstadistica {
+  numero: number;
+  herramienta: string;
+  argumentos: Record<string, unknown>;
+  resultado: Record<string, unknown>;
+}
+
+export interface EstadisticasBusqueda {
+  max_rondas: number;
+  rondas: RondaEstadistica[];
+  motivo_fin?: string;
+  resumen?: string;
+  pregunta?: { pregunta: string; opciones: string[] } | null;
+  error?: string | null;
+}
+
+// worker/radar/api/esquemas.py::BusquedaInterpretadaOut
+export interface BusquedaInterpretadaOut {
+  id: string;
+  filtros: FiltrosBusqueda;
+  supuestos: string[];
+  preguntas: string[];
+}
+
+// worker/radar/api/esquemas.py::ConfirmarBusquedaOut
+export interface ConfirmarBusquedaOut {
+  id: string;
+  estado: EstadoBusqueda;
+}
+
+// Fila de la tabla `busquedas` (doc 03b) tal como la lee el panel, ya sea
+// del worker (GET /busquedas) o directamente de Supabase (RLS, igual que el
+// resto del panel) — misma forma en ambos casos salvo `filtros`/`estadisticas`,
+// que Supabase devuelve ya como objeto (jsonb) y no hace falta parsear.
+export interface BusquedaFila {
+  id: string;
+  peticion: string;
+  filtros: FiltrosBusqueda;
+  presupuesto_eur: number | null;
+  estado: string;
+  rondas: number;
+  estadisticas: EstadisticasBusqueda;
+  coste_eur: number;
+  creado_en: string;
+  finalizado_en: string | null;
+}
+
+export const ETIQUETA_ESTADO_BUSQUEDA: Record<string, string> = {
+  interpretada: "Esperando confirmación",
+  en_curso: "En curso",
+  esperando_respuesta: "Esperando respuesta",
+  completada: "Completada",
+  error: "Error",
+  pendiente: "Pendiente",
+  cancelada: "Cancelada",
+};
+
+export const COLOR_ESTADO_BUSQUEDA: Record<string, string> = {
+  interpretada: "bg-slate-100 text-slate-600",
+  en_curso: "bg-brand-50 text-brand-700",
+  esperando_respuesta: "bg-amber-100 text-amber-800",
+  completada: "bg-emerald-100 text-emerald-700",
+  error: "bg-rose-100 text-rose-700",
+  pendiente: "bg-slate-100 text-slate-600",
+  cancelada: "bg-slate-100 text-slate-600",
+};
+
+export const ETIQUETA_HERRAMIENTA: Record<string, string> = {
+  consultar_bd: "Consultar base de datos",
+  descubrir_borme: "Descubrir en el BORME",
+  buscar_web: "Buscar en la web",
+  preguntar_usuario: "Pregunta al usuario",
+  finalizar_busqueda: "Finalizar búsqueda",
+};
+
+// `busqueda_resultados.motivo` (doc 03b) lo escribe
+// `radar.orquestador.bd.registrar_resultado_busqueda` como "<fuente>: <acción>"
+// (p. ej. "borme: nueva_empresa") — combina de dónde salió el dato con qué se
+// hizo con él. Esto es lo que el panel muestra como "fuente" de cada
+// resultado; para el detalle campo a campo con URL de evidencia hay que ir
+// a `observaciones` (todavía sin pantalla propia).
+const ETIQUETA_FUENTE_MOTIVO: Record<string, string> = {
+  borme: "BORME",
+  buscador_web: "Búsqueda web",
+};
+
+const ETIQUETA_ACCION_MOTIVO: Record<string, string> = {
+  nueva_empresa: "nueva",
+  vinculado: "vinculada a una empresa existente",
+  en_revision: "en revisión (posible duplicado)",
+};
+
+export function etiquetaFuenteResultado(motivo: string | null): string {
+  if (!motivo) return "—";
+  const [fuente, accion] = motivo.split(": ");
+  const etiquetaFuente = ETIQUETA_FUENTE_MOTIVO[fuente] ?? fuente;
+  const etiquetaAccion = accion ? ETIQUETA_ACCION_MOTIVO[accion] ?? accion : null;
+  return etiquetaAccion ? `${etiquetaFuente} — ${etiquetaAccion}` : etiquetaFuente;
+}

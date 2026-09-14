@@ -560,3 +560,36 @@ def insertar_candidato_duplicado(
             """,
             (a, b, resultado_comparacion.get("puntuacion"), json.dumps(resultado_comparacion, default=str)),
         )
+
+
+def registrar_resultado_busqueda(
+    busqueda_id: str, empresa_id: str, motivo: str | None, relevancia: float | None, conn: psycopg.Connection
+) -> None:
+    """Enlaza una empresa encontrada con la búsqueda que la encontró
+    (`busqueda_resultados`, doc 03b) — sin esta función, el hilo
+    `busqueda_id` que llega desde `radar.api.main` hasta las herramientas
+    del agente no tenía ningún destino: nada escribía nunca en esta tabla,
+    así que la lista de resultados del panel se quedaba vacía para
+    siempre, con o sin el resto de esta pieza funcionando.
+
+    `motivo` combina la fuente y la acción de resolución (p. ej.
+    `"borme: nueva_empresa"`, `"buscador_web: vinculado"`) — es lo que el
+    panel usa para explicar de dónde salió cada resultado (doc 08,
+    petición del usuario "que indique la fuente de los datos"); para el
+    detalle campo a campo con URL de evidencia, ver `observaciones`.
+
+    Si la misma empresa ya estaba enlazada a esta búsqueda (la encontró
+    otra herramienta en una ronda distinta de la misma búsqueda), se
+    actualiza el motivo en vez de duplicar o fallar por la PK compuesta.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            insert into busqueda_resultados (busqueda_id, empresa_id, relevancia, motivo)
+            values (%s, %s, %s, %s)
+            on conflict (busqueda_id, empresa_id) do update set
+                motivo = excluded.motivo,
+                relevancia = coalesce(excluded.relevancia, busqueda_resultados.relevancia)
+            """,
+            (busqueda_id, empresa_id, relevancia, motivo),
+        )

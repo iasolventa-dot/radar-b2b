@@ -72,7 +72,7 @@ from radar.fuentes.borme import (
     ConectorBorme,
 )
 from radar.fuentes.buscador_web import COSTE_POR_BUSQUEDA_EUR, buscar
-from radar.orquestador import procesar_registro
+from radar.orquestador import bd, procesar_registro
 
 _TABLA_TILDES = str.maketrans("áéíóúÁÉÍÓÚñÑ", "aeiouAEIOUnN")
 
@@ -338,10 +338,16 @@ async def descubrir_borme(
     provincia_titulo: str,
     dias: int = 30,
     telefonos_compartidos: set[str] | None = None,
+    busqueda_id: str | None = None,
 ) -> dict[str, Any]:
     """Mismo patrón que `scripts/ejecutar_borme.py` (descubrir → procesar →
     commit por acto, uno falla y sigue con el siguiente), con el filtro de
-    sector añadido — ese script procesaba TODOS los actos sin filtrar."""
+    sector añadido — ese script procesaba TODOS los actos sin filtrar.
+
+    `busqueda_id`, si se pasa, enlaza cada empresa nueva/vinculada con esta
+    búsqueda en `busqueda_resultados` (antes esto no ocurría en ningún
+    caso: nada escribía nunca en esa tabla, así que el panel siempre
+    mostraba la lista de resultados vacía)."""
     palabras = filtros.sector.palabras_clave or (PALABRAS_CONSTRUCCION_OBJETO + PALABRAS_CONSTRUCCION_NOMBRE)
     hasta = datetime.now(UTC).date()
     desde = hasta - timedelta(days=dias)
@@ -356,7 +362,13 @@ async def descubrir_borme(
             continue
         contadores["candidatos"] += 1
         try:
-            resultado = procesar_registro(registro, conn, telefonos_compartidos=telefonos_compartidos)
+            resultado = procesar_registro(
+                registro, conn, busqueda_id=busqueda_id, telefonos_compartidos=telefonos_compartidos
+            )
+            if busqueda_id and resultado.empresa_id:
+                bd.registrar_resultado_busqueda(
+                    busqueda_id, resultado.empresa_id, f"borme: {resultado.accion}", resultado.puntuacion_match, conn
+                )
             conn.commit()
             contadores[resultado.accion] += 1
         except Exception:  # noqa: BLE001 — un acto que falla no debe tirar el resto del descubrimiento
@@ -386,11 +398,15 @@ async def buscar_web(
     max_resultados_por_consulta: int = 5,
     max_coste_eur: float,
     telefonos_compartidos: set[str] | None = None,
+    busqueda_id: str | None = None,
 ) -> dict[str, Any]:
     """Mismo patrón que `scripts/buscar_web.py --enriquecer --guardar`, en
     bucle sobre varias consultas y con presupuesto (doc 04 §5: los
     snippets del buscador nunca son evidencia — cada URL se descarga y se
-    lee de verdad con `enriquecer_desde_web` antes de guardar nada)."""
+    lee de verdad con `enriquecer_desde_web` antes de guardar nada).
+
+    `busqueda_id`: ver docstring de `descubrir_borme`, mismo enlace a
+    `busqueda_resultados`."""
     contadores = {
         "consultas_ejecutadas": 0, "urls_encontradas": 0, "urls_no_legibles": 0,
         "vinculado": 0, "nueva_empresa": 0, "en_revision": 0, "ya_procesado": 0, "error_busqueda": 0, "error_procesado": 0,
@@ -414,7 +430,14 @@ async def buscar_web(
                 contadores["urls_no_legibles"] += 1
                 continue
             try:
-                resolucion = procesar_registro(registro, conn, telefonos_compartidos=telefonos_compartidos)
+                resolucion = procesar_registro(
+                    registro, conn, busqueda_id=busqueda_id, telefonos_compartidos=telefonos_compartidos
+                )
+                if busqueda_id and resolucion.empresa_id:
+                    bd.registrar_resultado_busqueda(
+                        busqueda_id, resolucion.empresa_id,
+                        f"buscador_web: {resolucion.accion}", resolucion.puntuacion_match, conn,
+                    )
                 conn.commit()
                 contadores[resolucion.accion] += 1
             except Exception:  # noqa: BLE001 — una URL que falla no debe tirar el resto de la búsqueda
@@ -453,6 +476,11 @@ class ContextoHerramientas:
     cliente_llm: Any | None = None
     telefonos_compartidos: set[str] | None = None
     presupuesto_restante_eur: float = field(default=0.0)
+    # Id de la fila en `busquedas` que está corriendo esta ronda — permite a
+    # `descubrir_borme`/`buscar_web` enlazar cada empresa que encuentren con
+    # esta búsqueda en `busqueda_resultados` (bd.registrar_resultado_busqueda).
+    # `None` en tests/uso suelto: las herramientas simplemente no enlazan nada.
+    busqueda_id: str | None = None
 
 
 async def ejecutar_herramienta(nombre: str, argumentos: dict[str, Any], contexto: ContextoHerramientas) -> dict[str, Any]:
@@ -473,7 +501,7 @@ async def ejecutar_herramienta(nombre: str, argumentos: dict[str, Any], contexto
         return await descubrir_borme(
             contexto.conn, contexto.cliente_http, contexto.filtros,
             provincia_titulo=argumentos["provincia_titulo"], dias=argumentos.get("dias", 30),
-            telefonos_compartidos=contexto.telefonos_compartidos,
+            telefonos_compartidos=contexto.telefonos_compartidos, busqueda_id=contexto.busqueda_id,
         )
 
     if nombre == "buscar_web":
@@ -487,7 +515,7 @@ async def ejecutar_herramienta(nombre: str, argumentos: dict[str, Any], contexto
             contexto.conn, contexto.cliente_http, contexto.cliente_llm,
             consultas=list(consultas), max_resultados_por_consulta=argumentos.get("max_resultados_por_consulta", 5),
             max_coste_eur=min(float(max_coste_eur), contexto.presupuesto_restante_eur),
-            telefonos_compartidos=contexto.telefonos_compartidos,
+            telefonos_compartidos=contexto.telefonos_compartidos, busqueda_id=contexto.busqueda_id,
         )
 
     if nombre == "preguntar_usuario":

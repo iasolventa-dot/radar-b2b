@@ -146,7 +146,8 @@ async def _ejecutar_planificador_en_fondo(busqueda_id: str, max_rondas: int) -> 
         async with httpx.AsyncClient() as cliente_http:
             with psycopg.connect(db_url, autocommit=False) as conn_trabajo:
                 resultado = await planificar(
-                    conn_trabajo, cliente_http, filtros, presupuesto_eur=presupuesto_eur, max_rondas=max_rondas_reales, on_ronda=on_ronda
+                    conn_trabajo, cliente_http, filtros, presupuesto_eur=presupuesto_eur, max_rondas=max_rondas_reales,
+                    on_ronda=on_ronda, busqueda_id=busqueda_id,
                 )
     except Exception as exc:  # noqa: BLE001 — nunca dejar la búsqueda en 'en_curso' colgada para siempre
         resultado_error = ResultadoPlanificador(error=str(exc))

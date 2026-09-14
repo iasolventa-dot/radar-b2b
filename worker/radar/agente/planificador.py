@@ -126,16 +126,21 @@ async def planificar(
     max_rondas: int = 10,
     cliente: Any | None = None,
     on_ronda: OnRonda | None = None,
+    busqueda_id: str | None = None,
 ) -> ResultadoPlanificador:
     """Punto de entrada único; despacha según `settings.proveedor_llm` (ver
     docstring del módulo). `cliente`, si se pasa, debe ser del cliente
     nativo del proveedor del planificador (`openai.OpenAI` o
     `anthropic.Anthropic`) — para tests/inyección; en producción se
-    construye solo. `on_ronda`: ver docstring del módulo."""
+    construye solo. `on_ronda`: ver docstring del módulo. `busqueda_id`: se
+    pasa tal cual a `ContextoHerramientas` — permite a `descubrir_borme`/
+    `buscar_web` enlazar cada empresa encontrada con esta búsqueda en
+    `busqueda_resultados` (doc 03b); sin él (tests, uso suelto) las
+    herramientas simplemente no enlazan nada."""
     settings = get_settings()
     if settings.proveedor_llm == "openai":
-        return await _planificar_openai(conn, cliente_http, filtros, presupuesto_eur, max_rondas, cliente, settings, on_ronda)
-    return await _planificar_anthropic(conn, cliente_http, filtros, presupuesto_eur, max_rondas, cliente, settings, on_ronda)
+        return await _planificar_openai(conn, cliente_http, filtros, presupuesto_eur, max_rondas, cliente, settings, on_ronda, busqueda_id)
+    return await _planificar_anthropic(conn, cliente_http, filtros, presupuesto_eur, max_rondas, cliente, settings, on_ronda, busqueda_id)
 
 
 # --- Proveedor: OpenAI (Responses API) --------------------------------
@@ -150,13 +155,16 @@ async def _planificar_openai(
     cliente: OpenAI | None,
     settings: Settings,
     on_ronda: OnRonda | None,
+    busqueda_id: str | None = None,
 ) -> ResultadoPlanificador:
     if cliente is None:
         if not settings.openai_api_key:
             return ResultadoPlanificador(error="OPENAI_API_KEY no configurada")
         cliente = OpenAI(api_key=settings.openai_api_key)
 
-    contexto = ContextoHerramientas(conn=conn, cliente_http=cliente_http, filtros=filtros, presupuesto_restante_eur=presupuesto_eur)
+    contexto = ContextoHerramientas(
+        conn=conn, cliente_http=cliente_http, filtros=filtros, presupuesto_restante_eur=presupuesto_eur, busqueda_id=busqueda_id
+    )
     # cast: a_tool_param_openai devuelve dict[str, Any] a propósito (herramientas.py no depende
     # de ningún SDK); el union de TypedDicts que espera `tools` es demasiado específico para que
     # mypy lo acepte sin ayuda — el SDK valida la forma real en tiempo de ejecución igualmente.
@@ -257,13 +265,16 @@ async def _planificar_anthropic(
     cliente: Anthropic | None,
     settings: Settings,
     on_ronda: OnRonda | None,
+    busqueda_id: str | None = None,
 ) -> ResultadoPlanificador:
     if cliente is None:
         if not settings.anthropic_api_key:
             return ResultadoPlanificador(error="ANTHROPIC_API_KEY no configurada")
         cliente = Anthropic(api_key=settings.anthropic_api_key)
 
-    contexto = ContextoHerramientas(conn=conn, cliente_http=cliente_http, filtros=filtros, presupuesto_restante_eur=presupuesto_eur)
+    contexto = ContextoHerramientas(
+        conn=conn, cliente_http=cliente_http, filtros=filtros, presupuesto_restante_eur=presupuesto_eur, busqueda_id=busqueda_id
+    )
     tools = cast(Any, [a_tool_param_anthropic(h) for h in HERRAMIENTAS])  # ver comentario de `_planificar_openai`
     resultado_final = ResultadoPlanificador()
 

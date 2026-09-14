@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Radar B2B — Solventa IA",
-  description: "Panel interno de revisión del golden set (uso estrictamente interno)",
+  description: "Panel interno para lanzar búsquedas de empresas y revisar el golden set (uso estrictamente interno)",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

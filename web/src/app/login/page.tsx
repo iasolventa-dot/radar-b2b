@@ -39,7 +39,7 @@ export default function PaginaLogin() {
           </span>
           <h1 className="mt-4 text-lg font-semibold text-slate-900">Radar B2B</h1>
           <p className="mt-1 text-sm text-slate-500">
-            Panel interno de revisión del golden set — Solventa IA
+            Panel interno de búsqueda de empresas — Solventa IA
           </p>
         </div>
 
