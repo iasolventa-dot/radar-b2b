@@ -205,13 +205,33 @@ def crear_empresa(campos_norm: dict, campos_originales: CamposExtraidos, conn: p
     (incluida la que se acaba de insertar) — así el mismo camino sirve
     tanto para una empresa recién creada como para una ya existente que
     recibe una observación más.
+
+    `cnae_principal`/`cnae_version` solo se escriben si el conector dio
+    AMBOS (doc 08 D-18: la clave de `cnae` es compuesta). Hoy ningún
+    conector conectado los da — BORME solo publica objeto social en texto
+    libre, nunca un código CNAE — así que en la práctica esto queda a null
+    hasta que exista un conector que sí lo aporte (PLACSP, proveedor
+    comercial) o un paso de clasificación de objeto_social → CNAE (sin
+    construir todavía). Si el par no existe en la tabla `cnae`, la FK
+    compuesta `empresas_cnae_fkey` rechaza el insert — deliberado: mejor
+    que falle alto y claro que guardar un código que no verifica.
+
+    `empresas.cnae_version` es `not null default 'CNAE-2025'` (migración
+    202609140001): nunca se puede pasar `None` ahí, aunque `cnae_principal`
+    sí quede a null (la FK compuesta usa MATCH SIMPLE — se salta la
+    comprobación si `cnae_principal` es null, sea lo que sea `cnae_version`).
     """
     nif = campos_norm["nif"] if campos_norm.get("nif_valido") else None
+    hay_cnae = bool(campos_originales.cnae and campos_originales.cnae_version)
+    cnae = campos_originales.cnae if hay_cnae else None
+    cnae_version = campos_originales.cnae_version if hay_cnae else "CNAE-2025"
     with conn.cursor() as cur:
         cur.execute(
             """
-            insert into empresas (nif, nif_valido, razon_social, nombre_comercial, forma_juridica, es_persona_fisica)
-            values (%s, %s, %s, %s, %s, %s)
+            insert into empresas
+                (nif, nif_valido, razon_social, nombre_comercial, forma_juridica, es_persona_fisica,
+                 cnae_principal, cnae_version)
+            values (%s, %s, %s, %s, %s, %s, %s, %s)
             returning id
             """,
             (
@@ -221,6 +241,8 @@ def crear_empresa(campos_norm: dict, campos_originales: CamposExtraidos, conn: p
                 campos_originales.nombre_comercial,
                 campos_norm.get("forma_juridica"),
                 bool(campos_norm.get("persona_fisica")),
+                cnae,
+                cnae_version,
             ),
         )
         fila = cur.fetchone()
@@ -243,6 +265,20 @@ def insertar_observaciones(
     los campos — el doc 05 §3 permite afinarla por campo más adelante
     ("la web propia es excelente para teléfono pero regular para
     empleados"), no implementado todavía.
+
+    Hasta esta versión solo se registraban aquí `nif`, `razon_social`,
+    `nombre_comercial`, `telefono`, `email` y `web` — los únicos campos que
+    `_consolidar_y_actualizar_empresa` (`radar.orquestador.procesar`) lee
+    de vuelta con `cargar_observaciones_vigentes`. El resto de lo que un
+    `RegistroBruto` aporta (dirección, municipio, objeto social, hoja
+    registral…) se escribía directamente en `sedes`/`identificadores` sin
+    dejar ninguna fila aquí, así que no había forma de responder "¿de dónde
+    sale este dato?" salvo para la razón social — de las 276 empresas del
+    piloto, las 276 filas de `observaciones` eran ese único campo (doc 08).
+    Se añaden ahora como evidencia adicional, en paralelo, SIN entrar en la
+    consolidación de `procesar.py` (que sigue leyendo solo los 6 campos de
+    siempre) — es puramente trazabilidad para poder mostrar la fuente de
+    cada dato, no cambia qué gana cuando hay conflicto entre fuentes.
     """
     filas: list[tuple] = []
 
@@ -263,6 +299,30 @@ def insertar_observaciones(
         fila("email", email, email)
     if campos_norm.get("dominio"):
         fila("web", campos_originales.web, campos_norm["dominio"])
+
+    # --- Trazabilidad ampliada (antes se perdían sin dejar evidencia) ---
+    if campos_originales.domicilio:
+        fila("direccion", campos_originales.domicilio, campos_originales.domicilio)
+    if campos_originales.municipio:
+        fila("municipio", campos_originales.municipio, campos_originales.municipio)
+    if campos_originales.provincia:
+        fila("provincia", campos_originales.provincia, campos_originales.provincia)
+    if campos_norm.get("cp"):
+        fila("codigo_postal", campos_originales.codigo_postal, campos_norm["cp"])
+    if campos_norm.get("forma_juridica"):
+        fila("forma_juridica", campos_originales.forma_juridica, campos_norm["forma_juridica"])
+    if campos_originales.estado:
+        fila("estado_declarado", campos_originales.estado, campos_originales.estado)
+    if campos_originales.empleados:
+        fila("empleados", campos_originales.empleados, campos_originales.empleados)
+    if campos_originales.cnae and campos_originales.cnae_version:
+        fila("cnae", campos_originales.cnae, campos_originales.cnae)
+    objeto_social = (campos_originales.extra or {}).get("objeto_social")
+    if objeto_social:
+        fila("objeto_social", objeto_social, objeto_social)
+    hoja_registral = (campos_originales.extra or {}).get("hoja_registral")
+    if hoja_registral:
+        fila("hoja_registral", hoja_registral, hoja_registral)
 
     if not filas:
         return

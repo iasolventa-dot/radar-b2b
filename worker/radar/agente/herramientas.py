@@ -9,11 +9,14 @@ De las 9 herramientas del doc 07 §5, esta entrega implementa las que ya
 tienen todas sus piezas construidas:
 
 - **consultar_bd**: cuenta empresas que cumplen los filtros en la BD propia
-  (+ una muestra). El filtro SQL (`construir_where_empresas`) es una
-  primera versión: `sector.codigos_cnae` compara por igualdad exacta
-  (`cnae_principal = ANY(...)`), no por prefijo, y `ubicacion.ccaa` no se
-  usa todavía (no hay columna de CCAA en `sedes`) — a mejorar si el golden
-  set muestra que hace falta.
+  (+ una muestra). El filtro SQL (`construir_where_empresas`) usa
+  `cnae_coincide()` (doc 08 D-18) para que `sector.codigos_cnae` case por
+  prefijo, no por igualdad exacta, y resuelve `ubicacion.municipios` a
+  `sedes.municipio_ine` vía `resolver_codigos_municipio` en vez de comparar
+  contra el texto crudo del BORME (que nunca coincidía con lo que escribe
+  el LLM, p. ej. "ALCALA DE GUADAIRA" vs "Alcalá de Guadaíra"). `ubicacion.ccaa`
+  sigue sin usarse (no hay columna de CCAA en `sedes`) — a mejorar si el
+  golden set muestra que hace falta.
 - **descubrir_borme**: ejecuta `ConectorBorme.descubrir` (ya construido,
   doc 08 D-11) para un rango de fechas/provincia, descarta los actos que no
   coinciden con `sector.palabras_clave` (o, si la interpretación no dio
@@ -189,10 +192,22 @@ HERRAMIENTAS: list[Herramienta] = [
 # --- consultar_bd ------------------------------------------------------
 
 
-def construir_where_empresas(filtros: FiltrosBusqueda) -> tuple[str, list[Any]]:
+def construir_where_empresas(
+    filtros: FiltrosBusqueda, *, codigos_municipio: list[str] | None = None
+) -> tuple[str, list[Any]]:
     """Aparte de `consultar_bd` para poder testear el SQL generado sin
     base de datos (igual que `radar.orquestador.logica` separa lo puro de
-    lo que toca `conn`)."""
+    lo que toca `conn`).
+
+    `codigos_municipio` son los códigos INE ya resueltos (por
+    `resolver_codigos_municipio`, que sí toca `conn`) a partir de
+    `filtros.ubicacion.municipios` — esta función no resuelve nombres, solo
+    construye SQL. Si `filtros.ubicacion.municipios` no está vacío pero
+    `codigos_municipio` es `None`/vacío (ningún nombre resolvió contra el
+    catálogo `municipios`), no se añade condición de ubicación por municipio:
+    es preferible no filtrar que fingir un filtro con nombres que nunca van
+    a casar contra `sedes.municipio_ine` (principio 5, nunca inventar).
+    """
     condiciones = ["e.fusionada_en is null"]
     parametros: list[Any] = []
 
@@ -202,7 +217,9 @@ def construir_where_empresas(filtros: FiltrosBusqueda) -> tuple[str, list[Any]]:
     if not filtros.incluir_autonomos:
         condiciones.append("e.es_persona_fisica = false")
     if filtros.sector.codigos_cnae:
-        condiciones.append("e.cnae_principal = any(%s)")
+        # cnae_coincide (doc 08 D-18) compara por prefijo ignorando puntos:
+        # ["41"] casa con "4101"/"41.02"/etc., no solo con "41" exacto.
+        condiciones.append("cnae_coincide(e.cnae_principal, %s)")
         parametros.append(list(filtros.sector.codigos_cnae))
     if filtros.tamano.empleados_min is not None:
         condiciones.append("(e.empleados_max is null or e.empleados_max >= %s)")
@@ -219,20 +236,49 @@ def construir_where_empresas(filtros: FiltrosBusqueda) -> tuple[str, list[Any]]:
             "exists (select 1 from sedes s where s.empresa_id = e.id and s.activa and s.provincia = any(%s))"
         )
         parametros.append(list(filtros.ubicacion.provincias))
-    elif filtros.ubicacion.municipios:
+    elif filtros.ubicacion.municipios and codigos_municipio:
         condiciones.append(
-            "exists (select 1 from sedes s where s.empresa_id = e.id and s.activa and s.municipio_nombre = any(%s))"
+            "exists (select 1 from sedes s where s.empresa_id = e.id and s.activa and s.municipio_ine = any(%s))"
         )
-        parametros.append(list(filtros.ubicacion.municipios))
+        parametros.append(list(codigos_municipio))
 
     return " and ".join(condiciones), parametros
+
+
+def resolver_codigos_municipio(nombres: list[str], conn: psycopg.Connection) -> list[str]:
+    """Traduce nombres de municipio (tal como los escribe el LLM, p. ej.
+    "Alcalá de Guadaíra") a códigos INE, usando la misma normalización que
+    `buscar_municipio_ine` en Postgres (doc 08 D-18) — una sola consulta
+    para toda la lista.
+
+    Puede devolver más de un código por nombre si el nombre existe en
+    varias provincias (17 casos en toda España, verificado 2026-09-14): sin
+    la provincia como filtro adicional aquí, se acepta esa ambigüedad en
+    vez de perder la coincidencia — es un `elif` frente a `provincias` en
+    `construir_where_empresas`, así que solo se usa cuando el filtro no
+    especificó provincia."""
+    if not nombres:
+        return []
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            select distinct m.codigo_ine
+            from municipios m
+            where m.nombre_norm = any(select normalizar_texto(n) from unnest(%s::text[]) as n)
+            """,
+            (list(nombres),),
+        )
+        return [fila[0] for fila in cur.fetchall()]
 
 
 def consultar_bd(conn: psycopg.Connection, filtros: FiltrosBusqueda, *, incluir_muestra: bool = True) -> dict[str, Any]:
     """Toca `conn` de verdad — se prueba de forma manual/integración contra
     Supabase, igual que `radar.orquestador.bd` (ver docstring de ese
     módulo); `construir_where_empresas` sí tiene tests unitarios."""
-    where_sql, parametros = construir_where_empresas(filtros)
+    codigos_municipio = None
+    if not filtros.ubicacion.provincias and filtros.ubicacion.municipios:
+        codigos_municipio = resolver_codigos_municipio(filtros.ubicacion.municipios, conn)
+    where_sql, parametros = construir_where_empresas(filtros, codigos_municipio=codigos_municipio)
     with conn.cursor() as cur:
         cur.execute(
             f"""

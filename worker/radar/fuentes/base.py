@@ -34,6 +34,12 @@ class CamposExtraidos:
     emails: list[str] = field(default_factory=list)
     web: str | None = None
     cnae: str | None = None
+    # Versión del código anterior ('CNAE-2009' | 'CNAE-2025', tabla `cnae`
+    # de la migración 202609140001, doc 08 D-18). `cnae` sin `cnae_version`
+    # no se puede guardar: la clave de `cnae` es compuesta (codigo, version)
+    # porque los códigos se solapan entre versiones con contenidos distintos
+    # — un conector que rellene `cnae` DEBE rellenar también esta versión.
+    cnae_version: str | None = None
     estado: str | None = None  # 'operativa', 'cerrada', 'disuelta'... tal como lo dice la fuente
     empleados: str | None = None  # rango tal cual lo da la fuente
     extra: dict[str, Any] = field(default_factory=dict)  # place_id, hoja registral, url_borme...

@@ -21,6 +21,7 @@ from radar.agente.herramientas import (
     ejecutar_herramienta,
     finalizar_busqueda,
     preguntar_usuario,
+    resolver_codigos_municipio,
 )
 from radar.agente.interpretacion import FiltrosBusqueda, SectorFiltro, TamanoFiltro, UbicacionFiltro
 
@@ -46,7 +47,10 @@ def test_where_cnae_y_tamano():
         tamano=TamanoFiltro(empleados_min=10, empleados_max=50),
     )
     sql, params = construir_where_empresas(filtros)
-    assert "cnae_principal = any" in sql
+    # doc 08 D-18: cnae_coincide compara por prefijo, no por igualdad exacta
+    # (["41"] debe casar con "4101"/"41.02", cosa que `= any` nunca hacía).
+    assert "cnae_coincide(e.cnae_principal, %s)" in sql
+    assert "cnae_principal = any" not in sql
     assert "empleados_max >= %s" in sql
     assert "empleados_min <= %s" in sql
     assert ["41", "43"] in params
@@ -56,17 +60,42 @@ def test_where_cnae_y_tamano():
 
 def test_where_provincia_prevalece_sobre_municipio():
     filtros = FiltrosBusqueda(ubicacion=UbicacionFiltro(provincias=["Sevilla"], municipios=["Écija"]))
-    sql, params = construir_where_empresas(filtros)
+    sql, params = construir_where_empresas(filtros, codigos_municipio=["41039"])
     assert "s.provincia = any" in sql
-    assert "s.municipio_nombre" not in sql
+    assert "s.municipio_ine" not in sql
     assert ["Sevilla"] in params
 
 
-def test_where_sin_provincia_usa_municipio():
+def test_where_sin_provincia_usa_codigos_municipio_resueltos():
+    """`construir_where_empresas` ya no compara contra el texto crudo del
+    BORME (`municipio_nombre`): recibe los códigos INE ya resueltos por
+    `resolver_codigos_municipio` y filtra por `municipio_ine`."""
     filtros = FiltrosBusqueda(ubicacion=UbicacionFiltro(municipios=["Écija", "Osuna"]))
-    sql, params = construir_where_empresas(filtros)
-    assert "s.municipio_nombre = any" in sql
-    assert ["Écija", "Osuna"] in params
+    sql, params = construir_where_empresas(filtros, codigos_municipio=["41039", "41068"])
+    assert "s.municipio_ine = any" in sql
+    assert "s.municipio_nombre" not in sql
+    assert ["41039", "41068"] in params
+
+
+def test_where_municipio_sin_codigos_resueltos_no_filtra():
+    """Si ningún nombre resolvió contra el catálogo `municipios` (p. ej. un
+    nombre inventado o mal escrito por el LLM), no se añade ninguna condición
+    de ubicación — mejor no filtrar que fingir un filtro que nunca casaría
+    (principio 5, nunca inventar)."""
+    filtros = FiltrosBusqueda(ubicacion=UbicacionFiltro(municipios=["Sitio Que No Existe"]))
+    sql, _ = construir_where_empresas(filtros, codigos_municipio=[])
+    assert "municipio" not in sql
+    assert "sedes" not in sql
+
+
+# ---------- resolver_codigos_municipio ----------
+
+
+def test_resolver_codigos_municipio_lista_vacia_no_toca_bd():
+    """No debe ejecutar ninguna consulta si no hay nombres que resolver —
+    importante porque aquí no hay un doble falso de conn, un `execute`
+    real fallaría."""
+    assert resolver_codigos_municipio([], conn=None) == []  # type: ignore[arg-type]
 
 
 # ---------- _coincide_sector ----------
