@@ -6,6 +6,7 @@ tiene tests."""
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -44,12 +45,24 @@ def _fila_a_busqueda(fila: tuple[Any, ...]) -> BusquedaDB:
 def crear_busqueda(conn: psycopg.Connection, *, peticion: str, filtros: FiltrosBusqueda, presupuesto_eur: float, usuario_id: str | None) -> str:
     """Inserta con `estado='interpretada'` (ver `radar.api.estado`) —
     todavía no ha gastado ni un euro, solo guarda los filtros para que el
-    usuario los confirme. Devuelve el `id` (uuid) como `str`."""
+    usuario los confirme. Devuelve el `id` (uuid) como `str`.
+
+    `estadisticas` pasa por `json.dumps(...)` antes del placeholder
+    `%s::jsonb` — psycopg no adapta un `dict` de Python directamente
+    (`serializar_estadisticas` devuelve un `dict`, no una cadena JSON), es
+    la misma convención que ya declara el docstring de
+    `radar.orquestador.bd`. Sin esto, todo `POST /busquedas` fallaba con
+    `psycopg.ProgrammingError: cannot adapt type 'dict'` — no había forma
+    de crear ni una sola búsqueda desde el panel.
+    """
     with conn.cursor() as cur:
         cur.execute(
             "insert into busquedas (usuario_id, peticion, filtros, presupuesto_eur, estado, estadisticas) "
             "values (%s, %s, %s::jsonb, %s, 'interpretada', %s::jsonb) returning id",
-            (usuario_id, peticion, filtros.model_dump_json(), presupuesto_eur, serializar_estadisticas([], max_rondas=0)),
+            (
+                usuario_id, peticion, filtros.model_dump_json(), presupuesto_eur,
+                json.dumps(serializar_estadisticas([], max_rondas=0)),
+            ),
         )
         fila = cur.fetchone()
     if fila is None:
@@ -79,7 +92,7 @@ def marcar_en_curso(conn: psycopg.Connection, busqueda_id: str, *, filtros: Filt
     with conn.cursor() as cur:
         cur.execute(
             "update busquedas set estado = 'en_curso', filtros = %s::jsonb, estadisticas = %s::jsonb where id = %s",
-            (filtros.model_dump_json(), serializar_estadisticas([], max_rondas=max_rondas), busqueda_id),
+            (filtros.model_dump_json(), json.dumps(serializar_estadisticas([], max_rondas=max_rondas)), busqueda_id),
         )
     conn.commit()
 
@@ -91,7 +104,11 @@ def guardar_progreso_ronda(conn: psycopg.Connection, busqueda_id: str, *, rondas
     with conn.cursor() as cur:
         cur.execute(
             "update busquedas set rondas = %s, coste_eur = %s, estadisticas = %s::jsonb where id = %s",
-            (len(rondas_hasta_ahora), coste_gastado_eur, serializar_estadisticas(rondas_hasta_ahora, max_rondas=max_rondas), busqueda_id),
+            (
+                len(rondas_hasta_ahora), coste_gastado_eur,
+                json.dumps(serializar_estadisticas(rondas_hasta_ahora, max_rondas=max_rondas)),
+                busqueda_id,
+            ),
         )
     conn.commit()
 
@@ -110,6 +127,10 @@ def finalizar_busqueda_db(
     with conn.cursor() as cur:
         cur.execute(
             "update busquedas set estado = %s, rondas = %s, coste_eur = %s, estadisticas = %s::jsonb, finalizado_en = now() where id = %s",
-            (estado, len(rondas), coste_gastado_eur, serializar_estadisticas(rondas, max_rondas=max_rondas, resultado=resultado), busqueda_id),
+            (
+                estado, len(rondas), coste_gastado_eur,
+                json.dumps(serializar_estadisticas(rondas, max_rondas=max_rondas, resultado=resultado)),
+                busqueda_id,
+            ),
         )
     conn.commit()
