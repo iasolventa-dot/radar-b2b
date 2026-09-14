@@ -56,12 +56,22 @@ EstadoEmpresa = Literal[
 class UbicacionFiltro(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    tipo: Literal["provincias", "municipios", "ccaa", "radio", "poligono"] = "provincias"
+    # "radio"/"poligono" existieron aquí antes: el prompt los ofrecía como
+    # opción y el frontend (lib/filtros.ts) hasta los mostraba en el
+    # resumen de la interpretación como si fueran a aplicarse — pero
+    # construir_where_empresas (herramientas.py) nunca los ha leído nunca
+    # (no hay ninguna fuente de geocodificación conectada, doc 04: CartoCiudad
+    # sigue "diseñada, sin construir"). Si el LLM los devolvía, la revisión
+    # mostraba un filtro de ubicación que el buscador real ignoraba por
+    # completo — exactamente lo que el principio 5 (nunca inventar) prohíbe,
+    # aquí a nivel de la propia interpretación. Quitados de raíz en vez de
+    # dejarlos "por si acaso": mejor que el LLM aproxime a provincia/municipio
+    # y lo diga en `supuestos` (ver PROMPT_INTERPRETACION) que prometer una
+    # precisión que el sistema no puede comprobar.
+    tipo: Literal["provincias", "municipios", "ccaa"] = "provincias"
     provincias: list[str] = []
     municipios: list[str] = []
     ccaa: list[str] = []
-    centro: str | None = None
-    radio_km: float | None = None
 
 
 class SectorFiltro(BaseModel):
@@ -91,7 +101,13 @@ class RequisitosFiltro(BaseModel):
 class CalidadFiltro(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    confianza_minima: float = 0.7
+    # 0.5, no 0.7: `radar.verificacion.global_.TOPE_SIN_NIF_CONFIRMADO` limita
+    # a 0.6 la confianza global de CUALQUIER empresa sin NIF confirmado —
+    # con las fuentes conectadas hoy (BORME nunca da NIF), eso es casi
+    # todas. Un mínimo de 0.7 filtraría el 100% de los resultados reales,
+    # no una parte: en los datos reales del piloto (2026-09-14), la
+    # confianza global observada iba de 0.38 a 0.6, nunca por encima.
+    confianza_minima: float = 0.5
     frescura_max_dias: int = 180
 
 

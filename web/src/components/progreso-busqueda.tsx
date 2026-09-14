@@ -381,7 +381,11 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
               <tbody className="divide-y divide-slate-100">
                 {resultados.map((r) => (
                   <tr key={r.empresa_id} className="transition-colors hover:bg-slate-50/70">
-                    <td className="px-4 py-3 font-medium text-slate-800">{r.razon_social}</td>
+                    <td className="px-4 py-3 font-medium text-slate-800">
+                      <Link href={`/empresas/${r.empresa_id}?desde=${id}`} className="hover:text-brand-600 hover:underline">
+                        {r.razon_social}
+                      </Link>
+                    </td>
                     <td className="px-4 py-3">
                       {r.nif ? (
                         <span className="font-mono text-slate-700">{r.nif}</span>

@@ -120,12 +120,10 @@ export type EstadoEmpresa =
   | "desconocida";
 
 export interface UbicacionFiltro {
-  tipo: "provincias" | "municipios" | "ccaa" | "radio" | "poligono";
+  tipo: "provincias" | "municipios" | "ccaa";
   provincias: string[];
   municipios: string[];
   ccaa: string[];
-  centro: string | null;
-  radio_km: number | null;
 }
 
 export interface SectorFiltro {

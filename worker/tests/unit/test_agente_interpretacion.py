@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from radar.agente.interpretacion import (
     FiltrosBusqueda,
+    UbicacionFiltro,
     construir_prompt,
     parsear_respuesta,
 )
@@ -75,5 +76,17 @@ def test_filtros_busqueda_valores_por_defecto():
     filtros = FiltrosBusqueda()
     assert filtros.estados == ["activa", "probablemente_activa"]
     assert filtros.incluir_autonomos is False
-    assert filtros.calidad.confianza_minima == 0.7
+    # 0.5, no 0.7: TOPE_SIN_NIF_CONFIRMADO (radar.verificacion.global_) limita
+    # a 0.6 la confianza global sin NIF confirmado -- con las fuentes de hoy
+    # (BORME nunca da NIF) un mínimo de 0.7 dejaría fuera casi todo.
+    assert filtros.calidad.confianza_minima == 0.5
     assert filtros.calidad.frescura_max_dias == 180
+
+
+def test_ubicacion_filtro_no_admite_radio_ni_poligono():
+    """Se quitaron a propósito (doc 08): no hay ninguna fuente de
+    geocodificación conectada, y dejarlos como opción válida hacía que la
+    interpretación prometiera un filtro de ubicación que consultar_bd
+    nunca aplicaba -- exactamente lo que el principio 5 prohíbe."""
+    with pytest.raises(ValidationError):
+        UbicacionFiltro(tipo="radio", centro="Sevilla", radio_km=20)

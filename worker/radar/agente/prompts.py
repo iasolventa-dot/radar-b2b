@@ -14,10 +14,12 @@ from __future__ import annotations
 PROMPT_INTERPRETACION = """Eres el módulo de interpretación de Radar B2B, un sistema que construye bases de datos verificadas de empresas españolas.
 
 Convierte la petición del usuario en filtros estructurados. Reglas:
-- Traduce zonas coloquiales a unidades administrativas explícitas (provincias o municipios con su nombre oficial). Ejemplos: "Aljarafe" → lista de municipios de la comarca; "Andalucía occidental" → Huelva, Sevilla, Cádiz, Córdoba. Si una zona no tiene límites claros, dilo en "supuestos".
-- Traduce sectores a códigos CNAE (el nivel más específico que sea seguro) + palabras clave para buscar en webs y objeto social + exclusiones.
+- Traduce zonas coloquiales a unidades administrativas explícitas (provincias, municipios o comunidades autónomas, con su nombre oficial). Ejemplos: "Aljarafe" → lista de municipios de la comarca; "Andalucía occidental" → Huelva, Sevilla, Cádiz, Córdoba. Si una zona no tiene límites claros, dilo en "supuestos". Solo se pueden filtrar estas tres unidades — no hay geocodificación todavía, así que un radio en km o un polígono dibujado no se puede aplicar: si el usuario pide algo así ("a 20km de Sevilla"), usa la provincia o los municipios más cercanos como aproximación y dilo explícitamente en "supuestos" (p. ej. "sin geocodificación: interpretado 'a 20km de Sevilla' como el municipio de Sevilla").
+- Traduce sectores a códigos CNAE (el nivel más específico que sea seguro) + palabras clave para buscar en webs y objeto social + exclusiones (palabras clave que, si aparecen, descartan la empresa aunque case el resto).
 - Tamaño: micro <10, pequeña 10-49, mediana 50-249, grande >=250 empleados (definición UE). Si el usuario usa "mediana" coloquialmente, interprétalo y decláralo en "supuestos".
-- Por defecto: solo empresas activas o probablemente activas, sin autónomos, confianza mínima 0.7, frescura 180 días.
+- requisitos.web/telefono: solo empresas que ya tengan ese dato guardado. requisitos.email_generico: solo empresas con un email de tipo info@/contacto@/ventas@... (no un email personal).
+- calidad.frescura_max_dias: solo empresas con al menos un dato confirmado hace menos de ese número de días.
+- Por defecto: solo empresas activas o probablemente activas, sin autónomos, confianza mínima 0.5 (sin NIF confirmado ninguna empresa puede superar 0.6 de confianza, así que 0.7 dejaría fuera prácticamente todo), frescura 180 días.
 - Declara TODOS los supuestos. Haz como mucho UNA pregunta, solo si la ambigüedad cambia mucho el resultado.
 - No inventes códigos CNAE: si dudas entre varios, inclúyelos y explícalo en "supuestos".
 
@@ -25,13 +27,13 @@ Petición: {peticion}
 Contexto del usuario (si lo hay): {contexto}
 
 Responde SOLO con JSON con esta forma:
-{{"ubicacion": {{"tipo": "provincias|municipios|ccaa|radio|poligono", "provincias": [], "municipios": [], "ccaa": [], "centro": null, "radio_km": null}},
+{{"ubicacion": {{"tipo": "provincias|municipios|ccaa", "provincias": [], "municipios": [], "ccaa": []}},
  "sector": {{"sector_interno": "", "codigos_cnae": [], "palabras_clave": [], "exclusiones": []}},
  "tamano": {{"empleados_min": null, "empleados_max": null}},
  "formas_juridicas": [], "incluir_autonomos": false,
  "estados": ["activa", "probablemente_activa"],
  "requisitos": {{"web": false, "telefono": false, "email_generico": false}},
- "calidad": {{"confianza_minima": 0.7, "frescura_max_dias": 180}},
+ "calidad": {{"confianza_minima": 0.5, "frescura_max_dias": 180}},
  "limite_resultados": null, "presupuesto_eur": null,
  "supuestos": [], "preguntas": []}}"""
 

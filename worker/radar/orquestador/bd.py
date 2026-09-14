@@ -514,17 +514,28 @@ def upsert_sede(
 
 
 def upsert_canal_contacto(
-    empresa_id: str, tipo: Literal["telefono", "email"], valor: str, confianza: float, conn: psycopg.Connection
+    empresa_id: str,
+    tipo: Literal["telefono", "email"],
+    valor: str,
+    confianza: float,
+    conn: psycopg.Connection,
+    *,
+    es_generico: bool | None = None,
 ) -> None:
+    """`es_generico` (doc 03b §4: "info@, centralita... vs. personal") es
+    una columna del esquema desde el principio que nunca se escribía —
+    `requisitos.email_generico` (interpretación del agente) se capturaba
+    pero no tenía nada que comprobar. `radar.normalizacion.dominio.normalizar_email`
+    ya lo calcula por email; quien llama (`procesar.py`) se lo pasa aquí."""
     with conn.cursor() as cur:
         cur.execute(
             """
-            insert into canales_contacto (empresa_id, tipo, valor, valor_norm, confianza, ultima_verificacion)
-            values (%s, %s, %s, %s, %s, now())
+            insert into canales_contacto (empresa_id, tipo, valor, valor_norm, confianza, es_generico, ultima_verificacion)
+            values (%s, %s, %s, %s, %s, %s, now())
             on conflict (empresa_id, tipo, valor_norm)
-            do update set confianza = excluded.confianza, ultima_verificacion = now()
+            do update set confianza = excluded.confianza, es_generico = excluded.es_generico, ultima_verificacion = now()
             """,
-            (empresa_id, tipo, valor, valor, confianza),
+            (empresa_id, tipo, valor, valor, confianza, es_generico),
         )
 
 

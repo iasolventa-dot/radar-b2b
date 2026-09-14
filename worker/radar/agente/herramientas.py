@@ -247,6 +247,20 @@ def construir_where_empresas(
             ")"
         )
         parametros.append(list(filtros.sector.palabras_clave))
+    if filtros.sector.exclusiones:
+        # Mismo criterio que palabras_clave, pero negado -- la interpretación
+        # ya capturaba esto (doc 07 §3) pero nunca se aplicaba: se declaraba
+        # "excluir reformas menores" y consultar_bd lo ignoraba en silencio.
+        condiciones.append(
+            "not exists ("
+            "  select 1 from unnest(%s::text[]) as p(palabra)"
+            "  where strpos("
+            "    extensions.unaccent(lower(coalesce(e.objeto_social, '') || ' ' || coalesce(e.razon_social, ''))),"
+            "    extensions.unaccent(lower(p.palabra))"
+            "  ) > 0"
+            ")"
+        )
+        parametros.append(list(filtros.sector.exclusiones))
     if filtros.tamano.empleados_min is not None:
         condiciones.append("(e.empleados_max is null or e.empleados_max >= %s)")
         parametros.append(filtros.tamano.empleados_min)
@@ -284,6 +298,38 @@ def construir_where_empresas(
             ")"
         )
         parametros.append(list(filtros.ubicacion.ccaa))
+
+    if filtros.requisitos.web:
+        # requisitos.* se capturaba desde la primera sesión de interpretación
+        # (doc 07 §3) pero nunca se aplicaba aquí -- pedir "solo con web" no
+        # filtraba nada.
+        condiciones.append("e.dominio_web is not null")
+    if filtros.requisitos.telefono:
+        condiciones.append(
+            "exists (select 1 from canales_contacto c where c.empresa_id = e.id and c.tipo = 'telefono' and c.estado <> 'invalido')"
+        )
+    if filtros.requisitos.email_generico:
+        # canales_contacto.es_generico (doc 03b §4: "info@, centralita... vs.
+        # personal") tampoco se escribía nunca hasta esta sesión -- ver
+        # radar.orquestador.bd.upsert_canal_contacto.
+        condiciones.append(
+            "exists (select 1 from canales_contacto c where c.empresa_id = e.id and c.tipo = 'email' "
+            "and c.es_generico is true and c.estado <> 'invalido')"
+        )
+    if filtros.calidad.confianza_minima > 0:
+        # coalesce a 0: una empresa sin confianza_global calculada todavía
+        # (recién creada, antes de que _consolidar_y_actualizar_empresa
+        # corra) no debe colarse como si "no tuviera este filtro" -- debe
+        # tratarse como la confianza más baja posible, no como excluida del
+        # filtro.
+        condiciones.append("coalesce(e.confianza_global, 0) >= %s")
+        parametros.append(filtros.calidad.confianza_minima)
+    if filtros.calidad.frescura_max_dias and filtros.calidad.frescura_max_dias > 0:
+        condiciones.append(
+            "exists (select 1 from observaciones o where o.empresa_id = e.id "
+            "and o.observado_en >= now() - (%s || ' days')::interval)"
+        )
+        parametros.append(filtros.calidad.frescura_max_dias)
 
     return " and ".join(condiciones), parametros
 

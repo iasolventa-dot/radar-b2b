@@ -34,6 +34,7 @@ from typing import Literal
 import psycopg
 
 from radar.fuentes.base import RegistroBruto
+from radar.normalizacion.dominio import normalizar_email
 from radar.normalizacion.registro import normalizar_registro
 from radar.orquestador import bd
 from radar.orquestador.logica import (
@@ -133,7 +134,14 @@ def _consolidar_y_actualizar_empresa(
             bd.upsert_canal_contacto(empresa_id, "telefono", v.valor, v.confianza_efectiva, conn)
     if res_email:
         for v in res_email.multivalor:
-            bd.upsert_canal_contacto(empresa_id, "email", v.valor, v.confianza_efectiva, conn)
+            # es_generico se deriva del propio valor, no del campos_norm del
+            # registro que lo trajo -- las observaciones que se consolidan
+            # aquí pueden venir de varias fuentes/momentos distintos, así
+            # que no hay un único "campos_norm" de referencia en este punto.
+            bd.upsert_canal_contacto(
+                empresa_id, "email", v.valor, v.confianza_efectiva, conn,
+                es_generico=normalizar_email(v.valor)["es_generico"],
+            )
 
 
 def procesar_registro(

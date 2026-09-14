@@ -16,9 +16,6 @@ export function describirFiltros(f: FiltrosBusqueda): string[] {
     ubicaciones.push(`municipio${f.ubicacion.municipios.length > 1 ? "s" : ""} ${f.ubicacion.municipios.join(", ")}`);
   }
   if (f.ubicacion.ccaa.length) ubicaciones.push(`CCAA ${f.ubicacion.ccaa.join(", ")}`);
-  if (f.ubicacion.tipo === "radio" && f.ubicacion.centro) {
-    ubicaciones.push(`radio de ${f.ubicacion.radio_km ?? "?"} km alrededor de ${f.ubicacion.centro}`);
-  }
   lineas.push(`Zona: ${ubicaciones.length ? ubicaciones.join(" · ") : "sin restricción"}`);
 
   const sector: string[] = [];
@@ -36,6 +33,17 @@ export function describirFiltros(f: FiltrosBusqueda): string[] {
   if (f.formas_juridicas.length) lineas.push(`Forma jurídica: ${f.formas_juridicas.join(", ")}`);
   lineas.push(`Autónomos: ${f.incluir_autonomos ? "incluidos" : "no incluidos"}`);
   lineas.push(`Estados de la empresa: ${f.estados.join(", ")}`);
+
+  const requisitos: string[] = [];
+  if (f.requisitos.web) requisitos.push("tiene web");
+  if (f.requisitos.telefono) requisitos.push("tiene teléfono");
+  if (f.requisitos.email_generico) requisitos.push("tiene email genérico (info@/contacto@...)");
+  if (requisitos.length) lineas.push(`Solo empresas que: ${requisitos.join(", ")}`);
+
+  lineas.push(
+    `Calidad: confianza mínima ${f.calidad.confianza_minima} · dato confirmado en los últimos ${f.calidad.frescura_max_dias} días`
+  );
+
   if (f.limite_resultados != null) lineas.push(`Límite de resultados: ${f.limite_resultados}`);
 
   return lineas;
