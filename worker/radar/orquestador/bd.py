@@ -220,6 +220,16 @@ def crear_empresa(campos_norm: dict, campos_originales: CamposExtraidos, conn: p
     202609140001): nunca se puede pasar `None` ahí, aunque `cnae_principal`
     sí quede a null (la FK compuesta usa MATCH SIMPLE — se salta la
     comprobación si `cnae_principal` es null, sea lo que sea `cnae_version`).
+
+    `objeto_social` se escribe aquí (antes nunca llegaba a `empresas`,
+    solo a `registros_brutos.campos` y, desde esta sesión, a
+    `observaciones`) — es lo que permite que `sector.palabras_clave`
+    filtre algo real en `consultar_bd`. Limitación conocida: solo se fija
+    al CREAR la empresa; si una empresa ya existente recibe más adelante
+    una observación con objeto social (p. ej. la enriquece la web tras
+    haberla creado el BORME), ese texto no se propaga aquí — haría falta
+    sumarlo a `actualizar_empresa`/`_consolidar_y_actualizar_empresa`
+    (`radar.orquestador.procesar`), que hoy no reciben los campos crudos.
     """
     nif = campos_norm["nif"] if campos_norm.get("nif_valido") else None
     hay_cnae = bool(campos_originales.cnae and campos_originales.cnae_version)
@@ -230,8 +240,8 @@ def crear_empresa(campos_norm: dict, campos_originales: CamposExtraidos, conn: p
             """
             insert into empresas
                 (nif, nif_valido, razon_social, nombre_comercial, forma_juridica, es_persona_fisica,
-                 cnae_principal, cnae_version)
-            values (%s, %s, %s, %s, %s, %s, %s, %s)
+                 objeto_social, cnae_principal, cnae_version)
+            values (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             returning id
             """,
             (
@@ -241,6 +251,7 @@ def crear_empresa(campos_norm: dict, campos_originales: CamposExtraidos, conn: p
                 campos_originales.nombre_comercial,
                 campos_norm.get("forma_juridica"),
                 bool(campos_norm.get("persona_fisica")),
+                campos_originales.objeto_social,
                 cnae,
                 cnae_version,
             ),
@@ -317,7 +328,7 @@ def insertar_observaciones(
         fila("empleados", campos_originales.empleados, campos_originales.empleados)
     if campos_originales.cnae and campos_originales.cnae_version:
         fila("cnae", campos_originales.cnae, campos_originales.cnae)
-    objeto_social = (campos_originales.extra or {}).get("objeto_social")
+    objeto_social = campos_originales.objeto_social
     if objeto_social:
         fila("objeto_social", objeto_social, objeto_social)
     hoja_registral = (campos_originales.extra or {}).get("hoja_registral")

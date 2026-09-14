@@ -14,9 +14,14 @@ tienen todas sus piezas construidas:
   prefijo, no por igualdad exacta, y resuelve `ubicacion.municipios` a
   `sedes.municipio_ine` vía `resolver_codigos_municipio` en vez de comparar
   contra el texto crudo del BORME (que nunca coincidía con lo que escribe
-  el LLM, p. ej. "ALCALA DE GUADAIRA" vs "Alcalá de Guadaíra"). `ubicacion.ccaa`
-  sigue sin usarse (no hay columna de CCAA en `sedes`) — a mejorar si el
-  golden set muestra que hace falta.
+  el LLM, p. ej. "ALCALA DE GUADAIRA" vs "Alcalá de Guadaíra"). También
+  aplica `sector.palabras_clave` contra `objeto_social`/`razon_social` —
+  antes esto solo se aplicaba al descubrir (`_coincide_sector`), nunca al
+  consultar lo ya guardado, así que una petición sin `codigos_cnae`
+  explícitos (el caso normal: BORME nunca da CNAE) no filtraba nada por
+  sector. `ubicacion.ccaa` ya se aplica también (migración 202609141200,
+  función `normalizar_ccaa`), uniéndose a `municipios` por
+  `sedes.municipio_ine`.
 - **descubrir_borme**: ejecuta `ConectorBorme.descubrir` (ya construido,
   doc 08 D-11) para un rango de fechas/provincia, descarta los actos que no
   coinciden con `sector.palabras_clave` (o, si la interpretación no dio
@@ -221,6 +226,27 @@ def construir_where_empresas(
         # ["41"] casa con "4101"/"41.02"/etc., no solo con "41" exacto.
         condiciones.append("cnae_coincide(e.cnae_principal, %s)")
         parametros.append(list(filtros.sector.codigos_cnae))
+    if filtros.sector.palabras_clave:
+        # Antes esta rama no existía: el filtro por palabras clave se
+        # aplicaba al DESCUBRIR (descubrir_borme -> _coincide_sector),
+        # pero nunca al CONSULTAR lo ya guardado en `empresas` -- si la
+        # interpretación daba palabras_clave sin codigos_cnae (el caso
+        # normal, porque BORME nunca da CNAE), consultar_bd ignoraba el
+        # sector por completo y devolvía cualquier empresa. Busca en
+        # objeto_social y razón social, sin tildes ni mayúsculas, igual
+        # que hace _coincide_sector en Python -- mismo criterio, aquí en
+        # SQL porque aquí no hay un `campos.objeto_social` en memoria, hay
+        # que ir contra lo ya guardado en `empresas`.
+        condiciones.append(
+            "exists ("
+            "  select 1 from unnest(%s::text[]) as p(palabra)"
+            "  where strpos("
+            "    extensions.unaccent(lower(coalesce(e.objeto_social, '') || ' ' || coalesce(e.razon_social, ''))),"
+            "    extensions.unaccent(lower(p.palabra))"
+            "  ) > 0"
+            ")"
+        )
+        parametros.append(list(filtros.sector.palabras_clave))
     if filtros.tamano.empleados_min is not None:
         condiciones.append("(e.empleados_max is null or e.empleados_max >= %s)")
         parametros.append(filtros.tamano.empleados_min)
@@ -241,6 +267,23 @@ def construir_where_empresas(
             "exists (select 1 from sedes s where s.empresa_id = e.id and s.activa and s.municipio_ine = any(%s))"
         )
         parametros.append(list(codigos_municipio))
+    elif filtros.ubicacion.ccaa:
+        # normalizar_ccaa (migración 202609141200) ignora tildes, mayúsculas,
+        # artículos y el orden de las palabras -- el INE escribe "Rioja, La"
+        # / "Madrid, Comunidad de", pero el LLM (o una persona) escribe
+        # "La Rioja" / "Comunidad de Madrid". No hace falta resolver nada en
+        # Python antes (a diferencia de los municipios): al ser una función
+        # SQL inmutable, se puede comparar en ambos lados dentro de la misma
+        # consulta.
+        condiciones.append(
+            "exists ("
+            "  select 1 from sedes s"
+            "  join municipios m on m.codigo_ine = s.municipio_ine"
+            "  where s.empresa_id = e.id and s.activa"
+            "    and normalizar_ccaa(m.ccaa) = any(select normalizar_ccaa(x) from unnest(%s::text[]) as x)"
+            ")"
+        )
+        parametros.append(list(filtros.ubicacion.ccaa))
 
     return " and ".join(condiciones), parametros
 

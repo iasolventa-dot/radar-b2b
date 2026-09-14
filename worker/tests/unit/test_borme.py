@@ -115,6 +115,19 @@ def test_acto_a_registro_bruto_marca_disuelta():
     assert registro.campos.estado == "disuelta"
 
 
+def test_acto_a_registro_bruto_objeto_social_es_campo_de_primera_clase():
+    """Antes vivía en campos.extra["objeto_social"] -- un dict con clave de
+    texto, sin comprobación de tipos. Ahora es un campo de primer nivel de
+    CamposExtraidos (fuentes/base.py) y ya no debe quedar duplicado en
+    extra."""
+    xml_bytes = (FIXTURES / "acto_sevilla_20260908.xml").read_bytes()
+    actos = parsear_listado_provincia(xml_bytes, "https://example.invalid/x")
+    acto_con_objeto = next(a for a in actos if a.objeto_social)
+    registro = acto_a_registro_bruto(acto_con_objeto)
+    assert registro.campos.objeto_social == acto_con_objeto.objeto_social
+    assert "objeto_social" not in registro.campos.extra
+
+
 def test_parsear_datos_acto_extrae_administradores():
     texto = (
         "Ceses/Dimisiones. Adm. Unico: MACIAS GALAN RAQUEL. Nombramientos. "

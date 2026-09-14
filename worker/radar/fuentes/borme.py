@@ -230,11 +230,11 @@ def acto_a_registro_bruto(acto: ActoBorme) -> RegistroBruto:
         municipio=acto.municipio,
         provincia="Sevilla",
         estado="disuelta" if "extincion" in acto.tipos or "disolucion" in acto.tipos else None,
+        objeto_social=acto.objeto_social,
         extra={
             "id_borme": acto.id_borme,
             "hoja_registral": acto.hoja_registral,
             "tipos_acto": acto.tipos,
-            "objeto_social": acto.objeto_social,
             "capital_eur": acto.capital_eur,
             "identificador_boletin": acto.identificador_boletin,
             "administradores": acto.administradores,

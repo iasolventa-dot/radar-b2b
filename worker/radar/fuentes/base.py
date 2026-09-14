@@ -42,6 +42,13 @@ class CamposExtraidos:
     cnae_version: str | None = None
     estado: str | None = None  # 'operativa', 'cerrada', 'disuelta'... tal como lo dice la fuente
     empleados: str | None = None  # rango tal cual lo da la fuente
+    # Campo de primera clase (antes vivía en `extra["objeto_social"]`, con el
+    # riesgo de errores de tecleo en la clave del diccionario que eso
+    # conlleva) porque `empresas.objeto_social` (doc 03b §4) es una columna
+    # de primera clase en el esquema, no un dato secundario — y porque
+    # `sectores.palabras_clave` (doc 03b §3, "para buscar en objeto social
+    # / web") necesita este campo para tener algo contra qué buscar.
+    objeto_social: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)  # place_id, hoja registral, url_borme...
 
 

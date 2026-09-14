@@ -88,6 +88,53 @@ def test_where_municipio_sin_codigos_resueltos_no_filtra():
     assert "sedes" not in sql
 
 
+def test_where_ccaa_se_aplica_cuando_no_hay_provincia_ni_municipio():
+    """ubicacion.ccaa se capturaba desde la interpretación pero nunca se
+    usaba en el filtro (doc 08) — se une por sedes.municipio_ine con la
+    función normalizar_ccaa (migración 202609141200), no necesita
+    resolución previa en Python (a diferencia de municipios) porque es una
+    función SQL inmutable comparable en ambos lados de la consulta."""
+    filtros = FiltrosBusqueda(ubicacion=UbicacionFiltro(ccaa=["Andalucía"]))
+    sql, params = construir_where_empresas(filtros)
+    assert "normalizar_ccaa(m.ccaa)" in sql
+    assert "join municipios m on m.codigo_ine = s.municipio_ine" in sql
+    assert ["Andalucía"] in params
+
+
+def test_where_provincia_prevalece_sobre_ccaa():
+    """Igual que con municipios: provincias es más específico y gana."""
+    filtros = FiltrosBusqueda(ubicacion=UbicacionFiltro(provincias=["Sevilla"], ccaa=["Andalucía"]))
+    sql, params = construir_where_empresas(filtros)
+    assert "s.provincia = any" in sql
+    assert "normalizar_ccaa" not in sql
+    assert ["Sevilla"] in params
+
+
+def test_where_palabras_clave_de_sector_se_aplican():
+    """Antes esta condición no existía: sin codigos_cnae explícitos (el caso
+    normal, porque BORME nunca da CNAE), sector.palabras_clave se ignoraba
+    por completo en consultar_bd — solo se usaba al descubrir, nunca al
+    consultar lo ya guardado."""
+    filtros = FiltrosBusqueda(sector=SectorFiltro(palabras_clave=["reformas", "obra civil"]))
+    sql, params = construir_where_empresas(filtros)
+    assert "e.objeto_social" in sql
+    assert "e.razon_social" in sql
+    assert "extensions.unaccent" in sql
+    assert ["reformas", "obra civil"] in params
+
+
+def test_where_cnae_y_palabras_clave_combinados():
+    """codigos_cnae y palabras_clave no son excluyentes entre sí (a
+    diferencia de provincias/municipios) -- pueden llegar juntos de la
+    interpretación y deben combinarse con AND, no sustituirse."""
+    filtros = FiltrosBusqueda(sector=SectorFiltro(codigos_cnae=["41"], palabras_clave=["residencial"]))
+    sql, params = construir_where_empresas(filtros)
+    assert "cnae_coincide(e.cnae_principal, %s)" in sql
+    assert "e.objeto_social" in sql
+    assert ["41"] in params
+    assert ["residencial"] in params
+
+
 # ---------- resolver_codigos_municipio ----------
 
 
