@@ -1,5 +1,6 @@
 """Acceso a base de datos del orquestador (doc 03b): registros_brutos,
-observaciones, empresas, sedes, canales_contacto, identificadores.
+observaciones, empresas, sedes, canales_contacto, identificadores,
+personas, cargos.
 
 Todas las funciones reciben una `conn: psycopg.Connection` ya abierta y
 NO hacen commit — la transacción la controla quien llama (`procesar.py`
@@ -23,6 +24,7 @@ from typing import Literal
 import psycopg
 
 from radar.fuentes.base import CamposExtraidos, RegistroBruto
+from radar.normalizacion.nombre import normalizar_texto
 
 EstadoRegistroBruto = Literal["pendiente", "vinculado", "nueva_empresa", "en_revision", "descartado", "error"]
 
@@ -554,6 +556,69 @@ def upsert_identificadores(
             "on conflict (tipo, valor) do nothing",
             filas,
         )
+
+
+def upsert_persona(nombre: str, conn: psycopg.Connection) -> str:
+    """Busca una persona por `nombre_norm` exacto; si no existe, la crea
+    (migración 202609141600). Deduplicación deliberadamente simple: sin
+    NIF (el BORME casi nunca lo da de personas físicas), no hay una clave
+    dura como la que sí tiene `buscar_candidato_por_nif` para empresas —
+    dos personas reales con el mismo nombre normalizado se tratan como la
+    misma fila. No inventa ningún dato: solo puede sub-separar identidades
+    homónimas, y queda documentado como limitación conocida, no oculta."""
+    nombre = nombre.strip()
+    nombre_norm = normalizar_texto(nombre)
+    with conn.cursor() as cur:
+        cur.execute("select id from personas where nombre_norm = %s limit 1", (nombre_norm,))
+        fila = cur.fetchone()
+        if fila:
+            return str(fila[0])
+        cur.execute(
+            "insert into personas (nombre, nombre_norm) values (%s, %s) returning id",
+            (nombre, nombre_norm),
+        )
+        fila = cur.fetchone()
+    assert fila is not None
+    return str(fila[0])
+
+
+def upsert_administradores(
+    empresa_id: str,
+    campos: CamposExtraidos,
+    fuente: FuenteInfo,
+    registro_bruto_id: str,
+    registro_url: str | None,
+    conn: psycopg.Connection,
+) -> None:
+    """Lee `campos.extra["administradores"]` (lista de `{"nombre",
+    "cargo"}`, `radar.fuentes.borme.PATRONES_CARGO`) y enlaza cada persona
+    con esta empresa en `cargos` (migración 202609141600, doc 08). Se
+    llama tanto si la empresa se acaba de crear como si ya existía y solo
+    se vinculó — un acto posterior (cambio de administrador) debe poder
+    añadir cargos a una empresa que el BORME ya conocía.
+
+    `on conflict (persona_id, empresa_id, cargo) do nothing`: nunca se
+    sobreescribe evidencia (mismo principio que `observaciones`) — un
+    cambio de cargo en la misma empresa añade una fila nueva, no sustituye
+    la anterior. Solo se ignora si es EXACTAMENTE la misma combinación ya
+    vista (p. ej. un acto que reconfirma al mismo administrador único).
+    """
+    administradores = (campos.extra or {}).get("administradores") or []
+    if not administradores:
+        return
+    with conn.cursor() as cur:
+        for admin in administradores:
+            nombre = admin.get("nombre") if isinstance(admin, dict) else None
+            cargo = admin.get("cargo") if isinstance(admin, dict) else None
+            if not nombre or not cargo:
+                continue
+            persona_id = upsert_persona(nombre, conn)
+            cur.execute(
+                "insert into cargos (persona_id, empresa_id, cargo, fuente_id, registro_bruto_id, url_evidencia) "
+                "values (%s, %s, %s, %s, %s, %s) "
+                "on conflict (persona_id, empresa_id, cargo) do nothing",
+                (persona_id, empresa_id, cargo, fuente.id, registro_bruto_id, registro_url),
+            )
 
 
 def insertar_candidato_duplicado(

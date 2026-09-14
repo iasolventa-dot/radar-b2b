@@ -268,3 +268,29 @@ export function etiquetaFuenteResultado(motivo: string | null): string {
   const etiquetaAccion = accion ? ETIQUETA_ACCION_MOTIVO[accion] ?? accion : null;
   return etiquetaAccion ? `${etiquetaFuente} — ${etiquetaAccion}` : etiquetaFuente;
 }
+
+// personas/cargos (migración 202609141600) -- radar.fuentes.borme.PATRONES_CARGO
+// es la fuente de verdad de qué valores de `cargo` existen; esto solo es
+// la traducción a español legible para el panel.
+export const ETIQUETA_CARGO: Record<string, string> = {
+  administrador_unico: "Administrador único",
+  administrador_solidario: "Administrador solidario",
+  administrador_mancomunado: "Administrador mancomunado",
+  consejero_delegado: "Consejero delegado",
+  consejero: "Consejero",
+  presidente: "Presidente",
+};
+
+// Para elegir qué cargo mostrar como "el" contacto principal cuando una
+// persona tiene varios en la misma empresa (p. ej. presidente Y consejero
+// delegado) -- orden de más a menos relevante para un lead comercial.
+// No es un orden legal de precedencia, es una elección de qué enseñar
+// primero en una tabla compacta.
+export const PRIORIDAD_CARGO: string[] = [
+  "presidente",
+  "consejero_delegado",
+  "administrador_unico",
+  "administrador_solidario",
+  "administrador_mancomunado",
+  "consejero",
+];

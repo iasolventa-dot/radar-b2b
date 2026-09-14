@@ -8,9 +8,11 @@ import { cancelarBusqueda, confirmarBusqueda } from "@/lib/api";
 import { describirFiltros } from "@/lib/filtros";
 import {
   COLOR_ESTADO_BUSQUEDA,
+  ETIQUETA_CARGO,
   ETIQUETA_ESTADO_BUSQUEDA,
   ETIQUETA_HERRAMIENTA,
   etiquetaFuenteResultado,
+  PRIORIDAD_CARGO,
   type BusquedaFila,
   type RondaEstadistica,
 } from "@/lib/tipos";
@@ -36,6 +38,7 @@ interface EmpresaResultado {
   dominio_web: string | null;
   telefono: string | null;
   email: string | null;
+  contacto: string | null;
 }
 
 function resumenRonda(ronda: RondaEstadistica): string {
@@ -84,15 +87,21 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
       if (cancelado || !filas) return;
 
       const empresaIds = filas.map((f: Record<string, unknown>) => f.empresa_id as string);
-      // Consulta plana aparte (no anidada dentro de la de arriba): el
-      // cliente de Supabase no tiene tipos generados (createBrowserClient
+      // Dos consultas planas aparte (no anidadas dentro de la de arriba):
+      // el cliente de Supabase no tiene tipos generados (createBrowserClient
       // sin <Database>), y su inferencia de tipos por plantillas de texto
-      // no soporta un embed de dos niveles (empresas -> canales_contacto)
-      // -- rompía la compilación con GenericStringError. Con dos consultas
-      // de un solo nivel cada una, no hay ese problema.
+      // no soporta un embed de dos niveles -- rompía la compilación con
+      // GenericStringError. Con consultas de un solo nivel cada una, no
+      // hay ese problema (mismo motivo que separó teléfono/email).
       const { data: canales } = empresaIds.length
         ? await supabase.from("canales_contacto").select("empresa_id, tipo, valor, estado").in("empresa_id", empresaIds)
         : { data: [] as { empresa_id: string; tipo: string; valor: string; estado: string }[] };
+      const { data: cargos } = empresaIds.length
+        ? await supabase
+            .from("cargos")
+            .select("empresa_id, cargo, personas(nombre)")
+            .in("empresa_id", empresaIds)
+        : { data: [] as { empresa_id: string; cargo: string; personas: { nombre: string } | { nombre: string }[] | null }[] };
       if (cancelado) return;
 
       const canalesPorEmpresa = new Map<string, { tipo: string; valor: string; estado: string }[]>();
@@ -100,6 +109,16 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
         const lista = canalesPorEmpresa.get(c.empresa_id) ?? [];
         lista.push(c);
         canalesPorEmpresa.set(c.empresa_id, lista);
+      }
+
+      const cargosPorEmpresa = new Map<string, { nombre: string; cargo: string }[]>();
+      for (const c of cargos ?? []) {
+        const personaRaw = c.personas as { nombre: string } | { nombre: string }[] | null;
+        const persona = Array.isArray(personaRaw) ? personaRaw[0] : personaRaw;
+        if (!persona) continue;
+        const lista = cargosPorEmpresa.get(c.empresa_id) ?? [];
+        lista.push({ nombre: persona.nombre, cargo: c.cargo });
+        cargosPorEmpresa.set(c.empresa_id, lista);
       }
 
       setResultados(
@@ -117,6 +136,14 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
           // en canales_contacto para quien necesite verlos todos.
           const telefono = canalesEmpresa.find((c) => c.tipo === "telefono" && c.estado !== "invalido");
           const email = canalesEmpresa.find((c) => c.tipo === "email" && c.estado !== "invalido");
+          // Igual con los cargos: si la misma empresa tiene varios (p. ej.
+          // presidente Y consejero delegado, o son personas distintas),
+          // se muestra el de mayor prioridad -- el resto sigue estando en
+          // `cargos`/`personas` para quien necesite verlos todos.
+          const cargosEmpresa = cargosPorEmpresa.get(empresaId) ?? [];
+          cargosEmpresa.sort((a, b) => PRIORIDAD_CARGO.indexOf(a.cargo) - PRIORIDAD_CARGO.indexOf(b.cargo));
+          const principal = cargosEmpresa[0];
+          const contacto = principal ? `${principal.nombre} (${ETIQUETA_CARGO[principal.cargo] ?? principal.cargo})` : null;
           return {
             empresa_id: empresaId,
             motivo: f.motivo as string | null,
@@ -127,6 +154,7 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
             dominio_web: empresa?.dominio_web ?? null,
             telefono: telefono?.valor ?? null,
             email: email?.valor ?? null,
+            contacto,
           };
         })
       );
@@ -328,6 +356,7 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
                 <tr>
                   <th className="th-panel">Razón social</th>
                   <th className="th-panel">NIF</th>
+                  <th className="th-panel">Contacto</th>
                   <th className="th-panel">Teléfono</th>
                   <th className="th-panel">Email</th>
                   <th className="th-panel">Web</th>
@@ -347,6 +376,7 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
                         <span className="badge bg-amber-100 text-amber-800">sin NIF</span>
                       )}
                     </td>
+                    <td className="px-4 py-3 text-slate-600">{r.contacto ?? "—"}</td>
                     <td className="px-4 py-3 text-slate-600">
                       {r.telefono ? <a href={`tel:${r.telefono}`} className="hover:text-brand-600">{r.telefono}</a> : "—"}
                     </td>
@@ -380,7 +410,7 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
                 ))}
                 {resultados.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-4 py-14 text-center text-sm text-slate-400">
+                    <td colSpan={9} className="px-4 py-14 text-center text-sm text-slate-400">
                       {activa
                         ? "El agente todavía no ha encontrado empresas."
                         : "No se encontraron empresas en esta búsqueda."}

@@ -87,6 +87,25 @@ TIPOS_ACTO = {
     "concurso": r"\bConcurso\b",
 }
 
+# Cargo de cada persona nombrada en el acto (doc 08, tablas `personas`/
+# `cargos`, migración 202609141600). Antes esto se descartaba: un único
+# patrón agrupaba "Adm. Unico/Solid./Mancom." sin distinguir cuál, y otro
+# agrupaba "Consejero"/"Consejero Delegado" en uno — perdiendo justo la
+# distinción entre consejero (vocal del consejo) y consejero delegado
+# (equivalente a CEO), que es la que de verdad importa para un lead. El
+# orden de la lista no afecta el resultado: "Consejero Delegado:" nunca
+# casa con el patrón "Consejero:" porque a "Consejero" le sigue la
+# palabra "Delegado", no los dos puntos, así que los dos son mutuamente
+# excluyentes por construcción, no por orden de comprobación.
+PATRONES_CARGO: list[tuple[str, str]] = [
+    (r"Adm\.\s*Unico\s*:\s*([^.]+)\.", "administrador_unico"),
+    (r"Adm\.\s*Solid\.?\s*:\s*([^.]+)\.", "administrador_solidario"),
+    (r"Adm\.\s*Mancom\.?\s*:\s*([^.]+)\.", "administrador_mancomunado"),
+    (r"Consejero\s*Delegado\s*:\s*([^.]+)\.", "consejero_delegado"),
+    (r"Consejero\s*:\s*([^.]+)\.", "consejero"),
+    (r"Presidente\s*:\s*([^.]+)\.", "presidente"),
+]
+
 _TABLA_TILDES = str.maketrans("áéíóúÁÉÍÓÚñÑ", "aeiouAEIOUnN")
 
 
@@ -111,7 +130,7 @@ class ActoBorme:
     hoja_registral: str | None
     objeto_social: str | None
     capital_eur: str | None
-    administradores: list[str]
+    administradores: list[dict[str, str]]
     texto_completo: str
     identificador_boletin: str
     url_html: str
@@ -161,14 +180,13 @@ def parsear_datos_acto(parrafo_txt: str) -> dict[str, Any]:
     m_cap = re.search(r"Capital:\s*([\d.,]+)\s*Euros", parrafo_txt)
     capital_eur = m_cap.group(1) if m_cap else None
 
-    administradores: list[str] = []
-    for patron_rol in (
-        r"Adm\.\s*(?:Unico|Solid\.?|Mancom\.?)\s*:\s*([^.]+)\.",
-        r"Consejero(?:\s*Delegado)?\s*:\s*([^.]+)\.",
-        r"Presidente\s*:\s*([^.]+)\.",
-    ):
+    administradores: list[dict[str, str]] = []
+    for patron_rol, cargo in PATRONES_CARGO:
         for m_rol in re.finditer(patron_rol, parrafo_txt):
-            administradores.extend(n.strip() for n in m_rol.group(1).split(";") if n.strip())
+            for nombre in m_rol.group(1).split(";"):
+                nombre = nombre.strip()
+                if nombre:
+                    administradores.append({"nombre": nombre, "cargo": cargo})
 
     return {
         "tipos": tipos,

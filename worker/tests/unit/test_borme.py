@@ -134,14 +134,42 @@ def test_parsear_datos_acto_extrae_administradores():
         "Adm. Unico: LOPEZ GONZALEZ JESUS. Modificaciones estatutarias."
     )
     datos = parsear_datos_acto(texto)
-    assert "LOPEZ GONZALEZ JESUS" in datos["administradores"]
+    nombres = [a["nombre"] for a in datos["administradores"]]
+    assert "LOPEZ GONZALEZ JESUS" in nombres
 
 
 def test_parsear_datos_acto_administradores_solidarios_multiples():
     texto = "Nombramientos. Adm. Solid.: ORELLANA GOMEZ MIGUEL;LUPIAÑEZ CASCAJOSA JOSE LUIS."
     datos = parsear_datos_acto(texto)
-    assert "ORELLANA GOMEZ MIGUEL" in datos["administradores"]
-    assert "LUPIAÑEZ CASCAJOSA JOSE LUIS" in datos["administradores"]
+    nombres = [a["nombre"] for a in datos["administradores"]]
+    assert "ORELLANA GOMEZ MIGUEL" in nombres
+    assert "LUPIAÑEZ CASCAJOSA JOSE LUIS" in nombres
+    # los dos son "Adm. Solid." -- antes de esta sesión esto se perdía, se
+    # guardaba solo el nombre (doc 08, migración 202609141600)
+    assert all(a["cargo"] == "administrador_solidario" for a in datos["administradores"])
+
+
+def test_parsear_datos_acto_distingue_consejero_de_consejero_delegado():
+    """El regex original agrupaba "Consejero" y "Consejero Delegado" en un
+    solo patrón -- perdiendo justo la distinción entre vocal del consejo y
+    CEO, que es la que de verdad importa para un lead (doc 08)."""
+    texto = "Nombramientos. Consejero Delegado: PEREZ RUIZ ANA. Consejero: GOMEZ DIAZ LUIS."
+    datos = parsear_datos_acto(texto)
+    por_nombre = {a["nombre"]: a["cargo"] for a in datos["administradores"]}
+    assert por_nombre["PEREZ RUIZ ANA"] == "consejero_delegado"
+    assert por_nombre["GOMEZ DIAZ LUIS"] == "consejero"
+
+
+def test_parsear_datos_acto_administrador_mancomunado():
+    texto = "Nombramientos. Adm. Mancom.: TORRES LEON PABLO."
+    datos = parsear_datos_acto(texto)
+    assert datos["administradores"] == [{"nombre": "TORRES LEON PABLO", "cargo": "administrador_mancomunado"}]
+
+
+def test_parsear_datos_acto_presidente():
+    texto = "Nombramientos. Presidente: NOTARIO AGUILAR JOSE ANTONIO."
+    datos = parsear_datos_acto(texto)
+    assert datos["administradores"] == [{"nombre": "NOTARIO AGUILAR JOSE ANTONIO", "cargo": "presidente"}]
 
 
 def test_estimar_coste_es_cero():

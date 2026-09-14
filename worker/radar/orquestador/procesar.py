@@ -1,7 +1,7 @@
 """Orquestador (doc 02 §2, pasos 6-8): convierte un `RegistroBruto` de un
 conector en escrituras en `registros_brutos` / `observaciones` / `empresas`
-/ `sedes` / `canales_contacto` / `identificadores`, usando
-`radar.normalizacion` (paso 6), `radar.resolucion` (paso 7) y
+/ `sedes` / `canales_contacto` / `identificadores` / `personas` / `cargos`,
+usando `radar.normalizacion` (paso 6), `radar.resolucion` (paso 7) y
 `radar.verificacion` (paso 8).
 
 `procesar_registro` NO abre ni cierra la conexión ni hace commit — quien
@@ -196,6 +196,7 @@ def procesar_registro(
     senales = _calcular_senales_estado(registro, fuente)
     _consolidar_y_actualizar_empresa(empresa_id, campos_norm, senales, conn)
     bd.upsert_identificadores(empresa_id, campos_norm, registro.campos, fuente, conn)
+    bd.upsert_administradores(empresa_id, registro.campos, fuente, rb.id, registro.url, conn)
 
     accion_final: AccionFinal = (
         "vinculado" if decision.accion == "vincular" else ("en_revision" if decision.accion == "crear_y_revisar" else "nueva_empresa")
