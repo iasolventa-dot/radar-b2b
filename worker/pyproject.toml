@@ -29,6 +29,7 @@ dev = [
   "pytest-cov>=5.0",
   "ruff>=0.6",
   "mypy>=1.11",
+  "openpyxl>=3.1",  # solo scripts/generar_catalogos.py (catálogos del INE, D-18)
 ]
 web-js = [
   "playwright>=1.46",  # solo para webs que requieren JS (doc 02 §3)

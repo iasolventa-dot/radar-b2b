@@ -1,18 +1,28 @@
-"""Aplica la migración inicial del esquema directamente por psycopg,
+"""Aplica una migración del esquema directamente por psycopg,
 sin pasar por el SQL Editor del navegador.
 
 Lee SUPABASE_DB_URL del archivo .env en la raíz del proyecto
-(dos niveles por encima de este script: worker/scripts/ -> worker/ -> raíz),
-ejecuta supabase/migrations/202609100001_esquema_inicial.sql tal cual,
-y al final lista las tablas creadas y cuenta las filas de `fuentes`
-(debe dar 11) para confirmar que ha funcionado.
+(dos niveles por encima de este script: worker/scripts/ -> worker/ -> raíz)
+y ejecuta el SQL tal cual.
 
 Uso (con el entorno virtual del worker activado):
     python scripts\\aplicar_migracion.py
+    python scripts\\aplicar_migracion.py 202609140001_catalogos_cnae_municipios.sql
+    python scripts\\aplicar_migracion.py --listar
+
+Sin argumento aplica la migración inicial, como hacía la primera versión de
+este script. Con un nombre de fichero (o una ruta) aplica esa. Las
+migraciones del proyecto son idempotentes, así que volver a aplicar una ya
+aplicada no debería romper nada — pero se pide confirmación igualmente
+cuando no es la inicial, para que no se escape un fichero equivocado.
+
+Al terminar lista las tablas de `public` y cuenta las filas de `fuentes`
+(deben ser 11) como comprobación de que la conexión es la que se espera.
 """
 
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 from pathlib import Path
@@ -21,10 +31,54 @@ import psycopg
 from dotenv import load_dotenv
 
 RAIZ = Path(__file__).resolve().parents[2]  # .../radar-b2b
-MIGRACION = RAIZ / "supabase" / "migrations" / "202609100001_esquema_inicial.sql"
+MIGRACIONES = RAIZ / "supabase" / "migrations"
+INICIAL = "202609100001_esquema_inicial.sql"
+
+
+def listar_migraciones() -> list[Path]:
+    return sorted(MIGRACIONES.glob("*.sql"))
+
+
+def resolver(nombre: str) -> Path:
+    """Acepta un nombre de fichero, un prefijo de fecha o una ruta."""
+    candidata = Path(nombre)
+    if candidata.is_file():
+        return candidata
+
+    directa = MIGRACIONES / nombre
+    if directa.is_file():
+        return directa
+
+    coincidencias = [m for m in listar_migraciones() if m.name.startswith(nombre)]
+    if len(coincidencias) == 1:
+        return coincidencias[0]
+    if len(coincidencias) > 1:
+        nombres = "\n  ".join(m.name for m in coincidencias)
+        sys.exit(f"'{nombre}' coincide con varias migraciones:\n  {nombres}")
+
+    disponibles = "\n  ".join(m.name for m in listar_migraciones()) or "(ninguna)"
+    sys.exit(f"No encuentro la migración '{nombre}'.\nDisponibles:\n  {disponibles}")
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Aplica una migración SQL a Supabase.")
+    parser.add_argument(
+        "migracion",
+        nargs="?",
+        default=INICIAL,
+        help=f"nombre o ruta de la migración (por defecto {INICIAL})",
+    )
+    parser.add_argument("--listar", action="store_true", help="lista las migraciones y sale")
+    parser.add_argument("--si", action="store_true", help="no pide confirmación")
+    args = parser.parse_args()
+
+    if args.listar:
+        for m in listar_migraciones():
+            print(f"  {m.name}")
+        return
+
+    ruta = resolver(args.migracion)
+
     load_dotenv(RAIZ / ".env")
     db_url = os.environ.get("SUPABASE_DB_URL", "").strip()
 
@@ -38,12 +92,15 @@ def main() -> None:
             "SUPABASE_DB_URL todavía tiene el placeholder de la contraseña sin "
             "sustituir. Edita el .env con la contraseña real de la base de datos."
         )
-    if not MIGRACION.exists():
-        sys.exit(f"No encuentro el archivo de migración en {MIGRACION}")
 
-    sql = MIGRACION.read_text(encoding="utf-8")
+    sql = ruta.read_text(encoding="utf-8")
 
-    print(f"Migración: {MIGRACION.name}")
+    print(f"Migración: {ruta.name}")
+    if ruta.name != INICIAL and not args.si:
+        respuesta = input("¿Aplicar esta migración? [s/N] ").strip().lower()
+        if respuesta not in ("s", "si", "sí"):
+            sys.exit("Cancelado.")
+
     print("Conectando a la base de datos...")
     try:
         with psycopg.connect(db_url, autocommit=True) as conn, conn.cursor() as cur:
@@ -71,7 +128,7 @@ def main() -> None:
         (n,) = fila
         print(f"\nFilas en 'fuentes': {n} (esperado: 11)")
         if n != 11:
-            print("Ojo: no son 11 — revisa la sección 12 de la migración.")
+            print("Ojo: no son 11 — revisa la sección 12 de la migración inicial.")
 
 
 if __name__ == "__main__":

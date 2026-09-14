@@ -35,3 +35,6 @@ Thumbs.db
 # Editor
 .vscode/
 .idea/
+
+# Cache de descarga de los ficheros del INE (scripts/generar_catalogos.py)
+supabase/seed/_ine/
