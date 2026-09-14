@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import {
   ArrowLeft,
   Building2,
+  Clock3,
   FileText,
   Globe,
   Mail,
@@ -50,6 +51,14 @@ const ETIQUETA_CAMPO: Record<string, string> = {
   hoja_registral: "Hoja registral",
 };
 
+const ETIQUETA_EVENTO: Record<string, string> = {
+  cambio_estado: "Cambio de estado",
+  cambio_domicilio: "Cambio de domicilio",
+  borme_acto: "Nuevo acto en el BORME",
+  telefono_invalido: "Teléfono dejó de responder",
+  web_caida: "Web dejó de responder",
+};
+
 export default async function PaginaDetalleEmpresa({
   params,
   searchParams,
@@ -83,6 +92,7 @@ export default async function PaginaDetalleEmpresa({
     { data: identificadores },
     { data: cargos },
     { data: observaciones },
+    { data: eventos },
     { data: fuentesFilas },
   ] = await Promise.all([
     empresa.cnae_principal
@@ -112,6 +122,11 @@ export default async function PaginaDetalleEmpresa({
       .eq("empresa_id", id)
       .order("campo")
       .order("observado_en", { ascending: false }),
+    supabase
+      .from("eventos_empresa")
+      .select("tipo, detalle, fuente_id, creado_en")
+      .eq("empresa_id", id)
+      .order("creado_en", { ascending: false }),
     supabase.from("fuentes").select("id, codigo, nombre"),
   ]);
 
@@ -297,6 +312,36 @@ export default async function PaginaDetalleEmpresa({
           </p>
         )}
       </Seccion>
+
+      {/* Hechos notables detectados automáticamente -- distinto de las
+          observaciones: esto no es "un dato más", es "algo le pasó a esta
+          empresa en este momento" (cambió de estado, cambió de domicilio,
+          llegó un acto nuevo del BORME). */}
+      {eventos && eventos.length > 0 && (
+        <Seccion icono={Clock3} titulo={`Historial de la empresa (${eventos.length})`}>
+          <ul className="space-y-1.5 text-sm text-slate-600">
+            {eventos.map((e, i) => (
+              <li key={i} className="flex items-start justify-between gap-3">
+                <span>
+                  <span className="font-medium text-slate-700">{ETIQUETA_EVENTO[e.tipo] ?? e.tipo}</span>
+                  {e.detalle && Object.keys(e.detalle as Record<string, unknown>).length > 0 && (
+                    <span className="text-slate-500">
+                      {" — "}
+                      {Object.entries(e.detalle as Record<string, unknown>)
+                        .filter(([, v]) => v != null)
+                        .map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`)
+                        .join(" · ")}
+                    </span>
+                  )}
+                </span>
+                <span className="shrink-0 text-xs text-slate-400">
+                  {nombreFuente(e.fuente_id)} · {new Date(e.creado_en).toLocaleDateString("es-ES")}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Seccion>
+      )}
     </div>
   );
 }

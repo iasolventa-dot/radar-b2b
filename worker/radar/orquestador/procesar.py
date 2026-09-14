@@ -78,7 +78,7 @@ def _calcular_senales_estado(registro: RegistroBruto, fuente: bd.FuenteInfo) -> 
 
 
 def _consolidar_y_actualizar_empresa(
-    empresa_id: str, campos_norm: dict, senales: SenalesEstado, conn: psycopg.Connection
+    empresa_id: str, campos_norm: dict, senales: SenalesEstado, fuente_id: int, conn: psycopg.Connection
 ) -> None:
     obs_nif = bd.cargar_observaciones_vigentes(empresa_id, "nif", conn)
     obs_rs = bd.cargar_observaciones_vigentes(empresa_id, "razon_social", conn)
@@ -102,6 +102,19 @@ def _consolidar_y_actualizar_empresa(
         estado, estado_confianza = determinar_estado(senales)
     else:
         estado, estado_confianza = actual["estado"], actual["estado_confianza"]
+
+    # eventos_empresa (doc 03b) existía desde el primer commit -- 'cambio_estado'
+    # es uno de sus tipos de ejemplo -- pero nada escribía en ella nunca:
+    # determinar_estado() ya calculaba el cambio, solo faltaba dejar rastro
+    # de cuándo y a qué pasó. Solo si tiene_senales: sin señales nuevas,
+    # `estado` es literalmente el mismo que `actual["estado"]` (línea de
+    # arriba), así que la comparación sería siempre falsa y no aportaría
+    # nada -- pero calcularla igual no hace daño, queda como guarda explícita
+    # por claridad.
+    if tiene_senales and estado != actual["estado"]:
+        bd.registrar_evento(
+            empresa_id, "cambio_estado", {"de": actual["estado"], "a": estado}, fuente_id, conn
+        )
 
     identidad = combinar_dimension_identidad(res_nif, res_rs)
     contacto = combinar_dimension_contacto(res_tel, res_email)
@@ -188,6 +201,18 @@ def procesar_registro(
     if decision.accion == "vincular":
         assert decision.empresa_id is not None
         empresa_id = decision.empresa_id
+        if fuente.codigo == "borme":
+            # 'borme_acto' (doc 03b, ejemplo de tipo de evento) tampoco se
+            # escribía nunca: cada vez que un acto nuevo del BORME se
+            # vincula a una empresa ya conocida (constitución ya vista,
+            # ahora llega un cambio de domicilio o de administradores...),
+            # es justo el tipo de hecho que vale la pena dejar registrado.
+            tipos_acto = (registro.campos.extra or {}).get("tipos_acto")
+            bd.registrar_evento(
+                empresa_id, "borme_acto",
+                {"tipos_acto": tipos_acto, "id_borme": (registro.campos.extra or {}).get("id_borme")},
+                fuente.id, conn,
+            )
     else:
         empresa_id = bd.crear_empresa(campos_norm, registro.campos, conn)
         if decision.accion == "crear_y_revisar" and decision.mejor_candidato_id and decision.resultado_comparacion:
@@ -202,7 +227,7 @@ def procesar_registro(
         bd.upsert_sede(empresa_id, registro.campos, campos_norm, fuente, conn)
 
     senales = _calcular_senales_estado(registro, fuente)
-    _consolidar_y_actualizar_empresa(empresa_id, campos_norm, senales, conn)
+    _consolidar_y_actualizar_empresa(empresa_id, campos_norm, senales, fuente.id, conn)
     bd.upsert_identificadores(empresa_id, campos_norm, registro.campos, fuente, conn)
     bd.upsert_administradores(empresa_id, registro.campos, fuente, rb.id, registro.url, conn)
 

@@ -454,6 +454,27 @@ def actualizar_empresa(
             )
 
 
+def registrar_evento(
+    empresa_id: str, tipo: str, detalle: dict, fuente_id: int | None, conn: psycopg.Connection
+) -> None:
+    """`eventos_empresa` (doc 03b) existía desde el primer commit -- con
+    'cambio_estado', 'cambio_domicilio', 'telefono_invalido', 'web_caida'
+    y 'borme_acto' como ejemplos de `tipo` en el propio comentario del
+    esquema -- pero nada escribía en ella nunca. Esta sesión conecta los
+    dos primeros (`_consolidar_y_actualizar_empresa`, `upsert_sede`) y
+    'borme_acto' (`procesar_registro`), porque son los únicos que ya
+    tenían detección real en el código; 'telefono_invalido'/'web_caida'
+    siguen sin conectar -- no existe ningún paso que vuelva a comprobar
+    si un teléfono o una web siguen vivos, así que no hay nada que
+    detectar todavía (haría falta una re-verificación activa, no solo
+    dejar constancia de un hecho que el resto del código ya sabe)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "insert into eventos_empresa (empresa_id, tipo, detalle, fuente_id) values (%s, %s, %s::jsonb, %s)",
+            (empresa_id, tipo, json.dumps(detalle, default=str), fuente_id),
+        )
+
+
 def upsert_sede(
     empresa_id: str,
     campos: CamposExtraidos,
@@ -470,12 +491,17 @@ def upsert_sede(
     sedes anteriores (principio de no sobrescribir evidencia): si ya existe
     una fila `activa` de este `tipo`, la actualiza; si no, crea una nueva.
     A mejorar cuando haya más de una fuente de direcciones en juego.
+
+    Si la dirección nueva difiere de la que había, se deja constancia en
+    `eventos_empresa` (tipo `cambio_domicilio`) -- el propio "gana la
+    última observación" ya se encarga de decidir qué dirección queda,
+    esto solo registra que hubo un cambio, no cambia ese criterio.
     """
     cp = campos_norm.get("cp")
     lat, lon = campos.lat, campos.lon
     with conn.cursor() as cur:
         cur.execute(
-            "select id from sedes where empresa_id = %s and tipo = %s and activa limit 1",
+            "select id, direccion_original from sedes where empresa_id = %s and tipo = %s and activa limit 1",
             (empresa_id, tipo),
         )
         existente = cur.fetchone()
@@ -486,6 +512,7 @@ def upsert_sede(
         )
         parametros_geom = (lon, lat) if lat is not None and lon is not None else ()
         if existente:
+            direccion_anterior = existente[1]
             cur.execute(
                 f"""
                 update sedes set
@@ -500,6 +527,12 @@ def upsert_sede(
                 (campos.domicilio, cp, campos.municipio, campos.provincia, *parametros_geom,
                  fuente.fiabilidad_base, existente[0]),
             )
+            if campos.domicilio and direccion_anterior and campos.domicilio != direccion_anterior:
+                registrar_evento(
+                    empresa_id, "cambio_domicilio",
+                    {"tipo_sede": tipo, "antes": direccion_anterior, "despues": campos.domicilio},
+                    fuente.id, conn,
+                )
         else:
             cur.execute(
                 f"""
