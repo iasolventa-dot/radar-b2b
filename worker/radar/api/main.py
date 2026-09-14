@@ -22,18 +22,23 @@ se expone más allá del equipo.
 
 `BackgroundTasks` (no una cola de verdad) es intencionadamente la solución
 más simple que funciona: un solo proceso Railway, sin infraestructura
-adicional. Si el proceso se reinicia a mitad de una búsqueda, esa búsqueda
-se queda en `estado='en_curso'` sin terminar nunca — no hay recuperación
-automática todavía (mismo tipo de simplificación que ya declara
-`radar.orquestador.procesar` en su docstring; a resolver cuando haya cola
-de verdad, doc 07 §5 `lanzar_descubrimiento`/`estado_trabajos`). La misma
-limitación de proceso único es la razón por la que cancelar es cooperativo
-y no instantáneo: no hay un job externo al que enviarle una señal real.
+adicional. Si el proceso muere a mitad de una búsqueda (Ctrl+C, corte de
+luz, recarga de `--reload`...), esa fila se queda en `estado='en_curso'`
+en la base de datos aunque ya no haya ningún bucle corriéndola — al
+arrancar de nuevo (`_lifespan`, ver `cerrar_busquedas_huerfanas`), el
+worker cierra automáticamente cualquier búsqueda que encuentre en ese
+estado, porque por construcción de este diseño (un solo proceso) no puede
+haber sido creada por el proceso que acaba de arrancar. Es la razón por
+la que cancelar es cooperativo y no instantáneo mientras el proceso SÍ
+está vivo: no hay un job externo al que enviarle una señal real, solo una
+columna que el propio bucle comprueba entre rondas.
 """
 
 from __future__ import annotations
 
 import asyncio
+import sys
+from contextlib import asynccontextmanager
 
 import httpx
 import psycopg
@@ -48,6 +53,7 @@ from radar.agente.planificador import (
     planificar,
 )
 from radar.api.bd_busquedas import (
+    cerrar_busquedas_huerfanas,
     crear_busqueda,
     debe_cancelarse,
     finalizar_busqueda_db,
@@ -67,7 +73,27 @@ from radar.api.esquemas import (
 from radar.api.estado import estado_final_de
 from radar.config import get_settings
 
-app = FastAPI(title="Radar B2B — worker API", version="0.1.0")
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    """Al arrancar (no en cada request): cierra cualquier búsqueda
+    `en_curso` huérfana de un proceso anterior — ver docstring de
+    `cerrar_busquedas_huerfanas`. Sin `SUPABASE_DB_URL` configurada no
+    revienta el arranque por esto: se limita a avisarlo por stderr, igual
+    que cualquier otro endpoint sin esa variable (`_requerir_db_url`)."""
+    settings = get_settings()
+    if settings.supabase_db_url:
+        try:
+            with psycopg.connect(settings.supabase_db_url) as conn:
+                n = cerrar_busquedas_huerfanas(conn)
+            if n:
+                print(f"[arranque] {n} búsqueda(s) 'en_curso' huérfanas de un proceso anterior, cerradas.", file=sys.stderr)
+        except psycopg.Error as exc:
+            print(f"[arranque] no se pudo comprobar búsquedas huérfanas: {exc}", file=sys.stderr)
+    yield
+
+
+app = FastAPI(title="Radar B2B — worker API", version="0.1.0", lifespan=_lifespan)
 
 _settings_arranque = get_settings()
 if _settings_arranque.cors_allow_origins:
@@ -234,6 +260,15 @@ async def cancelar(busqueda_id: str) -> ConfirmarBusquedaOut:
     escribe `estado='cancelada'` al terminar. Si está `esperando_respuesta`,
     no hay ningún bucle activo que pueda recogerlo (ya paró solo al llamar
     a `preguntar_usuario`), así que se cierra el estado aquí mismo.
+
+    Caso límite: si el proceso que estaba corriendo esa búsqueda ya murió
+    (Ctrl+C, corte de luz...) antes de que se pidiera cancelar, este
+    endpoint marca el flag igualmente pero NADIE va a recogerlo nunca —
+    parece que "no hace nada" porque, en efecto, no puede hacer nada: el
+    bucle que debía comprobarlo ya no existe. Se resuelve solo al
+    reiniciar el worker (`_lifespan`, `cerrar_busquedas_huerfanas`), no
+    aquí; no hay forma de distinguir desde este endpoint un proceso lento
+    de uno muerto.
     """
     db_url = _requerir_db_url()
     with psycopg.connect(db_url) as conn:

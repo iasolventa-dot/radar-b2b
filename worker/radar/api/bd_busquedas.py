@@ -177,3 +177,40 @@ def debe_cancelarse(conn: psycopg.Connection, busqueda_id: str) -> bool:
         cur.execute("select cancelar_solicitado from busquedas where id = %s", (busqueda_id,))
         fila = cur.fetchone()
     return bool(fila[0]) if fila else False
+
+
+def cerrar_busquedas_huerfanas(conn: psycopg.Connection) -> int:
+    """Se llama una vez, al arrancar el worker (`lifespan` en
+    `radar.api.main`) — no en cada request.
+
+    El diseño es de un solo proceso, sin cola de verdad (docstring de
+    `radar.api.main`): el bucle del planificador vive en la memoria de UN
+    proceso Python, nunca se persiste ni se puede retomar en otro. Si ese
+    proceso muere a mitad de una búsqueda (Ctrl+C, corte de luz, `git
+    pull` con `--reload` reiniciando, lo que sea), la fila se queda en
+    `estado='en_curso'` para siempre — no hay ningún otro proceso que
+    vaya a recogerla nunca, ni el propio botón "Cancelar" puede hacer
+    nada por ella: pide `cancelar_solicitado=true` y espera a un bucle
+    que ya no existe.
+
+    Por construcción de este diseño (un solo proceso), CUALQUIER fila que
+    esté `en_curso` en el momento en que un proceso arranca tiene que ser
+    de una ejecución anterior que ya no está corriendo — el proceso actual
+    acaba de empezar, no puede haber creado él mismo ese trabajo. Así que
+    se cierran todas, sin ambigüedad: `cancelada` si ya se les había
+    pedido cancelar antes de que el proceso muriera, `error` en el resto.
+
+    Devuelve cuántas cerró (para el mensaje de arranque en los logs)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "update busquedas set "
+            "  estado = case when cancelar_solicitado then 'cancelada' else 'error' end, "
+            "  estadisticas = estadisticas || jsonb_build_object("
+            "    'error', 'el proceso del worker se reinició o se cerró a mitad de esta búsqueda'"
+            "  ), "
+            "  finalizado_en = now() "
+            "where estado = 'en_curso'"
+        )
+        n = cur.rowcount
+    conn.commit()
+    return n
