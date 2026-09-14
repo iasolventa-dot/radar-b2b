@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowLeft, CheckCircle2, Clock3, Euro, HelpCircle, Loader2, RotateCw } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Ban, CheckCircle2, Clock3, Euro, HelpCircle, Loader2, RotateCw } from "lucide-react";
 import { crearClienteNavegador } from "@/lib/supabase/client";
-import { confirmarBusqueda } from "@/lib/api";
+import { cancelarBusqueda, confirmarBusqueda } from "@/lib/api";
 import { describirFiltros } from "@/lib/filtros";
 import {
   COLOR_ESTADO_BUSQUEDA,
@@ -18,10 +18,13 @@ import {
 // Solo 'en_curso' cambia por sí sola con el tiempo (el planificador va
 // escribiendo progreso ronda a ronda, `on_ronda` en radar.agente.planificador)
 // — el resto son estados de reposo (esperando confirmación) o terminales
-// (completada/error/esperando_respuesta: el bucle ya paró, ver docstring
-// de radar.api.main). Sondear esos no aporta nada, solo gasta peticiones.
+// (completada/error/esperando_respuesta/cancelada: el bucle ya paró, ver
+// docstring de radar.api.main). Sondear esos no aporta nada, solo gasta
+// peticiones.
 const INTERVALO_SONDEO_MS = 4000;
 const ESTADOS_QUE_CAMBIAN_SOLOS = new Set(["en_curso"]);
+// Estados desde los que se puede pedir cancelar (radar.api.main::cancelar).
+const ESTADOS_CANCELABLES = new Set(["en_curso", "esperando_respuesta"]);
 
 interface EmpresaResultado {
   empresa_id: string;
@@ -30,6 +33,9 @@ interface EmpresaResultado {
   nif: string | null;
   estado: string | null;
   confianza_global: number | null;
+  dominio_web: string | null;
+  telefono: string | null;
+  email: string | null;
 }
 
 function resumenRonda(ronda: RondaEstadistica): string {
@@ -54,6 +60,8 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
   const [resultados, setResultados] = useState<EmpresaResultado[]>([]);
   const [confirmando, setConfirmando] = useState(false);
   const [errorConfirmar, setErrorConfirmar] = useState<string | null>(null);
+  const [cancelando, setCancelando] = useState(false);
+  const [errorCancelar, setErrorCancelar] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelado = false;
@@ -70,24 +78,55 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
 
       const { data: filas } = await supabase
         .from("busqueda_resultados")
-        .select("empresa_id, motivo, empresas(razon_social, nif, estado, confianza_global)")
+        .select("empresa_id, motivo, empresas(razon_social, nif, estado, confianza_global, dominio_web)")
         .eq("busqueda_id", id)
         .limit(200);
       if (cancelado || !filas) return;
+
+      const empresaIds = filas.map((f: Record<string, unknown>) => f.empresa_id as string);
+      // Consulta plana aparte (no anidada dentro de la de arriba): el
+      // cliente de Supabase no tiene tipos generados (createBrowserClient
+      // sin <Database>), y su inferencia de tipos por plantillas de texto
+      // no soporta un embed de dos niveles (empresas -> canales_contacto)
+      // -- rompía la compilación con GenericStringError. Con dos consultas
+      // de un solo nivel cada una, no hay ese problema.
+      const { data: canales } = empresaIds.length
+        ? await supabase.from("canales_contacto").select("empresa_id, tipo, valor, estado").in("empresa_id", empresaIds)
+        : { data: [] as { empresa_id: string; tipo: string; valor: string; estado: string }[] };
+      if (cancelado) return;
+
+      const canalesPorEmpresa = new Map<string, { tipo: string; valor: string; estado: string }[]>();
+      for (const c of canales ?? []) {
+        const lista = canalesPorEmpresa.get(c.empresa_id) ?? [];
+        lista.push(c);
+        canalesPorEmpresa.set(c.empresa_id, lista);
+      }
+
       setResultados(
         filas.map((f: Record<string, unknown>) => {
-          const empresaRaw = f.empresas as
-            | { razon_social: string; nif: string | null; estado: string | null; confianza_global: number | null }
-            | { razon_social: string; nif: string | null; estado: string | null; confianza_global: number | null }[]
-            | null;
+          type Empresa = {
+            razon_social: string; nif: string | null; estado: string | null;
+            confianza_global: number | null; dominio_web: string | null;
+          };
+          const empresaRaw = f.empresas as Empresa | Empresa[] | null;
           const empresa = Array.isArray(empresaRaw) ? empresaRaw[0] : empresaRaw;
+          const empresaId = f.empresa_id as string;
+          const canalesEmpresa = canalesPorEmpresa.get(empresaId) ?? [];
+          // Si hay varios, el primero no marcado como inválido -- para una
+          // tabla compacta de leads basta con uno; el resto sigue estando
+          // en canales_contacto para quien necesite verlos todos.
+          const telefono = canalesEmpresa.find((c) => c.tipo === "telefono" && c.estado !== "invalido");
+          const email = canalesEmpresa.find((c) => c.tipo === "email" && c.estado !== "invalido");
           return {
-            empresa_id: f.empresa_id as string,
+            empresa_id: empresaId,
             motivo: f.motivo as string | null,
             razon_social: empresa?.razon_social ?? "(sin nombre)",
             nif: empresa?.nif ?? null,
             estado: empresa?.estado ?? null,
             confianza_global: empresa?.confianza_global ?? null,
+            dominio_web: empresa?.dominio_web ?? null,
+            telefono: telefono?.valor ?? null,
+            email: email?.valor ?? null,
           };
         })
       );
@@ -115,6 +154,24 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
     }
   }
 
+  async function cancelar() {
+    setCancelando(true);
+    setErrorCancelar(null);
+    try {
+      const resultado = await cancelarBusqueda(id);
+      // Si venía de 'esperando_respuesta' el worker ya cierra el estado al
+      // momento; si venía de 'en_curso' solo queda pedido -- el propio
+      // sondeo (sigue activo mientras estado siga siendo 'en_curso') verá
+      // el cambio a 'cancelada' en cuanto el planificador lo recoja entre
+      // rondas, sin que haga falta hacer nada más aquí.
+      setBusqueda((b) => ({ ...b, estado: resultado.estado }));
+    } catch (err) {
+      setErrorCancelar(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCancelando(false);
+    }
+  }
+
   const activa = busqueda.estado === "en_curso";
   const rondas = busqueda.estadisticas?.rondas ?? [];
 
@@ -137,6 +194,15 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
             {ETIQUETA_ESTADO_BUSQUEDA[busqueda.estado] ?? busqueda.estado}
           </span>
         </div>
+        {ESTADOS_CANCELABLES.has(busqueda.estado) && (
+          <div className="mt-2 flex items-center gap-3">
+            <button type="button" onClick={cancelar} disabled={cancelando} className="btn-secondary">
+              {cancelando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}
+              Cancelar búsqueda
+            </button>
+            {errorCancelar && <p className="text-sm text-rose-600">{errorCancelar}</p>}
+          </div>
+        )}
       </div>
 
       {busqueda.estado === "interpretada" && (
@@ -262,6 +328,9 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
                 <tr>
                   <th className="th-panel">Razón social</th>
                   <th className="th-panel">NIF</th>
+                  <th className="th-panel">Teléfono</th>
+                  <th className="th-panel">Email</th>
+                  <th className="th-panel">Web</th>
                   <th className="th-panel">Estado</th>
                   <th className="th-panel">Confianza</th>
                   <th className="th-panel">Fuente</th>
@@ -278,6 +347,30 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
                         <span className="badge bg-amber-100 text-amber-800">sin NIF</span>
                       )}
                     </td>
+                    <td className="px-4 py-3 text-slate-600">
+                      {r.telefono ? <a href={`tel:${r.telefono}`} className="hover:text-brand-600">{r.telefono}</a> : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-slate-600">
+                      {r.email ? (
+                        <a href={`mailto:${r.email}`} className="hover:text-brand-600">{r.email}</a>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-slate-600">
+                      {r.dominio_web ? (
+                        <a
+                          href={`https://${r.dominio_web}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="hover:text-brand-600"
+                        >
+                          {r.dominio_web}
+                        </a>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-slate-600">{r.estado ?? "—"}</td>
                     <td className="px-4 py-3 text-slate-600">
                       {r.confianza_global != null ? r.confianza_global.toFixed(2) : "—"}
@@ -287,7 +380,7 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
                 ))}
                 {resultados.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-4 py-14 text-center text-sm text-slate-400">
+                    <td colSpan={8} className="px-4 py-14 text-center text-sm text-slate-400">
                       {activa
                         ? "El agente todavía no ha encontrado empresas."
                         : "No se encontraron empresas en esta búsqueda."}

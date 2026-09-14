@@ -55,6 +55,22 @@ def test_estado_final_de_error_tiene_prioridad():
     assert estado_final_de(resultado) == "error"
 
 
+def test_estado_final_de_cancelada_por_usuario():
+    """migración 202609141400 — debe_cancelar() devolvió True entre rondas."""
+    resultado = ResultadoPlanificador(motivo_fin="cancelada_por_usuario")
+    assert estado_final_de(resultado) == "cancelada"
+
+
+def test_estado_final_de_cancelada_tiene_prioridad_sobre_error():
+    """Si debe_cancelar() falla comprobándolo (radar.agente.planificador
+    también marca error en ese caso) DESPUÉS de que otra ronda ya hubiera
+    puesto motivo_fin='cancelada_por_usuario', debe seguir ganando
+    'cancelada' -- es una cancelación pedida por el usuario, no un fallo
+    inesperado, aunque el error también esté presente."""
+    resultado = ResultadoPlanificador(motivo_fin="cancelada_por_usuario", error="fallo comprobando cancelación: x")
+    assert estado_final_de(resultado) == "cancelada"
+
+
 def test_estado_final_de_pregunta_sin_error():
     resultado = ResultadoPlanificador(pregunta={"pregunta": "¿incluyo autónomos?", "opciones": []})
     assert estado_final_de(resultado) == "esperando_respuesta"

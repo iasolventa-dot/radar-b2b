@@ -44,6 +44,17 @@ tabla `busquedas` sin esperar a que termine todo el bucle, que puede tardar
 varios minutos. Si `on_ronda` lanza, el bucle se detiene con
 `motivo_fin='error'` — un fallo guardando progreso es tan grave como un
 fallo de la API del LLM, nunca se ignora en silencio.
+
+También acepta un `debe_cancelar` opcional, comprobado justo después de
+`on_ronda` en cada ronda — si devuelve `True`, el bucle termina con
+`motivo_fin='cancelada_por_usuario'` (`radar.api.estado.estado_final_de`
+lo traduce a `busquedas.estado = 'cancelada'`, migración
+202609141400). Es cooperativo, no preventivo: solo se comprueba ENTRE
+rondas, así que no puede interrumpir una llamada al LLM o a una
+herramienta (`descubrir_borme`, `buscar_web`) que ya esté en curso — el
+efecto real es "para en la primera ronda que pueda después de pedirlo",
+no instantáneo. Mismo criterio que `on_ronda` si falla comprobándolo: se
+trata como error, nunca se ignora en silencio.
 """
 
 from __future__ import annotations
@@ -74,6 +85,7 @@ from radar.config import Settings, get_settings
 HERRAMIENTAS_QUE_CONSUMEN_PRESUPUESTO = {"buscar_web", "descubrir_borme"}
 
 OnRonda = Callable[["RondaPlanificador"], Awaitable[None]]
+DebeCancelar = Callable[[], Awaitable[bool]]
 
 
 @dataclass
@@ -126,21 +138,32 @@ async def planificar(
     max_rondas: int = 10,
     cliente: Any | None = None,
     on_ronda: OnRonda | None = None,
+    debe_cancelar: DebeCancelar | None = None,
     busqueda_id: str | None = None,
 ) -> ResultadoPlanificador:
     """Punto de entrada único; despacha según `settings.proveedor_llm` (ver
     docstring del módulo). `cliente`, si se pasa, debe ser del cliente
     nativo del proveedor del planificador (`openai.OpenAI` o
     `anthropic.Anthropic`) — para tests/inyección; en producción se
-    construye solo. `on_ronda`: ver docstring del módulo. `busqueda_id`: se
+    construye solo. `on_ronda`: ver docstring del módulo. `debe_cancelar`,
+    si se pasa, se comprueba justo después de cada `on_ronda` — si
+    devuelve `True`, el bucle termina con
+    `motivo_fin="cancelada_por_usuario"` (que `radar.api.estado.estado_final_de`
+    traduce a `busquedas.estado = 'cancelada'`). No puede interrumpir una
+    llamada al LLM o a una herramienta que ya esté en curso — solo actúa
+    entre rondas, igual que el propio `on_ronda`. `busqueda_id`: se
     pasa tal cual a `ContextoHerramientas` — permite a `descubrir_borme`/
     `buscar_web` enlazar cada empresa encontrada con esta búsqueda en
     `busqueda_resultados` (doc 03b); sin él (tests, uso suelto) las
     herramientas simplemente no enlazan nada."""
     settings = get_settings()
     if settings.proveedor_llm == "openai":
-        return await _planificar_openai(conn, cliente_http, filtros, presupuesto_eur, max_rondas, cliente, settings, on_ronda, busqueda_id)
-    return await _planificar_anthropic(conn, cliente_http, filtros, presupuesto_eur, max_rondas, cliente, settings, on_ronda, busqueda_id)
+        return await _planificar_openai(
+            conn, cliente_http, filtros, presupuesto_eur, max_rondas, cliente, settings, on_ronda, debe_cancelar, busqueda_id
+        )
+    return await _planificar_anthropic(
+        conn, cliente_http, filtros, presupuesto_eur, max_rondas, cliente, settings, on_ronda, debe_cancelar, busqueda_id
+    )
 
 
 # --- Proveedor: OpenAI (Responses API) --------------------------------
@@ -155,6 +178,7 @@ async def _planificar_openai(
     cliente: OpenAI | None,
     settings: Settings,
     on_ronda: OnRonda | None,
+    debe_cancelar: DebeCancelar | None = None,
     busqueda_id: str | None = None,
 ) -> ResultadoPlanificador:
     if cliente is None:
@@ -222,6 +246,16 @@ async def _planificar_openai(
                 except Exception as exc:  # noqa: BLE001 — no persistir progreso es tan grave como un fallo de la API
                     resultado_final.error = f"fallo guardando progreso: {exc}"
                     terminar = True
+            if debe_cancelar is not None and not terminar:
+                try:
+                    cancelar = await debe_cancelar()
+                except Exception as exc:  # noqa: BLE001 — igual que on_ronda: no se ignora en silencio
+                    resultado_final.error = f"fallo comprobando cancelación: {exc}"
+                    terminar = True
+                else:
+                    if cancelar:
+                        resultado_final.motivo_fin = "cancelada_por_usuario"
+                        terminar = True
             salidas.append(
                 {"type": "function_call_output", "call_id": llamada.call_id, "output": json.dumps(resultado_h, ensure_ascii=False, default=str)}
             )
@@ -265,6 +299,7 @@ async def _planificar_anthropic(
     cliente: Anthropic | None,
     settings: Settings,
     on_ronda: OnRonda | None,
+    debe_cancelar: DebeCancelar | None = None,
     busqueda_id: str | None = None,
 ) -> ResultadoPlanificador:
     if cliente is None:
@@ -317,6 +352,16 @@ async def _planificar_anthropic(
                 except Exception as exc:  # noqa: BLE001 — no persistir progreso es tan grave como un fallo de la API
                     resultado_final.error = f"fallo guardando progreso: {exc}"
                     terminar = True
+            if debe_cancelar is not None and not terminar:
+                try:
+                    cancelar = await debe_cancelar()
+                except Exception as exc:  # noqa: BLE001 — igual que on_ronda: no se ignora en silencio
+                    resultado_final.error = f"fallo comprobando cancelación: {exc}"
+                    terminar = True
+                else:
+                    if cancelar:
+                        resultado_final.motivo_fin = "cancelada_por_usuario"
+                        terminar = True
             resultados_tool.append(
                 {"type": "tool_result", "tool_use_id": llamada.id, "content": json.dumps(resultado_h, ensure_ascii=False, default=str)}
             )

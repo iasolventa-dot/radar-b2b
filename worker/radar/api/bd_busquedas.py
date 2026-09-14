@@ -134,3 +134,46 @@ def finalizar_busqueda_db(
             ),
         )
     conn.commit()
+
+
+def solicitar_cancelacion(conn: psycopg.Connection, busqueda_id: str, *, resolver_inmediatamente: bool) -> str:
+    """Marca `cancelar_solicitado = true` (migración 202609141400).
+
+    Si no hay ningún bucle activo escuchando ese flag
+    (`resolver_inmediatamente=True`, el caso de `estado='esperando_respuesta'`:
+    el planificador ya paró solo al llamar a `preguntar_usuario`), se
+    cierra el estado a `'cancelada'` aquí mismo — no hay nada corriendo que
+    pueda hacerlo por su cuenta.
+
+    Si sí hay un bucle activo (`estado='en_curso'`), solo se pone el flag;
+    es el propio bucle (`radar.agente.planificador`, parámetro
+    `debe_cancelar`) quien lo comprobará entre rondas y escribirá
+    `estado='cancelada'` al terminar (vía `finalizar_busqueda_db`) — no se
+    escribe el estado aquí para no arriesgarse a pisar una finalización
+    normal que llegue casi al mismo tiempo (condición de carrera: el
+    planificador podría terminar por `finalizar_busqueda` justo antes de
+    comprobar el flag).
+
+    Devuelve el estado resultante para la respuesta de la API.
+    """
+    with conn.cursor() as cur:
+        if resolver_inmediatamente:
+            cur.execute(
+                "update busquedas set cancelar_solicitado = true, estado = 'cancelada', finalizado_en = now() "
+                "where id = %s",
+                (busqueda_id,),
+            )
+        else:
+            cur.execute("update busquedas set cancelar_solicitado = true where id = %s", (busqueda_id,))
+    conn.commit()
+    return "cancelada" if resolver_inmediatamente else "en_curso"
+
+
+def debe_cancelarse(conn: psycopg.Connection, busqueda_id: str) -> bool:
+    """Lo llama el cierre `debe_cancelar` de `radar.api.main` en cada ronda
+    — una consulta ligera (una sola columna), no `obtener_busqueda`
+    completa, porque se ejecuta con mucha más frecuencia."""
+    with conn.cursor() as cur:
+        cur.execute("select cancelar_solicitado from busquedas where id = %s", (busqueda_id,))
+        fila = cur.fetchone()
+    return bool(fila[0]) if fila else False

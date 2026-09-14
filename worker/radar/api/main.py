@@ -1,4 +1,4 @@
-"""App de FastAPI (tarea #22, ver `radar.api` para el porqué). Dos
+"""App de FastAPI (tarea #22, ver `radar.api` para el porqué). Tres
 endpoints escriben, tres leen:
 
 1. ``POST /busquedas`` — interpreta la petición (`radar.agente.interpretacion`)
@@ -8,7 +8,11 @@ endpoints escriben, tres leen:
    EN SEGUNDO PLANO (`BackgroundTasks`) y devuelve al momento; la web sigue
    el progreso con el GET de abajo (los resultados llegan a
    `busquedas.rondas`/`estadisticas` ronda a ronda, no solo al final).
-3. ``GET /busquedas/{id}`` / ``GET /busquedas`` / ``GET /salud`` — lectura.
+3. ``POST /busquedas/{id}/cancelar`` — pide parar una búsqueda `en_curso`
+   (cooperativo, entre rondas — no interrumpe una llamada ya en curso) o
+   cierra directamente una que esté `esperando_respuesta` (migración
+   202609141400, ver docstring de la función `cancelar`).
+4. ``GET /busquedas/{id}`` / ``GET /busquedas`` / ``GET /salud`` — lectura.
 
 Simplificación conocida (documentada también en `PeticionBusquedaIn.usuario_id`):
 sin autenticación todavía — `usuario_id` se guarda tal cual lo manda la web,
@@ -22,7 +26,9 @@ adicional. Si el proceso se reinicia a mitad de una búsqueda, esa búsqueda
 se queda en `estado='en_curso'` sin terminar nunca — no hay recuperación
 automática todavía (mismo tipo de simplificación que ya declara
 `radar.orquestador.procesar` en su docstring; a resolver cuando haya cola
-de verdad, doc 07 §5 `lanzar_descubrimiento`/`estado_trabajos`).
+de verdad, doc 07 §5 `lanzar_descubrimiento`/`estado_trabajos`). La misma
+limitación de proceso único es la razón por la que cancelar es cooperativo
+y no instantáneo: no hay un job externo al que enviarle una señal real.
 """
 
 from __future__ import annotations
@@ -43,11 +49,13 @@ from radar.agente.planificador import (
 )
 from radar.api.bd_busquedas import (
     crear_busqueda,
+    debe_cancelarse,
     finalizar_busqueda_db,
     guardar_progreso_ronda,
     listar_busquedas,
     marcar_en_curso,
     obtener_busqueda,
+    solicitar_cancelacion,
 )
 from radar.api.esquemas import (
     BusquedaInterpretadaOut,
@@ -140,6 +148,12 @@ async def _ejecutar_planificador_en_fondo(busqueda_id: str, max_rondas: int) -> 
                 conn, busqueda_id, rondas_hasta_ahora=rondas_persistidas, max_rondas=max_rondas_reales, coste_gastado_eur=coste_acumulado
             )
 
+    async def debe_cancelar() -> bool:
+        # conexión propia, mismo motivo que on_ronda -- y misma cadencia:
+        # se llama una vez por ronda, no vale la pena mantener nada abierto.
+        with psycopg.connect(db_url) as conn:
+            return debe_cancelarse(conn, busqueda_id)
+
     try:
         # `httpx.AsyncClient` es un context manager async; `psycopg.connect(...)` es sync — no se
         # pueden combinar en un solo `async with` (mypy lo marca, y de hecho no funcionaría en runtime).
@@ -147,7 +161,7 @@ async def _ejecutar_planificador_en_fondo(busqueda_id: str, max_rondas: int) -> 
             with psycopg.connect(db_url, autocommit=False) as conn_trabajo:
                 resultado = await planificar(
                     conn_trabajo, cliente_http, filtros, presupuesto_eur=presupuesto_eur, max_rondas=max_rondas_reales,
-                    on_ronda=on_ronda, busqueda_id=busqueda_id,
+                    on_ronda=on_ronda, debe_cancelar=debe_cancelar, busqueda_id=busqueda_id,
                 )
     except Exception as exc:  # noqa: BLE001 — nunca dejar la búsqueda en 'en_curso' colgada para siempre
         resultado_error = ResultadoPlanificador(error=str(exc))
@@ -208,3 +222,30 @@ async def listar(limite: int = 20) -> list[BusquedaOut]:
         )
         for b in busquedas
     ]
+
+
+@app.post("/busquedas/{busqueda_id}/cancelar", response_model=ConfirmarBusquedaOut)
+async def cancelar(busqueda_id: str) -> ConfirmarBusquedaOut:
+    """No hay un job externo al que mandarle una señal: la búsqueda corre
+    en este mismo proceso vía `BackgroundTasks` (doc 08 D-16). Si está
+    `en_curso`, solo se marca `cancelar_solicitado` — el propio bucle del
+    planificador la recoge entre rondas (ver `_ejecutar_planificador_en_fondo`
+    y `radar.agente.planificador`, parámetro `debe_cancelar`) y es quien
+    escribe `estado='cancelada'` al terminar. Si está `esperando_respuesta`,
+    no hay ningún bucle activo que pueda recogerlo (ya paró solo al llamar
+    a `preguntar_usuario`), así que se cierra el estado aquí mismo.
+    """
+    db_url = _requerir_db_url()
+    with psycopg.connect(db_url) as conn:
+        busqueda = obtener_busqueda(conn, busqueda_id)
+        if busqueda is None:
+            raise HTTPException(status_code=404, detail="búsqueda no encontrada")
+        if busqueda.estado not in ("en_curso", "esperando_respuesta"):
+            raise HTTPException(
+                status_code=409,
+                detail=f"la búsqueda está en estado '{busqueda.estado}', no se puede cancelar",
+            )
+        nuevo_estado = solicitar_cancelacion(
+            conn, busqueda_id, resolver_inmediatamente=busqueda.estado == "esperando_respuesta"
+        )
+    return ConfirmarBusquedaOut(id=busqueda_id, estado=nuevo_estado)

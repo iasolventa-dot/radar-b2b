@@ -19,6 +19,12 @@ pregunta (`preguntar_usuario`):
   `preguntar_usuario` — no es un error ni un fin normal.
 - ``completada`` / ``error``: fin normal (llamó a `finalizar_busqueda`) o
   fallo (API caída, sin presupuesto para ni una ronda, etc.).
+- ``cancelada``: el usuario la canceló (`POST /busquedas/{id}/cancelar`,
+  migración 202609141400). `estado_final_de` solo la produce cuando
+  `resultado.motivo_fin == "cancelada_por_usuario"` — la marca que pone
+  `radar.agente.planificador` al ver `debe_cancelar()` devolver `True`
+  entre rondas. Antes esta rama no existía: el esquema anticipaba el
+  valor, pero nada de la API lo usaba ni había forma de pedirlo.
 """
 
 from __future__ import annotations
@@ -27,7 +33,7 @@ from typing import Any, Literal
 
 from radar.agente.planificador import ResultadoPlanificador, RondaPlanificador
 
-EstadoBusqueda = Literal["interpretada", "en_curso", "completada", "esperando_respuesta", "error"]
+EstadoBusqueda = Literal["interpretada", "en_curso", "completada", "esperando_respuesta", "error", "cancelada"]
 
 
 def serializar_ronda(ronda: RondaPlanificador) -> dict[str, Any]:
@@ -57,6 +63,8 @@ def estado_final_de(resultado: ResultadoPlanificador) -> EstadoBusqueda:
     """Solo se llama cuando `planificar()` ya ha devuelto — decide en qué
     estado queda la búsqueda según cómo terminó el bucle (ver docstring del
     módulo)."""
+    if resultado.motivo_fin == "cancelada_por_usuario":
+        return "cancelada"
     if resultado.error:
         return "error"
     if resultado.pregunta is not None:

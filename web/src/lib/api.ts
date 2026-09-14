@@ -1,9 +1,10 @@
 // Cliente HTTP del worker de Radar B2B (worker/radar/api, tarea #22).
 //
-// Solo cubre los dos endpoints que ESCRIBEN (interpretar una petición y
-// confirmarla) — el resto de la lectura del panel pasa por Supabase
-// directamente (RLS), igual que las pantallas de golden set/revisión, así
-// que no hace falta que el worker esté levantado para ver el histórico.
+// Cubre los tres endpoints que ESCRIBEN (interpretar una petición,
+// confirmarla, cancelarla) — el resto de la lectura del panel pasa por
+// Supabase directamente (RLS), igual que las pantallas de golden set/
+// revisión, así que no hace falta que el worker esté levantado para ver
+// el histórico.
 //
 // NEXT_PUBLIC_API_URL es la URL pública del worker en Railway. No lleva
 // ninguna clave: la API todavía no verifica autenticación (ver docstring
@@ -67,4 +68,11 @@ export function confirmarBusqueda(
     method: "POST",
     body: JSON.stringify({ max_rondas: opciones.maxRondas ?? 10, filtros: opciones.filtros ?? null }),
   });
+}
+
+/** POST /busquedas/{id}/cancelar — cooperativo si está en_curso (el planificador
+ * lo recoge entre rondas, no interrumpe una llamada ya en curso); inmediato si
+ * está esperando_respuesta (no hay ningún bucle activo que pueda recogerlo). */
+export function cancelarBusqueda(id: string): Promise<ConfirmarBusquedaOut> {
+  return peticionJson<ConfirmarBusquedaOut>(`/busquedas/${id}/cancelar`, { method: "POST" });
 }
