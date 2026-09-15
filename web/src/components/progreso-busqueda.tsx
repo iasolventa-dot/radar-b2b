@@ -45,6 +45,11 @@ interface EmpresaResultado {
 function resumenRonda(ronda: RondaEstadistica): string {
   const r = ronda.resultado as Record<string, unknown>;
   if (ronda.herramienta === "consultar_bd") return `${r.total ?? 0} empresas en la BD que cumplen los filtros`;
+  if (ronda.herramienta === "estimar_cobertura") {
+    if (r.soportado === false) return String(r.motivo ?? "sin datos suficientes para estimar cobertura");
+    const pct = r.pct_cobertura != null ? `${r.pct_cobertura}%` : "sin estimación";
+    return `${r.empresas_propias ?? 0} de ~${r.estimado_dirce ?? "?"} según el INE (${pct} de cobertura, ${r.anyo_dirce ?? "?"})`;
+  }
   if (ronda.herramienta === "descubrir_borme" || ronda.herramienta === "buscar_web") {
     const partes: string[] = [];
     if (typeof r.nueva_empresa === "number" && r.nueva_empresa) partes.push(`${r.nueva_empresa} nuevas`);

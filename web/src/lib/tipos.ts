@@ -236,6 +236,7 @@ export const COLOR_ESTADO_BUSQUEDA: Record<string, string> = {
 
 export const ETIQUETA_HERRAMIENTA: Record<string, string> = {
   consultar_bd: "Consultar base de datos",
+  estimar_cobertura: "Estimar cobertura (INE)",
   descubrir_borme: "Descubrir en el BORME",
   buscar_web: "Buscar en la web",
   preguntar_usuario: "Pregunta al usuario",

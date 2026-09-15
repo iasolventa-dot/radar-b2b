@@ -114,7 +114,7 @@ HERRAMIENTAS: list[Herramienta] = [
         nombre="consultar_bd",
         descripcion=(
             "Busca en la base de datos propia empresas que cumplen los filtros y devuelve un recuento, "
-            "estadísticas de calidad (confianza media, % con teléfono verificado, % con NIF válido) y una "
+            "estadísticas de calidad (confianza media, % con teléfono no inválido, % con NIF válido) y una "
             "muestra de hasta 10 empresas. Úsala al principio de cada búsqueda y tras cada ronda para medir "
             "el progreso. No devuelve la lista completa."
         ),
@@ -125,6 +125,18 @@ HERRAMIENTAS: list[Herramienta] = [
             },
             "required": [],
         },
+    ),
+    Herramienta(
+        nombre="estimar_cobertura",
+        descripcion=(
+            "Compara cuántas empresas propias cumplen los filtros contra una estimación oficial del INE "
+            "(DIRCE) para el mismo sector+zona -- útil para decidir si seguir buscando o si ya se ha cubierto "
+            "la mayoría del sector. Solo funciona si los filtros tienen sector.codigos_cnae Y alguna ubicación "
+            "(ccaa, provincias o municipios); si no, devuelve soportado=false sin inventar un número. La "
+            "estimación es solo a nivel de Comunidad Autónoma (más gruesa que provincia) y de un año concreto, "
+            "no en tiempo real -- tenlo en cuenta al interpretar el porcentaje."
+        ),
+        parametros={"type": "object", "properties": {}, "required": []},
     ),
     Herramienta(
         nombre="descubrir_borme",
@@ -429,6 +441,85 @@ def consultar_bd(conn: psycopg.Connection, filtros: FiltrosBusqueda, *, incluir_
     return resultado
 
 
+def estimar_cobertura(conn: psycopg.Connection, filtros: FiltrosBusqueda) -> dict[str, Any]:
+    """Compara cuántas empresas propias cumplen los filtros contra la
+    estimación del INE (DIRCE, tabla `dirce_cobertura`, migración
+    202609150001) para el mismo sector+zona — "hemos encontrado X de una
+    base estimada de ~Y". Plan de conexión de fuentes pendientes
+    (2026-09-14/15), segunda pieza tras CartoCiudad.
+
+    Solo funciona con `sector.codigos_cnae` Y alguna ubicación
+    (`ccaa`/`provincias`/`municipios`) en los filtros — sin eso devuelve
+    `soportado: false` con el motivo, nunca un número inventado
+    (principio 5). DIRCE es más grueso que este proyecto en dos
+    sentidos: geográfico (solo CCAA, no provincia — verificado en vivo
+    contra la API del INE que esa combinación con provincia no existe
+    para la unidad "Empresas", ver la migración) y temporal (una foto
+    anual, no en vivo).
+
+    Si `codigos_cnae` mezcla varios niveles que se solapan (p. ej. una
+    división "41" y uno de sus propios grupos "412"), sumar sus filas de
+    DIRCE contaría la misma empresa dos veces — esta función no lo
+    detecta ni lo corrige, suma exactamente los códigos que se le piden;
+    quien la llame debe pasar códigos que no se solapen entre sí (solo
+    divisiones, o solo grupos, no una mezcla).
+
+    Toca `conn` de verdad — se prueba de forma manual/integración,
+    mismo criterio que `consultar_bd`.
+    """
+    if not filtros.sector.codigos_cnae:
+        return {"soportado": False, "motivo": "sector.codigos_cnae vacío -- la estimación de cobertura solo funciona por sector CNAE"}
+
+    ccaas: list[str] = []
+    if filtros.ubicacion.ccaa:
+        ccaas = list(filtros.ubicacion.ccaa)
+    elif filtros.ubicacion.provincias:
+        with conn.cursor() as cur:
+            cur.execute("select distinct ccaa from municipios where provincia = any(%s)", (list(filtros.ubicacion.provincias),))
+            ccaas = [f[0] for f in cur.fetchall()]
+    elif filtros.ubicacion.municipios:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select distinct ccaa from municipios "
+                "where nombre_norm = any(select normalizar_texto(x) from unnest(%s::text[]) as x)",
+                (list(filtros.ubicacion.municipios),),
+            )
+            ccaas = [f[0] for f in cur.fetchall()]
+
+    if not ccaas:
+        return {"soportado": False, "motivo": "sin ubicación reconocida (ccaa/provincias/municipios) en los filtros"}
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "select ccaa, codigo_cnae, empresas, anyo from dirce_cobertura "
+            "where ccaa = any(%s) and codigo_cnae = any(%s) "
+            "and estrato_asalariados = 'Total' and version_cnae = 'CNAE-2009'",
+            (ccaas, list(filtros.sector.codigos_cnae)),
+        )
+        filas_dirce = cur.fetchall()
+
+    estimado_dirce = sum(f[2] for f in filas_dirce)
+    codigos_encontrados = {f[1] for f in filas_dirce}
+    codigos_sin_dato = sorted(set(filtros.sector.codigos_cnae) - codigos_encontrados)
+    anyo_dirce = max((f[3] for f in filas_dirce), default=None)
+
+    where_sql, parametros = construir_where_empresas(filtros)
+    with conn.cursor() as cur:
+        cur.execute(f"select count(*) from empresas e where {where_sql}", parametros)
+        fila = cur.fetchone()
+        encontradas = fila[0] if fila else 0
+
+    return {
+        "soportado": True,
+        "ccaa": ccaas,
+        "empresas_propias": encontradas,
+        "estimado_dirce": estimado_dirce,
+        "anyo_dirce": anyo_dirce,
+        "codigos_sin_dato_dirce": codigos_sin_dato,
+        "pct_cobertura": round(100 * encontradas / estimado_dirce, 1) if estimado_dirce else None,
+    }
+
+
 # --- descubrir_borme -----------------------------------------------------
 
 
@@ -614,6 +705,9 @@ async def ejecutar_herramienta(nombre: str, argumentos: dict[str, Any], contexto
     la llamada, igual que un 400)."""
     if nombre == "consultar_bd":
         return consultar_bd(contexto.conn, contexto.filtros, incluir_muestra=argumentos.get("incluir_muestra", True))
+
+    if nombre == "estimar_cobertura":
+        return estimar_cobertura(contexto.conn, contexto.filtros)
 
     if nombre == "descubrir_borme":
         if "provincia_titulo" not in argumentos:

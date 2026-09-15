@@ -19,6 +19,7 @@ from radar.agente.herramientas import (
     a_tool_param_openai,
     construir_where_empresas,
     ejecutar_herramienta,
+    estimar_cobertura,
     finalizar_busqueda,
     preguntar_usuario,
     resolver_codigos_municipio,
@@ -145,6 +146,21 @@ def test_resolver_codigos_municipio_lista_vacia_no_toca_bd():
     assert resolver_codigos_municipio([], conn=None) == []  # type: ignore[arg-type]
 
 
+# ---------- estimar_cobertura ----------
+
+
+def test_estimar_cobertura_sin_codigos_cnae_no_toca_bd():
+    resultado = estimar_cobertura(None, FiltrosBusqueda())  # type: ignore[arg-type]
+    assert resultado["soportado"] is False
+    assert "codigos_cnae" in resultado["motivo"]
+
+
+def test_estimar_cobertura_sin_ubicacion_no_toca_bd():
+    resultado = estimar_cobertura(None, FiltrosBusqueda(sector=SectorFiltro(codigos_cnae=["41"])))  # type: ignore[arg-type]
+    assert resultado["soportado"] is False
+    assert "ubicación" in resultado["motivo"]
+
+
 # ---------- _coincide_sector ----------
 
 
@@ -164,9 +180,11 @@ def test_coincide_sector_no_coincide():
 # ---------- esquemas de herramientas ----------
 
 
-def test_herramientas_tiene_las_cinco_implementadas():
+def test_herramientas_tiene_las_seis_implementadas():
     nombres = {h.nombre for h in HERRAMIENTAS}
-    assert nombres == {"consultar_bd", "descubrir_borme", "buscar_web", "preguntar_usuario", "finalizar_busqueda"}
+    assert nombres == {
+        "consultar_bd", "estimar_cobertura", "descubrir_borme", "buscar_web", "preguntar_usuario", "finalizar_busqueda",
+    }
 
 
 def test_a_tool_param_openai_forma_correcta():
