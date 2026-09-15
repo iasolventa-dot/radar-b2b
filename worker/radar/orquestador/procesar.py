@@ -34,6 +34,7 @@ from typing import Literal
 import psycopg
 
 from radar.fuentes.base import RegistroBruto
+from radar.fuentes.cartociudad import geocodificar
 from radar.normalizacion.dominio import normalizar_email
 from radar.normalizacion.registro import normalizar_registro
 from radar.orquestador import bd
@@ -224,6 +225,18 @@ def procesar_registro(
 
     tiene_direccion = bool(registro.campos.domicilio or campos_norm.get("cp") or registro.campos.municipio)
     if tiene_direccion:
+        # Geocodificación (plan de conexión de fuentes, CartoCiudad) --
+        # aquí, no dentro de bd.upsert_sede: bd.py es solo acceso a base de
+        # datos por convención de este proyecto, nunca llama a una API
+        # externa. Solo se intenta si el registro no trae ya coordenadas
+        # de otra fuente (ninguna de las dos conectadas hoy las da, pero
+        # no hay que pisar un dato mejor si algún día lo hay) y solo si
+        # hay domicilio -- sin calle, geocodificar() ni intenta la llamada.
+        if registro.campos.lat is None and registro.campos.lon is None and registro.campos.domicilio:
+            resultado_geo = geocodificar(registro.campos.domicilio, registro.campos.municipio, registro.campos.provincia)
+            if resultado_geo is not None:
+                registro.campos.lat = resultado_geo.lat
+                registro.campos.lon = resultado_geo.lon
         bd.upsert_sede(empresa_id, registro.campos, campos_norm, fuente, conn)
 
     senales = _calcular_senales_estado(registro, fuente)
