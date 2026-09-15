@@ -194,6 +194,13 @@ async def _planificar_openai(
     # mypy lo acepte sin ayuda — el SDK valida la forma real en tiempo de ejecución igualmente.
     tools = cast(Any, [a_tool_param_openai(h) for h in HERRAMIENTAS])
     resultado_final = ResultadoPlanificador()
+    # Contador de PASOS (una llamada a una herramienta), no de vueltas al LLM
+    # ("rondas" en el sentido de max_rondas/numero_ronda abajo). Un mismo turno
+    # del LLM puede pedir varias herramientas a la vez (tool_choice="auto" no
+    # lo impide) -- usar numero_ronda como numero de RondaPlanificador hacía
+    # que dos llamadas del mismo turno compartieran número, y React (la key
+    # del <li> en progreso-busqueda.tsx) las trataba como el mismo elemento.
+    contador_pasos = 0
 
     entrada: Any = _sistema(filtros, presupuesto_eur, max_rondas)
     previous_response_id: str | None = None
@@ -238,7 +245,7 @@ async def _planificar_openai(
             coste = _coste_de(llamada.name, resultado_h)
             contexto.presupuesto_restante_eur -= coste
             resultado_final.coste_gastado_eur += coste
-            ronda = RondaPlanificador(numero_ronda, llamada.name, argumentos, resultado_h)
+            ronda = RondaPlanificador(contador_pasos := contador_pasos + 1, llamada.name, argumentos, resultado_h)
             resultado_final.rondas.append(ronda)
             if on_ronda is not None:
                 try:
@@ -312,6 +319,7 @@ async def _planificar_anthropic(
     )
     tools = cast(Any, [a_tool_param_anthropic(h) for h in HERRAMIENTAS])  # ver comentario de `_planificar_openai`
     resultado_final = ResultadoPlanificador()
+    contador_pasos = 0  # ver comentario de `_planificar_openai` -- mismo motivo, mismo arreglo
 
     sistema = _sistema(filtros, presupuesto_eur, max_rondas)
     mensajes: list[MessageParam] = [{"role": "user", "content": "Empieza la búsqueda."}]
@@ -344,7 +352,7 @@ async def _planificar_anthropic(
             coste = _coste_de(llamada.name, resultado_h)
             contexto.presupuesto_restante_eur -= coste
             resultado_final.coste_gastado_eur += coste
-            ronda = RondaPlanificador(numero_ronda, llamada.name, dict(llamada.input), resultado_h)
+            ronda = RondaPlanificador(contador_pasos := contador_pasos + 1, llamada.name, dict(llamada.input), resultado_h)
             resultado_final.rondas.append(ronda)
             if on_ronda is not None:
                 try:
