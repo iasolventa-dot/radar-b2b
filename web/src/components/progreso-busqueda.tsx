@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowLeft, Ban, CheckCircle2, Clock3, Euro, HelpCircle, Loader2, RotateCw } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Ban, CheckCircle2, Clock3, Download, Euro, HelpCircle, Loader2, RotateCw } from "lucide-react";
 import { crearClienteNavegador } from "@/lib/supabase/client";
 import { cancelarBusqueda, confirmarBusqueda } from "@/lib/api";
 import { describirFiltros } from "@/lib/filtros";
+import { exportarResultadosCsv } from "@/lib/exportar-csv";
 import {
   COLOR_ESTADO_BUSQUEDA,
   ETIQUETA_CARGO,
@@ -372,7 +373,19 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
       )}
 
       <div>
-        <h2 className="mb-2 text-sm font-semibold text-slate-700">Empresas encontradas</h2>
+        <div className="mb-2 flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-slate-700">Empresas encontradas</h2>
+          {resultados.length > 0 && (
+            <button
+              type="button"
+              onClick={() => exportarResultadosCsv(resultados, busqueda.peticion)}
+              className="btn-secondary"
+            >
+              <Download className="h-4 w-4" />
+              Exportar CSV
+            </button>
+          )}
+        </div>
         <div className="card overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
