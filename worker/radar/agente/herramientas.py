@@ -184,7 +184,7 @@ HERRAMIENTAS: list[Herramienta] = [
             "properties": {
                 "motivo": {
                     "type": "string",
-                    "enum": ["cobertura_alcanzada", "presupuesto_agotado", "rendimientos_decrecientes", "max_rondas", "cancelada_usuario"],
+                    "enum": ["cobertura_alcanzada", "presupuesto_agotado", "rendimientos_decrecientes", "max_rondas"],
                 },
                 "resumen": {"type": "string", "description": "Resumen para el informe final del usuario."},
             },
@@ -563,7 +563,18 @@ def preguntar_usuario(pregunta: str, opciones: list[str] | None = None) -> dict[
     return {"pregunta": pregunta, "opciones": opciones or []}
 
 
-MotivoFin = Literal["cobertura_alcanzada", "presupuesto_agotado", "rendimientos_decrecientes", "max_rondas", "cancelada_usuario"]
+MotivoFin = Literal["cobertura_alcanzada", "presupuesto_agotado", "rendimientos_decrecientes", "max_rondas"]
+# "cancelada_usuario" existió aquí como opción para que el propio LLM
+# terminara la búsqueda si "el usuario quería cancelar" -- pero el
+# planificador no tiene ningún canal para que el LLM sepa eso durante su
+# propio razonamiento (el único mecanismo real de cancelación es el flag
+# asíncrono `debe_cancelar`, que el LLM nunca ve). Era una opción fantasma
+# que además, si alguna vez se elegía, `radar.api.estado.estado_final_de`
+# no la reconocía -- solo mira `resultado.motivo_fin == "cancelada_por_usuario"`
+# (el string que pone ESE mecanismo, distinto a propósito) -- y la
+# búsqueda quedaba mal clasificada como 'completada' en vez de 'cancelada'.
+# Quitada de raíz, mismo criterio que radio/poligono (doc 08): mejor no
+# ofrecer una opción que el sistema no puede respaldar.
 
 
 def finalizar_busqueda(motivo: MotivoFin, resumen: str) -> dict[str, Any]:

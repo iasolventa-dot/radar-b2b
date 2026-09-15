@@ -257,6 +257,11 @@ const ETIQUETA_ACCION_MOTIVO: Record<string, string> = {
   nueva_empresa: "nueva",
   vinculado: "vinculada a una empresa existente",
   en_revision: "en revisión (posible duplicado)",
+  // Faltaba: AccionFinal (radar.orquestador.procesar) tiene 4 valores, no 3
+  // -- "ya_procesado" es real en producción (esta misma búsqueda ya había
+  // encontrado la empresa antes, p. ej. un acto BORME que la vuelve a
+  // mencionar), no un caso de borde teórico.
+  ya_procesado: "ya encontrada antes en esta búsqueda",
 };
 
 export function etiquetaFuenteResultado(motivo: string | null): string {
