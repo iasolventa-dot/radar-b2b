@@ -118,7 +118,7 @@ export default async function PaginaDetalleEmpresa({
     supabase.from("cargos").select("cargo, fuente_id, url_evidencia, observado_en, personas(nombre)").eq("empresa_id", id),
     supabase
       .from("observaciones")
-      .select("campo, valor_original, valor_norm, fuente_id, url_evidencia, observado_en, confianza")
+      .select("campo, valor_original, valor_norm, fuente_id, url_evidencia, observado_en, confianza_fuente, vigente")
       .eq("empresa_id", id)
       .order("campo")
       .order("observado_en", { ascending: false }),
@@ -286,10 +286,13 @@ export default async function PaginaDetalleEmpresa({
                 <ul className="space-y-1 text-sm">
                   {(filas ?? []).map((o, i) => (
                     <li key={i} className="flex items-center justify-between gap-3 text-slate-600">
-                      <span>{o.valor_original ?? o.valor_norm}</span>
+                      <span className={o.vigente ? "" : "text-slate-400 line-through"}>
+                        {o.valor_original ?? o.valor_norm}
+                      </span>
                       <span className="shrink-0 text-xs text-slate-400">
+                        {!o.vigente && <span className="mr-1">(sustituida)</span>}
                         {nombreFuente(o.fuente_id)} · {new Date(o.observado_en).toLocaleDateString("es-ES")} · confianza{" "}
-                        {o.confianza?.toFixed(2) ?? "—"}
+                        {o.confianza_fuente?.toFixed(2) ?? "—"}
                         {o.url_evidencia && (
                           <>
                             {" · "}

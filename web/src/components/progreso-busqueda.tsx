@@ -49,7 +49,18 @@ function resumenRonda(ronda: RondaEstadistica): string {
     if (typeof r.nueva_empresa === "number" && r.nueva_empresa) partes.push(`${r.nueva_empresa} nuevas`);
     if (typeof r.vinculado === "number" && r.vinculado) partes.push(`${r.vinculado} vinculadas`);
     if (typeof r.en_revision === "number" && r.en_revision) partes.push(`${r.en_revision} en revisión`);
-    const errores = (typeof r.error === "number" ? r.error : 0) + (typeof r.error_procesado === "number" ? r.error_procesado : 0);
+    // Estos dos faltaban y son justo los que explican una ronda "vacía":
+    // sin ellos, una ronda que miró 200 actos y descartó 195 por sector se
+    // resumía igual que una que no encontró nada en absoluto.
+    if (typeof r.ya_procesado === "number" && r.ya_procesado) partes.push(`${r.ya_procesado} ya conocidas`);
+    if (typeof r.descartados_por_sector === "number" && r.descartados_por_sector)
+      partes.push(`${r.descartados_por_sector} descartadas por sector`);
+    if (typeof r.urls_no_legibles === "number" && r.urls_no_legibles)
+      partes.push(`${r.urls_no_legibles} webs no legibles`);
+    const errores =
+      (typeof r.error === "number" ? r.error : 0) +
+      (typeof r.error_procesado === "number" ? r.error_procesado : 0) +
+      (typeof r.error_busqueda === "number" ? r.error_busqueda : 0);
     if (errores) partes.push(`${errores} con error`);
     return partes.length ? partes.join(", ") : "sin resultados nuevos";
   }

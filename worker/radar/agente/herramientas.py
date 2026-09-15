@@ -387,7 +387,7 @@ def consultar_bd(conn: psycopg.Connection, filtros: FiltrosBusqueda, *, incluir_
                 avg(e.confianza_global),
                 avg((exists (
                     select 1 from canales_contacto c
-                    where c.empresa_id = e.id and c.tipo = 'telefono' and c.estado = 'verificado'
+                    where c.empresa_id = e.id and c.tipo = 'telefono' and c.estado <> 'invalido'
                 ))::int),
                 avg((e.nif is not null and e.nif_valido)::int)
             from empresas e
@@ -401,7 +401,16 @@ def consultar_bd(conn: psycopg.Connection, filtros: FiltrosBusqueda, *, incluir_
     resultado: dict[str, Any] = {
         "total": total or 0,
         "confianza_media": round(float(confianza_media), 2) if confianza_media is not None else None,
-        "pct_con_telefono_verificado": round(float(pct_telefono) * 100, 1) if pct_telefono is not None else 0.0,
+        # "con_telefono", no "con_telefono_verificado": canales_contacto.estado
+        # es 'sin_verificar' por defecto y NADA lo cambia nunca a 'verificado'
+        # (upsert_canal_contacto no lo toca; no existe ningún paso de
+        # re-verificación de teléfonos todavía). La consulta original pedía
+        # estado = 'verificado', así que este porcentaje era siempre 0.0 --
+        # el agente recibía una señal falsa de que su base no tiene ningún
+        # teléfono y podía decidir seguir gastando presupuesto por eso.
+        # Ahora cuenta teléfonos no marcados como inválidos, mismo criterio
+        # que el filtro `requisitos.telefono` de construir_where_empresas.
+        "pct_con_telefono": round(float(pct_telefono) * 100, 1) if pct_telefono is not None else 0.0,
         "pct_con_nif_valido": round(float(pct_nif) * 100, 1) if pct_nif is not None else 0.0,
         "muestra": [],
     }
