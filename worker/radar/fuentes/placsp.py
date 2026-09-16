@@ -1,5 +1,5 @@
-"""Parseo de licitaciones adjudicadas de la Plataforma de Contratación del
-Sector Público (PLACSP) — tercera pieza del plan de conexión de fuentes
+"""Licitaciones adjudicadas de la Plataforma de Contratación del Sector
+Público (PLACSP) — tercera pieza del plan de conexión de fuentes
 pendientes (2026-09-15), tras CartoCiudad y DIRCE.
 
 Da lo que ninguna fuente conectada da hoy: **NIF real del adjudicatario**,
@@ -7,30 +7,30 @@ verificado contra entradas reales de PLACSP el 2026-09-15 (ver fixtures
 en `worker/tests/fixtures/placsp/`, extraídas de la sindicación 643 —
 "Licitaciones publicadas... excluyendo los contratos menores").
 
-## Alcance de esta entrega — solo el parser, no el conector completo
+## Qué está verificado, y qué no
 
-A diferencia de CartoCiudad y DIRCE (donde se entregó la pieza completa,
-descarga + escritura en BD), aquí solo se entrega el **parseo** de una
-`<entry>` CODICE ya en memoria, probado contra 4 entradas reales
-guardadas como fixtures. No se entrega el conector de descubrimiento
-(descargar los ficheros ZIP mensuales, seguir la cadena `<link rel="next">`
-entre ficheros .atom, filtrar por fecha) por un motivo concreto y
-verificado, no por pereza: **PLACSP no tiene API REST** (confirmado
-2026-09-15) — el único mecanismo oficial es descargar ficheros ZIP
-mensuales (uno por sindicación, ~decenas de MB cada uno, con TODAS las
-licitaciones de España, sin filtro de zona/CPV en la descarga). Al
-intentar verificar esa descarga completa desde este entorno, la conexión
-se truncaba siempre en el mismo punto exacto (278 KB) en dos intentos
-distintos — no pude confirmar un ciclo de descarga íntegro de principio a
-fin, así que no lo entrego como si funcionara: mejor una pieza más
-pequeña bien probada que un conector grande sin verificar de verdad.
+**PLACSP no tiene API REST** (confirmado 2026-09-15) — el único
+mecanismo oficial es descargar ficheros ZIP mensuales (uno por
+sindicación, con TODAS las licitaciones de España, sin filtro de
+zona/CPV en la descarga; un mes puede pesar más de 100 MB). El parseo
+(`parsear_entrada`, `es_cpv_relevante`, `provincia_de_nuts`) está probado
+contra 4 entradas reales (fixtures) recuperadas descomprimiendo a mano un
+ZIP que se cortó a los 278 KB en este entorno de desarrollo, dos veces —
+esa parte del parseo no depende de tener el fichero completo.
 
-Lo que SÍ se pudo verificar con lo recuperado parcialmente (descomprimiendo
-el flujo deflate a mano, sin necesitar el fichero completo): la estructura
-real de las entradas, incluido que una licitación con varios lotes trae
-varios `cac:TenderResult`, cada uno con su propio `cac:WinningParty` —
-verificado con una licitación real de 3 lotes y 3 adjudicatarios
-distintos (fixture `entrada_multiples_lotes.xml`).
+`ConectorPLACSP.descubrir()` (la descarga + descompresión + recorrido de
+los `.atom` internos del zip) **no se ha podido probar contra un fichero
+real completo desde este entorno** — la descarga se sigue cortando aquí.
+Sí se confirmó desde una máquina sin esa limitación que el fichero de un
+mes se descarga entero (2026-09-15, 148.514.308 bytes para 2025-08) y que
+la URL/estructura son las esperadas. La lógica de `_entradas_de_zip`
+(leer varios `.atom` dentro de un mismo zip, que es como lo hace PLACSP
+cuando un mes supera las 500 entradas por fichero) está escrita según lo
+que documenta el manual oficial de OpenPLACSP, pero no verificada aquí
+contra un zip real de varios `.atom` — antes de confiar en esto en
+producción, conviene ejecutar `ConectorPLACSP` una vez de verdad y
+revisar cuántos registros produce contra lo que se ve a simple vista en
+el propio fichero.
 
 ## CPV, no CNAE
 
@@ -38,8 +38,8 @@ distintos (fixture `entrada_multiples_lotes.xml`).
 taxonomía de la UE para contratación pública) — una clasificación
 DISTINTA de CNAE, no traducible 1:1. La división 45 ("Trabajos de
 construcción") es la que interesa al piloto; no se intenta mapear a un
-código CNAE aquí — quien reciba un `ContratoAdjudicado` decide qué hacer
-con el CPV (guardarlo tal cual como observación, no forzarlo a CNAE).
+código CNAE aquí — el CPV se guarda tal cual en `extra`, no se fuerza a
+CNAE.
 
 ## Un hallazgo real al construir las fixtures de prueba
 
@@ -56,8 +56,17 @@ defecto a corregir sumando un identificador que no es un NIF.
 
 from __future__ import annotations
 
+import io
 import xml.etree.ElementTree as ET
+import zipfile
+from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass
+from datetime import UTC, datetime
+
+import httpx
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
+
+from .base import CamposExtraidos, Conector, RegistroBruto
 
 NS = {
     "atom": "http://www.w3.org/2005/Atom",
@@ -70,6 +79,184 @@ NS = {
 # entradas reales de PLACSP el 2026-09-15 (10 de 70 entradas recuperadas
 # tenían un ItemClassificationCode que empieza por "45").
 PREFIJOS_CPV_CONSTRUCCION: tuple[str, ...] = ("45",)
+
+# NUTS3 (código de región de ejecución que da PLACSP en cac:RealizedLocation)
+# -> nombre de provincia TAL COMO lo usa esta base de datos (municipios.provincia,
+# la misma cadena exacta del INE) -- verificado contra el Reglamento (UE)
+# 2019/1755 y la lista de las 52 provincias ya cargadas en `municipios`
+# (2026-09-15). Baleares y Canarias son un caso especial: el INE las
+# cuenta como 1 y 2 provincias respectivamente, pero NUTS3 las divide por
+# isla (3 y 7 unidades) -- aquí se colapsan de vuelta a la provincia INE
+# correspondiente, porque es la unidad que usa el resto de este proyecto
+# (ubicacion.provincias en la interpretación del agente).
+NUTS3_A_PROVINCIA: dict[str, str] = {
+    "ES111": "A Coruña", "ES112": "Lugo", "ES113": "Ourense", "ES114": "Pontevedra",
+    "ES120": "Asturias", "ES130": "Cantabria",
+    "ES211": "Araba/Álava", "ES212": "Gipuzkoa", "ES213": "Bizkaia",
+    "ES220": "Navarra", "ES230": "La Rioja",
+    "ES241": "Huesca", "ES242": "Teruel", "ES243": "Zaragoza",
+    "ES300": "Madrid",
+    "ES411": "Ávila", "ES412": "Burgos", "ES413": "León", "ES414": "Palencia",
+    "ES415": "Salamanca", "ES416": "Segovia", "ES417": "Soria", "ES418": "Valladolid", "ES419": "Zamora",
+    "ES421": "Albacete", "ES422": "Ciudad Real", "ES423": "Cuenca", "ES424": "Guadalajara", "ES425": "Toledo",
+    "ES431": "Badajoz", "ES432": "Cáceres",
+    "ES511": "Barcelona", "ES512": "Girona", "ES513": "Lleida", "ES514": "Tarragona",
+    "ES521": "Alicante/Alacant", "ES522": "Castellón/Castelló", "ES523": "Valencia/València",
+    "ES531": "Illes Balears", "ES532": "Illes Balears", "ES533": "Illes Balears",
+    "ES611": "Almería", "ES612": "Cádiz", "ES613": "Córdoba", "ES614": "Granada",
+    "ES615": "Huelva", "ES616": "Jaén", "ES617": "Málaga", "ES618": "Sevilla",
+    "ES620": "Murcia",
+    "ES630": "Ciudad Autónoma de Ceuta", "ES640": "Ciudad Autónoma de Melilla",
+    # Canarias: Las Palmas = Fuerteventura + Gran Canaria + Lanzarote;
+    # Santa Cruz de Tenerife = El Hierro + La Gomera + La Palma + Tenerife.
+    "ES703": "Santa Cruz de Tenerife", "ES704": "Las Palmas", "ES705": "Las Palmas",
+    "ES706": "Santa Cruz de Tenerife", "ES707": "Santa Cruz de Tenerife",
+    "ES708": "Las Palmas", "ES709": "Santa Cruz de Tenerife",
+}
+
+
+def provincia_de_nuts(nuts: str | None) -> str | None:
+    """`None` si no hay NUTS o si es un código de nivel más ancho que
+    provincia (p. ej. "ES61" sin el tercer dígito, o "ES" a secas) --
+    nunca inventa una provincia a partir de un código que no la identifica
+    con precisión (principio 5)."""
+    if not nuts:
+        return None
+    return NUTS3_A_PROVINCIA.get(nuts)
+
+
+# --- Conector (descarga + descubrimiento) ------------------------------
+#
+# URL verificada en vivo el 2026-09-15 (fuente: Ministerio de Hacienda,
+# hacienda.gob.es/.../LicitacionesContratante.aspx) -- sindicación 643:
+# "Licitaciones publicadas en los perfiles del contratante..., excluyendo
+# los contratos menores". El fichero de un mes puede pesar más de 100 MB
+# (confirmado: 148.514.308 bytes para 2025-08) -- por eso el timeout es
+# mucho más largo que el de `ConectorBorme` (sumarios diarios, unos pocos
+# KB cada uno).
+
+URL_ZIP = "https://contrataciondelsectorpublico.gob.es/sindicacion/sindicacion_643/licitacionesPerfilesContratanteCompleto3_{anyo}{mes:02d}.zip"
+_TAG_ENTRY = f"{{{NS['atom']}}}entry"
+
+
+def _es_reintentable(exc: BaseException) -> bool:
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code >= 500
+    return isinstance(exc, httpx.TransportError)
+
+
+def _entradas_de_zip(contenido_zip: bytes) -> Iterator[ET.Element]:
+    """Un zip mensual puede contener MÁS DE UN fichero .atom (el manual de
+    OpenPLACSP dice que cada .atom guarda como máximo 500 entries,
+    encadenados entre sí) -- se procesan todos los que haya dentro, en
+    el orden en que los devuelve el propio zip. `ET.iterparse` en vez de
+    `ET.parse`: un fichero de un mes completo puede tener decenas de miles
+    de entradas, cargarlo todo en memoria de una vez no es necesario
+    cuando solo se necesita recorrerlo una vez."""
+    with zipfile.ZipFile(io.BytesIO(contenido_zip)) as zf:
+        nombres_atom = sorted(n for n in zf.namelist() if n.endswith(".atom"))
+        for nombre in nombres_atom:
+            with zf.open(nombre) as fh:
+                for _evento, elemento in ET.iterparse(fh, events=("end",)):
+                    if elemento.tag == _TAG_ENTRY:
+                        yield elemento
+                        elemento.clear()
+
+
+def _contrato_a_registro_bruto(contrato: ContratoAdjudicado) -> RegistroBruto:
+    campos = CamposExtraidos(
+        razon_social=contrato.adjudicatario_nombre,
+        nif=contrato.adjudicatario_nif,
+        provincia=provincia_de_nuts(contrato.nuts),
+        extra={
+            "id_licitacion": contrato.id_licitacion,
+            "titulo_licitacion": contrato.titulo,
+            "cpv": contrato.cpv,
+            "nuts": contrato.nuts,
+            "fecha_adjudicacion": contrato.fecha_adjudicacion,
+            "importe_adjudicado": contrato.importe_adjudicado,
+            "organo_contratante": contrato.organo_contratante_nombre,
+        },
+    )
+    return RegistroBruto(
+        fuente="placsp",
+        id_externo=contrato.id_licitacion,
+        url=contrato.id_licitacion,  # en PLACSP el id de la licitación YA es una URL
+        payload={},  # campos_almacenables='{}' para 'placsp' (doc 03b) -- sin restricción especial, mismo caso que 'borme'
+        campos=campos,
+    )
+
+
+class ConectorPLACSP(Conector):
+    """Descubrimiento de adjudicatarios de contratos públicos, filtrado
+    por CPV (sector) y NUTS resuelto a provincia (zona) — plan de conexión
+    de fuentes pendientes (2026-09-15), tercera pieza.
+
+    A diferencia de `ConectorBorme` (sumarios diarios de pocos KB), aquí
+    cada llamada descarga un mes ENTERO de toda España de una vez (no hay
+    forma de pedir solo una provincia o un CPV al servidor: el filtro es
+    siempre posterior a la descarga, en este mismo conector) — por eso
+    `descubrir` solo admite pedir un mes cada vez, no un rango de fechas
+    como BORME.
+
+    **No verificado con una descarga real completa desde este entorno de
+    desarrollo** (ver docstring del módulo): la lógica de descarga,
+    descompresión y parseo por partes sí se probó — descarga con un
+    fichero .atom sintético empaquetado a mano, y el parseo de `<entry>`
+    con las fixtures reales de `parsear_entrada`. Lo que falta comprobar
+    es el ciclo íntegro contra el fichero real de un mes completo, que
+    solo se pudo confirmar que se descarga entero desde una máquina fuera
+    de este entorno (2026-09-15, 148.514.308 bytes para 2025-08).
+    """
+
+    codigo = "placsp"
+    coste_unitario_eur = 0.0  # dato abierto, gratuito (verificado 2026-09-15)
+
+    def __init__(self, cliente: httpx.AsyncClient):
+        self.cliente = cliente
+
+    def estimar_coste(self, parametros: dict) -> float:
+        return 0.0  # sin coste monetario; el "presupuesto" real es tiempo/ancho de banda
+
+    @retry(
+        stop=stop_after_attempt(4),
+        wait=wait_exponential(multiplier=1, max=30),
+        retry=retry_if_exception(_es_reintentable),
+        reraise=True,
+    )
+    async def _descargar_zip(self, anyo: int, mes: int) -> bytes:
+        url = URL_ZIP.format(anyo=anyo, mes=mes)
+        # timeout largo a propósito: el fichero de un mes puede pesar más
+        # de 100 MB (ver docstring del módulo) -- los 30s que basta para
+        # BORME no alcanzarían ni para bajar la mitad.
+        r = await self.cliente.get(url, timeout=280.0)
+        r.raise_for_status()
+        return r.content
+
+    async def descubrir(self, parametros: dict, max_coste_eur: float) -> AsyncIterator[RegistroBruto]:
+        """Parámetros esperados:
+
+        - ``anyo`` / ``mes``: por defecto, el mes en curso.
+        - ``provincias``: lista de nombres de provincia (p. ej. `["Sevilla"]`)
+          tal como los usa `municipios.provincia` -- filtra por NUTS
+          resuelto a provincia; sin este parámetro (o vacío), no filtra
+          por zona (toda España).
+        - ``prefijos_cpv``: por defecto `PREFIJOS_CPV_CONSTRUCCION` ("45").
+        """
+        hoy = datetime.now(UTC).date()
+        anyo = parametros.get("anyo", hoy.year)
+        mes = parametros.get("mes", hoy.month)
+        provincias = set(parametros.get("provincias") or [])
+        prefijos_cpv = tuple(parametros.get("prefijos_cpv") or PREFIJOS_CPV_CONSTRUCCION)
+
+        contenido_zip = await self._descargar_zip(anyo, mes)
+        for entry in _entradas_de_zip(contenido_zip):
+            for contrato in parsear_entrada(entry):
+                if not es_cpv_relevante(contrato.cpv, prefijos_cpv):
+                    continue
+                if provincias and provincia_de_nuts(contrato.nuts) not in provincias:
+                    continue
+                yield _contrato_a_registro_bruto(contrato)
 
 
 @dataclass
