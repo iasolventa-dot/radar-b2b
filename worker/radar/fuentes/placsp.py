@@ -169,12 +169,24 @@ def _entradas_de_zip(contenido_zip: bytes) -> Iterator[ET.Element]:
 
 
 def _contrato_a_registro_bruto(contrato: ContratoAdjudicado) -> RegistroBruto:
+    # `id_externo` es la clave de deduplicación de `insertar_registro_bruto`
+    # (junto a `fuente`, ver `RegistroBruto.hash_contenido`) -- sin el
+    # sufijo de lote, TODOS los lotes de la misma licitación comparten el
+    # mismo `id_licitacion` como id_externo, así que el segundo y
+    # siguientes lotes se tratarían como "el mismo registro ya visto" y se
+    # perderían en silencio como 'ya_procesado', aunque sean adjudicatarios
+    # completamente distintos. Bug real encontrado al ejecutar
+    # `ejecutar_placsp.py` contra datos de producción (2026-09-16): 140
+    # contratos vistos, 53 "ya_procesado" en una primera ejecución sin
+    # datos previos -- ninguno debería haberlo sido.
+    id_externo = f"{contrato.id_licitacion}#lote-{contrato.lote_id}" if contrato.lote_id else contrato.id_licitacion
     campos = CamposExtraidos(
         razon_social=contrato.adjudicatario_nombre,
         nif=contrato.adjudicatario_nif,
         provincia=provincia_de_nuts(contrato.nuts),
         extra={
             "id_licitacion": contrato.id_licitacion,
+            "lote_id": contrato.lote_id,
             "titulo_licitacion": contrato.titulo,
             "cpv": contrato.cpv,
             "nuts": contrato.nuts,
@@ -185,7 +197,7 @@ def _contrato_a_registro_bruto(contrato: ContratoAdjudicado) -> RegistroBruto:
     )
     return RegistroBruto(
         fuente="placsp",
-        id_externo=contrato.id_licitacion,
+        id_externo=id_externo,
         url=contrato.id_licitacion,  # en PLACSP el id de la licitación YA es una URL
         payload={},  # campos_almacenables='{}' para 'placsp' (doc 03b) -- sin restricción especial, mismo caso que 'borme'
         campos=campos,
@@ -268,6 +280,7 @@ class ContratoAdjudicado:
     nunca "el primer ganador", precisamente para no perder los demás)."""
 
     id_licitacion: str | None
+    lote_id: str | None  # cbc:ProcurementProjectLotID -- solo existe cuando hay más de un lote
     titulo: str | None
     cpv: str | None
     nuts: str | None  # código NUTS del lugar de ejecución, p. ej. "ES618" (Sevilla)
@@ -339,6 +352,7 @@ def parsear_entrada(entry: ET.Element) -> list[ContratoAdjudicado]:
         contratos.append(
             ContratoAdjudicado(
                 id_licitacion=id_licitacion,
+                lote_id=_texto(resultado, "cac:AwardedTenderedProject/cbc:ProcurementProjectLotID"),
                 titulo=titulo,
                 cpv=cpv,
                 nuts=nuts,

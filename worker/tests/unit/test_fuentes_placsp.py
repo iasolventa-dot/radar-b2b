@@ -18,6 +18,7 @@ import pytest
 from radar.fuentes.placsp import (
     NS,
     ConectorPLACSP,
+    _contrato_a_registro_bruto,
     _entradas_de_zip,
     es_cpv_relevante,
     parsear_entrada,
@@ -211,3 +212,61 @@ def test_conector_descubrir_filtra_por_cpv_y_provincia():
     resultados_todos = asyncio.run(_correr({"prefijos_cpv": ("",)}))
     assert len(resultados_todos) == 3
     assert {r.campos.nif for r in resultados_todos} == {"B35323732", "B35474931", "26885830A"}
+
+
+# ---------- lote_id / id_externo (bug real en producción) ----------
+#
+# Encontrado ejecutando ejecutar_placsp.py contra datos reales de
+# producción (2026-09-16): 140 contratos vistos, 53 "ya_procesado" en una
+# PRIMERA ejecución sin datos previos -- ninguno debería haberlo sido.
+# Causa: RegistroBruto.hash_contenido (radar.fuentes.base) depende solo
+# de fuente + id_externo + payload, nunca de `campos`. Antes de este
+# arreglo, `id_externo` era siempre `contrato.id_licitacion` -- el mismo
+# para los 3 lotes de una misma licitación -- así que el 2º y 3º lote se
+# trataban como "el mismo registro ya visto" y se perdían en silencio,
+# aunque fueran adjudicatarios completamente distintos.
+
+
+def test_lote_id_se_extrae_de_cada_lote():
+    contratos = parsear_entrada(_cargar_entry("entrada_multiples_lotes.xml"))
+    lotes = {c.lote_id for c in contratos}
+    assert lotes == {"1", "3"}, "lote 2 quedó desierto (sin ganador), correctamente fuera de la lista"
+
+
+def test_licitacion_de_un_solo_lote_no_tiene_lote_id():
+    """CODICE solo incluye ProcurementProjectLotID cuando hay más de un
+    lote -- verificado contra las fixtures reales de un solo lote."""
+    contratos = parsear_entrada(_cargar_entry("entrada_adjudicada_con_nif.xml"))
+    assert contratos[0].lote_id is None
+
+
+def test_lotes_de_la_misma_licitacion_dan_id_externo_distinto():
+    """El test de regresión del bug: sin el sufijo de lote, los dos
+    RegistroBruto de abajo tendrían el mismo id_externo (y por tanto el
+    mismo hash_contenido) a pesar de ser adjudicatarios distintos --
+    insertar_registro_bruto trataría el segundo como duplicado del
+    primero y lo perdería en silencio."""
+    contratos = parsear_entrada(_cargar_entry("entrada_multiples_lotes.xml"))
+    assert len(contratos) == 2
+    registros = [_contrato_a_registro_bruto(c) for c in contratos]
+
+    ids_externos = [r.id_externo for r in registros]
+    assert len(set(ids_externos)) == 2, f"id_externo debe ser distinto por lote, salieron iguales: {ids_externos}"
+
+    hashes = [r.hash_contenido for r in registros]
+    assert len(set(hashes)) == 2, "con id_externo distinto, hash_contenido también debe serlo -- si no, el bug seguiría"
+
+    # el id de licitación (sin el lote) sigue siendo el mismo para los dos,
+    # es lo que los une como parte de la misma licitación -- solo el
+    # id_externo (la clave de deduplicación) debe llevar el sufijo de lote
+    assert registros[0].campos.extra["id_licitacion"] == registros[1].campos.extra["id_licitacion"]
+
+
+def test_licitacion_de_un_solo_lote_no_lleva_sufijo_de_lote_en_id_externo():
+    """Sin lote_id (licitación de un solo lote), id_externo debe ser
+    exactamente el id de la licitación, sin un sufijo "#lote-None" ni
+    nada parecido -- no hay ambigüedad que resolver en ese caso."""
+    contrato = parsear_entrada(_cargar_entry("entrada_adjudicada_con_nif.xml"))[0]
+    registro = _contrato_a_registro_bruto(contrato)
+    assert registro.id_externo == contrato.id_licitacion
+    assert "#lote" not in registro.id_externo
