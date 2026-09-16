@@ -17,7 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from radar.fuentes.placsp import (  # noqa: E402
+from radar.fuentes.placsp import (
     PREFIJOS_CPV_CONSTRUCCION,
     _entradas_de_zip,
     es_cpv_relevante,

@@ -15,22 +15,27 @@ sindicación, con TODAS las licitaciones de España, sin filtro de
 zona/CPV en la descarga; un mes puede pesar más de 100 MB). El parseo
 (`parsear_entrada`, `es_cpv_relevante`, `provincia_de_nuts`) está probado
 contra 4 entradas reales (fixtures) recuperadas descomprimiendo a mano un
-ZIP que se cortó a los 278 KB en este entorno de desarrollo, dos veces —
+ZIP que se cortó a los 278 KB en el entorno de desarrollo, dos veces —
 esa parte del parseo no depende de tener el fichero completo.
 
 `ConectorPLACSP.descubrir()` (la descarga + descompresión + recorrido de
-los `.atom` internos del zip) **no se ha podido probar contra un fichero
-real completo desde este entorno** — la descarga se sigue cortando aquí.
-Sí se confirmó desde una máquina sin esa limitación que el fichero de un
-mes se descarga entero (2026-09-15, 148.514.308 bytes para 2025-08) y que
-la URL/estructura son las esperadas. La lógica de `_entradas_de_zip`
-(leer varios `.atom` dentro de un mismo zip, que es como lo hace PLACSP
-cuando un mes supera las 500 entradas por fichero) está escrita según lo
-que documenta el manual oficial de OpenPLACSP, pero no verificada aquí
-contra un zip real de varios `.atom` — antes de confiar en esto en
-producción, conviene ejecutar `ConectorPLACSP` una vez de verdad y
-revisar cuántos registros produce contra lo que se ve a simple vista en
-el propio fichero.
+los `.atom` internos del zip) se probó con un zip sintético en el
+entorno de desarrollo (que no puede descargar el fichero real completo,
+ver más abajo), y **se verificó por separado contra el fichero real de
+un mes completo** desde una máquina sin esa limitación
+(`worker/scripts/verificar_placsp.py`, 2026-09-15/16): 148.514.308 bytes,
+47.114 `<entry>` totales, 36.189 contratos adjudicados con NIF real
+extraídos, 4.515 de ellos con CPV de construcción (división 45). Las
+26.964 entradas sin ningún lote con NIF+nombre válidos son, en su
+mayoría, licitaciones todavía no adjudicadas ese mes o adjudicadas a una
+UTE sin NIF (ver más abajo) — no un fallo del parseo: los ejemplos reales
+de construcción que sí salieron (CONSTRUCTORA SAN JOSE SA, CONSTRUCCIONES
+SERROT S.A....) tienen NIF de formato correcto e importes creíbles.
+
+Sigue sin comprobar: cuántos de esos 4.515 contratos de construcción
+mensuales van a UTEs (y por tanto se pierden, correctamente, por falta de
+NIF real) — la verificación de arriba no desglosó ese dato específico
+para CPV=45 en particular, solo el total general de la fuente.
 
 ## CPV, no CNAE
 
@@ -199,14 +204,11 @@ class ConectorPLACSP(Conector):
     `descubrir` solo admite pedir un mes cada vez, no un rango de fechas
     como BORME.
 
-    **No verificado con una descarga real completa desde este entorno de
-    desarrollo** (ver docstring del módulo): la lógica de descarga,
-    descompresión y parseo por partes sí se probó — descarga con un
-    fichero .atom sintético empaquetado a mano, y el parseo de `<entry>`
-    con las fixtures reales de `parsear_entrada`. Lo que falta comprobar
-    es el ciclo íntegro contra el fichero real de un mes completo, que
-    solo se pudo confirmar que se descarga entero desde una máquina fuera
-    de este entorno (2026-09-15, 148.514.308 bytes para 2025-08).
+    **Verificado contra un fichero real completo** (ver docstring del
+    módulo): 47.114 `<entry>`, 36.189 contratos con NIF real extraídos,
+    4.515 de CPV construcción, para el mes 2025-08 completo (148.514.308
+    bytes) — ejecutado desde una máquina sin la limitación de red de
+    este entorno de desarrollo (`worker/scripts/verificar_placsp.py`).
     """
 
     codigo = "placsp"
