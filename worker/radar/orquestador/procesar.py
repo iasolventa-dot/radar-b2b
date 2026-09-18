@@ -232,12 +232,34 @@ def procesar_registro(
         # de otra fuente (ninguna de las dos conectadas hoy las da, pero
         # no hay que pisar un dato mejor si algún día lo hay) y solo si
         # hay domicilio -- sin calle, geocodificar() ni intenta la llamada.
+        geocodificador = precision_geo = municipio_ine = None
         if registro.campos.lat is None and registro.campos.lon is None and registro.campos.domicilio:
             resultado_geo = geocodificar(registro.campos.domicilio, registro.campos.municipio, registro.campos.provincia)
+            # CartoCiudad a veces resuelve una calle a un municipio homónimo
+            # de OTRA provincia con coordenadas totalmente equivocadas (p.
+            # ej. "C/ Molino 11-B, Sevilla" -> un punto cerca de Madrid) sin
+            # que el "type" lo delate -- sigue siendo "portal", como un
+            # acierto. Se valida contra el código INE determinista
+            # (`bd.buscar_municipio_ine`, a partir del NOMBRE, no de lo que
+            # diga el geocodificador) antes de aceptar el punto -- confirmado
+            # en vivo, 2/152 resultados de un primer backfill eran así.
+            if resultado_geo is not None and registro.campos.municipio:
+                esperado = bd.buscar_municipio_ine(registro.campos.municipio, registro.campos.provincia, conn)
+                if esperado and resultado_geo.municipio_ine and esperado != resultado_geo.municipio_ine:
+                    resultado_geo = None
             if resultado_geo is not None:
                 registro.campos.lat = resultado_geo.lat
                 registro.campos.lon = resultado_geo.lon
-        bd.upsert_sede(empresa_id, registro.campos, campos_norm, fuente, conn)
+                # 2026-09-18: antes se descartaban tipo/municipio_ine y
+                # `sedes.geocodificador`/`precision_geo` se quedaban NULL
+                # siempre aunque la geocodificación funcionara.
+                geocodificador = "cartociudad"
+                precision_geo = resultado_geo.tipo
+                municipio_ine = resultado_geo.municipio_ine
+        bd.upsert_sede(
+            empresa_id, registro.campos, campos_norm, fuente, conn,
+            geocodificador=geocodificador, precision_geo=precision_geo, municipio_ine=municipio_ine,
+        )
 
     senales = _calcular_senales_estado(registro, fuente)
     _consolidar_y_actualizar_empresa(empresa_id, campos_norm, senales, fuente.id, conn)

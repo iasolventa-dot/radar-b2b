@@ -40,6 +40,27 @@ class FuenteInfo:
     activa: bool
 
 
+def buscar_municipio_ine(nombre: str | None, provincia: str | None, conn: psycopg.Connection) -> str | None:
+    """Código INE del municipio (función SQL `buscar_municipio_ine`,
+    migración 202609140001) -- fuente de verdad DETERMINISTA a partir del
+    nombre tal como lo escribe el BORME, no de lo que devuelva un
+    geocodificador externo. Se usa para VALIDAR el resultado de
+    `radar.fuentes.cartociudad.geocodificar()`: confirmado en vivo
+    (2026-09-18) que CartoCiudad a veces resuelve una calle a un municipio
+    homónimo de OTRA provincia con coordenadas totalmente equivocadas (p.
+    ej. "C/ Molino 11-B, Sevilla" -> un punto cerca de Madrid) sin que la
+    API lo señale de ninguna forma -- el `type` sigue siendo "portal", como
+    si fuera un acierto. Si el `municipio_ine` que devuelve CartoCiudad no
+    coincide con este, el resultado se descarta (mejor sin coordenadas que
+    con unas falsas)."""
+    if not nombre or not provincia:
+        return None
+    with conn.cursor() as cur:
+        cur.execute("select buscar_municipio_ine(%s, %s)", (nombre, provincia))
+        fila = cur.fetchone()
+    return fila[0] if fila and fila[0] else None
+
+
 def obtener_fuente(codigo: str, conn: psycopg.Connection) -> FuenteInfo:
     with conn.cursor() as cur:
         cur.execute(
@@ -482,6 +503,10 @@ def upsert_sede(
     fuente: FuenteInfo,
     conn: psycopg.Connection,
     tipo: str = "domicilio_social",
+    *,
+    geocodificador: str | None = None,
+    precision_geo: str | None = None,
+    municipio_ine: str | None = None,
 ) -> None:
     """Simplificación deliberada (fuera de lo que detalla doc 05, que solo
     fija la semivida de la sede operativa, no un algoritmo de fusión entre
@@ -496,6 +521,15 @@ def upsert_sede(
     `eventos_empresa` (tipo `cambio_domicilio`) -- el propio "gana la
     última observación" ya se encarga de decidir qué dirección queda,
     esto solo registra que hubo un cambio, no cambia ese criterio.
+
+    `geocodificador`/`precision_geo`/`municipio_ine` (2026-09-18): hasta
+    ahora `radar.orquestador.procesar` llamaba a `geocodificar()`
+    (CartoCiudad) y solo copiaba `lat`/`lon` a `campos` -- el resto de lo
+    que devuelve `ResultadoGeocodificacion` (`tipo`: "portal"/"callejero",
+    y el `municipio_ine` real del IGN) se descartaba, así que esas dos
+    columnas de `sedes` estaban siempre a NULL aunque hubiera geocodificado
+    con éxito. Quien llama decide si los pasa; por defecto None (no
+    sobreescribe nada, mismo patrón `coalesce` que el resto de columnas).
     """
     cp = campos_norm.get("cp")
     lat, lon = campos.lat, campos.lon
@@ -519,13 +553,16 @@ def upsert_sede(
                     direccion_original = coalesce(%s, direccion_original),
                     codigo_postal = coalesce(%s, codigo_postal),
                     municipio_nombre = coalesce(%s, municipio_nombre),
+                    municipio_ine = coalesce(%s, municipio_ine),
                     provincia = coalesce(%s, provincia),
                     geom = coalesce({geom_sql}, geom),
+                    geocodificador = coalesce(%s, geocodificador),
+                    precision_geo = coalesce(%s, precision_geo),
                     confianza = %s, ultima_verificacion = now()
                 where id = %s
                 """,
-                (campos.domicilio, cp, campos.municipio, campos.provincia, *parametros_geom,
-                 fuente.fiabilidad_base, existente[0]),
+                (campos.domicilio, cp, campos.municipio, municipio_ine, campos.provincia, *parametros_geom,
+                 geocodificador, precision_geo, fuente.fiabilidad_base, existente[0]),
             )
             if campos.domicilio and direccion_anterior and campos.domicilio != direccion_anterior:
                 registrar_evento(
@@ -537,12 +574,12 @@ def upsert_sede(
             cur.execute(
                 f"""
                 insert into sedes
-                    (empresa_id, tipo, direccion_original, codigo_postal, municipio_nombre, provincia,
-                     geom, confianza, ultima_verificacion)
-                values (%s, %s, %s, %s, %s, %s, {geom_sql}, %s, now())
+                    (empresa_id, tipo, direccion_original, codigo_postal, municipio_nombre, municipio_ine, provincia,
+                     geom, geocodificador, precision_geo, confianza, ultima_verificacion)
+                values (%s, %s, %s, %s, %s, %s, %s, {geom_sql}, %s, %s, %s, now())
                 """,
-                (empresa_id, tipo, campos.domicilio, cp, campos.municipio, campos.provincia,
-                 *parametros_geom, fuente.fiabilidad_base),
+                (empresa_id, tipo, campos.domicilio, cp, campos.municipio, municipio_ine, campos.provincia,
+                 *parametros_geom, geocodificador, precision_geo, fuente.fiabilidad_base),
             )
 
 
