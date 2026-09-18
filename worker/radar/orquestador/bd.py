@@ -40,6 +40,42 @@ class FuenteInfo:
     activa: bool
 
 
+def normalizar_codigos_cnae(codigos: list[str], version_destino: str, conn: psycopg.Connection) -> list[str]:
+    """Traduce códigos CNAE de cualquier versión a `version_destino` con
+    `cnae_correspondencias` (INE) cuando el código no existe ya en esa
+    versión.
+
+    `radar.agente.interpretacion` no sabe de versiones de la CNAE -- el
+    LLM suele dar los códigos CNAE-2009 con los que está más entrenado,
+    aunque el catálogo real que usa el resto del pipeline (`empresas.cnae_version`,
+    `cnae_coincide`) sea CNAE-2025 por defecto. Confirmado en vivo
+    (2026-09-18): "empresas de informática en Sevilla" interpretó
+    `codigos_cnae=["6201","6202","6203","6209"]` (división 62 en
+    CNAE-2009) -- códigos que NO EXISTEN en CNAE-2025, donde esa misma
+    división se renumeró a 6210/6220/6290 -- así que `consultar_bd` no
+    encontraba nada aunque hubiera empresas de informática reales ya
+    clasificadas con el código correcto (`radar.clasificacion`).
+
+    Nunca inventa: un código que no exista en ninguna versión ni tenga
+    correspondencia conocida se descarta en silencio -- mejor buscar con
+    un código de menos que con uno que no existe en el catálogo."""
+    if not codigos:
+        return []
+    resultado: set[str] = set()
+    with conn.cursor() as cur:
+        for codigo in codigos:
+            cur.execute("select 1 from cnae where codigo = %s and version = %s", (codigo, version_destino))
+            if cur.fetchone():
+                resultado.add(codigo)
+                continue
+            cur.execute(
+                "select codigo_destino from cnae_correspondencias where codigo_origen = %s and version_destino = %s",
+                (codigo, version_destino),
+            )
+            resultado.update(fila[0] for fila in cur.fetchall())
+    return sorted(resultado)
+
+
 def buscar_municipio_ine(nombre: str | None, provincia: str | None, conn: psycopg.Connection) -> str | None:
     """Código INE del municipio (función SQL `buscar_municipio_ine`,
     migración 202609140001) -- fuente de verdad DETERMINISTA a partir del

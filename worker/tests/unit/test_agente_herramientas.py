@@ -111,6 +111,16 @@ def test_where_provincia_prevalece_sobre_ccaa():
     assert ["Sevilla"] in params
 
 
+def test_where_exclusiones_se_aplican_aunque_cnae_o_palabras_coincidan():
+    """exclusiones sigue siendo un AND-NOT estricto por fuera del OR de
+    codigos_cnae/palabras_clave: una empresa que caiga en el CNAE pero
+    mencione una palabra excluida debe descartarse igual."""
+    filtros = FiltrosBusqueda(sector=SectorFiltro(codigos_cnae=["41"], exclusiones=["reforma menor"]))
+    sql, params = construir_where_empresas(filtros)
+    assert "not exists" in sql
+    assert ["reforma menor"] in params
+
+
 def test_where_palabras_clave_de_sector_se_aplican():
     """Antes esta condición no existía: sin codigos_cnae explícitos (el caso
     normal, porque BORME nunca da CNAE), sector.palabras_clave se ignoraba
@@ -125,13 +135,20 @@ def test_where_palabras_clave_de_sector_se_aplican():
 
 
 def test_where_cnae_y_palabras_clave_combinados():
-    """codigos_cnae y palabras_clave no son excluyentes entre sí (a
-    diferencia de provincias/municipios) -- pueden llegar juntos de la
-    interpretación y deben combinarse con AND, no sustituirse."""
+    """codigos_cnae y palabras_clave son dos formas ALTERNATIVAS de
+    reconocer el mismo sector (OR), no dos requisitos simultáneos (AND) --
+    se combinaban con AND hasta 2026-09-18, y con el clasificador CNAE
+    cubriendo solo el 11% de las empresas (radar.clasificacion) eso
+    excluía en la práctica a cualquier empresa sin clasificar aunque su
+    objeto_social mencionara el sector tal cual. Confirmado en vivo:
+    "empresas de informática en Sevilla" no encontraba ninguna empresa de
+    informática real de la base por este motivo -- ver commit que corrigió
+    esto y la normalización de versión de CNAE en el mismo hallazgo."""
     filtros = FiltrosBusqueda(sector=SectorFiltro(codigos_cnae=["41"], palabras_clave=["residencial"]))
     sql, params = construir_where_empresas(filtros)
     assert "cnae_coincide(e.cnae_principal, %s)" in sql
     assert "e.objeto_social" in sql
+    assert " or " in sql
     assert ["41"] in params
     assert ["residencial"] in params
 

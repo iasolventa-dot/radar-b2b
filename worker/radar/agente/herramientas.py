@@ -233,10 +233,22 @@ def construir_where_empresas(
         parametros.append(list(filtros.estados))
     if not filtros.incluir_autonomos:
         condiciones.append("e.es_persona_fisica = false")
+    # codigos_cnae y palabras_clave son dos formas ALTERNATIVAS de reconocer
+    # el mismo sector (OR), no dos requisitos simultáneos (AND) -- se
+    # combinaban con AND hasta esta sesión, y con el clasificador CNAE
+    # cubriendo hoy solo el 11% de las empresas (radar.clasificacion, doc 05
+    # prompt #5), eso significaba en la práctica que en cuanto la
+    # interpretación daba también codigos_cnae, cualquier empresa SIN
+    # clasificar quedaba excluida aunque su objeto_social mencionara el
+    # sector tal cual -- confirmado en vivo: "empresas de informática en
+    # Sevilla" no encontraba ninguna de las empresas de informática reales
+    # que sí hay en la base, precisamente porque casi ninguna tiene
+    # cnae_principal todavía.
+    condiciones_sector: list[str] = []
     if filtros.sector.codigos_cnae:
         # cnae_coincide (doc 08 D-18) compara por prefijo ignorando puntos:
         # ["41"] casa con "4101"/"41.02"/etc., no solo con "41" exacto.
-        condiciones.append("cnae_coincide(e.cnae_principal, %s)")
+        condiciones_sector.append("cnae_coincide(e.cnae_principal, %s)")
         parametros.append(list(filtros.sector.codigos_cnae))
     if filtros.sector.palabras_clave:
         # Antes esta rama no existía: el filtro por palabras clave se
@@ -249,7 +261,7 @@ def construir_where_empresas(
         # que hace _coincide_sector en Python -- mismo criterio, aquí en
         # SQL porque aquí no hay un `campos.objeto_social` en memoria, hay
         # que ir contra lo ya guardado en `empresas`.
-        condiciones.append(
+        condiciones_sector.append(
             "exists ("
             "  select 1 from unnest(%s::text[]) as p(palabra)"
             "  where strpos("
@@ -259,6 +271,8 @@ def construir_where_empresas(
             ")"
         )
         parametros.append(list(filtros.sector.palabras_clave))
+    if condiciones_sector:
+        condiciones.append("(" + " or ".join(condiciones_sector) + ")")
     if filtros.sector.exclusiones:
         # Mismo criterio que palabras_clave, pero negado -- la interpretación
         # ya capturaba esto (doc 07 §3) pero nunca se aplicaba: se declaraba

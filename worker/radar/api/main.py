@@ -72,6 +72,7 @@ from radar.api.esquemas import (
 )
 from radar.api.estado import estado_final_de
 from radar.config import get_settings
+from radar.orquestador import bd
 
 
 @asynccontextmanager
@@ -134,6 +135,14 @@ async def crear(peticion_in: PeticionBusquedaIn) -> BusquedaInterpretadaOut:
         raise HTTPException(status_code=502, detail=f"la interpretación falló: {resultado.error}")
 
     with psycopg.connect(db_url) as conn:
+        # El LLM de interpretación no sabe de versiones de la CNAE -- suele
+        # dar códigos CNAE-2009, que no siempre existen en CNAE-2025 (ver
+        # docstring de bd.normalizar_codigos_cnae). Se normaliza aquí, antes
+        # de guardar la búsqueda, para que consultar_bd/cnae_coincide reciban
+        # códigos que de verdad existen en el catálogo que usa el pipeline.
+        resultado.filtros.sector.codigos_cnae = bd.normalizar_codigos_cnae(
+            resultado.filtros.sector.codigos_cnae, "CNAE-2025", conn
+        )
         busqueda_id = crear_busqueda(
             conn, peticion=peticion_in.peticion, filtros=resultado.filtros,
             presupuesto_eur=peticion_in.presupuesto_eur, usuario_id=peticion_in.usuario_id,
