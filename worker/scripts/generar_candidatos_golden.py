@@ -152,7 +152,15 @@ async def generar(
                     "tipos_acto": ";".join(tipos),
                     "objeto_social": objeto_social or "",
                     "capital_eur": extra.get("capital_eur") or "",
-                    "administradores": ";".join(extra.get("administradores") or []),
+                    # ConectorBorme da cada administrador como {"nombre": ..., "cargo": ...}
+                    # (extracción de PATRONES_CARGO) desde que se distinguen roles -- antes
+                    # este script esperaba una lista de strings sueltos y reventaba con
+                    # TypeError en cuanto un acto real traía administradores (casi todas las
+                    # constituciones). Confirmado en vivo, 2026-09-18.
+                    "administradores": ";".join(
+                        f"{a['nombre']} ({a['cargo']})" if isinstance(a, dict) else str(a)
+                        for a in (extra.get("administradores") or [])
+                    ),
                     "posible_homonimo_de": "",
                     "posible_grupo_con": "",
                     "url_evidencia": registro.url or "",

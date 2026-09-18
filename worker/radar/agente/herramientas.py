@@ -397,10 +397,25 @@ def resolver_codigos_municipio(nombres: list[str], conn: psycopg.Connection) -> 
         return [fila[0] for fila in cur.fetchall()]
 
 
-def consultar_bd(conn: psycopg.Connection, filtros: FiltrosBusqueda, *, incluir_muestra: bool = True) -> dict[str, Any]:
+def consultar_bd(
+    conn: psycopg.Connection, filtros: FiltrosBusqueda, *, incluir_muestra: bool = True, busqueda_id: str | None = None
+) -> dict[str, Any]:
     """Toca `conn` de verdad — se prueba de forma manual/integración contra
     Supabase, igual que `radar.orquestador.bd` (ver docstring de ese
-    módulo); `construir_where_empresas` sí tiene tests unitarios."""
+    módulo); `construir_where_empresas` sí tiene tests unitarios.
+
+    `busqueda_id` (2026-09-18): antes `consultar_bd` NUNCA escribía en
+    `busqueda_resultados` -- solo lo hacían `descubrir_borme`/`buscar_web`
+    (herramientas de descubrimiento), así que si el planificador se
+    quedaba sin rondas para llamar a una de esas dos, una empresa que YA
+    cumplía los filtros y ya estaba en la base (de una búsqueda o conector
+    anterior) no aparecía nunca en "Empresas encontradas" del panel --
+    confirmado en vivo: "1 empresas en la BD que cumplen los filtros" en
+    el progreso, "0" en la tabla de resultados de la misma búsqueda. Se
+    registran TODAS las que cumplen (no solo la `muestra` de hasta 10 que
+    sí se le devuelve al LLM -- eso sigue limitado a propósito, doc de la
+    herramienta: "no devuelve la lista completa" para no llenarle el
+    contexto) porque el panel sí necesita la lista completa."""
     codigos_municipio = None
     if not filtros.ubicacion.provincias and filtros.ubicacion.municipios:
         codigos_municipio = resolver_codigos_municipio(filtros.ubicacion.municipios, conn)
@@ -452,6 +467,17 @@ def consultar_bd(conn: psycopg.Connection, filtros: FiltrosBusqueda, *, incluir_
                 {"razon_social": f[0], "nif": f[1], "estado": f[2], "confianza": float(f[3]) if f[3] is not None else None}
                 for f in cur.fetchall()
             ]
+
+    if busqueda_id and resultado["total"]:
+        with conn.cursor() as cur:
+            cur.execute(f"select e.id, e.confianza_global from empresas e where {where_sql}", parametros)
+            for empresa_id, confianza in cur.fetchall():
+                bd.registrar_resultado_busqueda(
+                    busqueda_id, str(empresa_id), "consultar_bd: ya cumplía los filtros",
+                    float(confianza) if confianza is not None else None, conn,
+                )
+        conn.commit()
+
     return resultado
 
 
@@ -718,7 +744,10 @@ async def ejecutar_herramienta(nombre: str, argumentos: dict[str, Any], contexto
     no existe, para que el planificador se lo reporte al LLM como error de
     la llamada, igual que un 400)."""
     if nombre == "consultar_bd":
-        return consultar_bd(contexto.conn, contexto.filtros, incluir_muestra=argumentos.get("incluir_muestra", True))
+        return consultar_bd(
+            contexto.conn, contexto.filtros,
+            incluir_muestra=argumentos.get("incluir_muestra", True), busqueda_id=contexto.busqueda_id,
+        )
 
     if nombre == "estimar_cobertura":
         return estimar_cobertura(contexto.conn, contexto.filtros)
