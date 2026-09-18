@@ -682,6 +682,123 @@ def insertar_candidato_duplicado(
         )
 
 
+def candidatos_duplicado_pendientes(conn: psycopg.Connection) -> list[dict]:
+    """Candidatos de `candidatos_duplicado` en `estado='pendiente'` que
+    TODAVÍA no tienen `opinion_llm`, para `scripts/arbitrar_duplicados.py`
+    (`radar.resolucion.arbitraje`, doc 05 §2.5). `senales` guarda el dict
+    completo que devolvió `radar.resolucion.scoring.comparar` (ver
+    `insertar_candidato_duplicado`), de ahí sacamos la lista de señales
+    legibles para el prompt.
+
+    `opinion_llm is null` hace el script reanudable sin gastar LLM de más:
+    un candidato que ya se arbitró como "incierto" (confianza insuficiente)
+    se queda `pendiente` para revisión humana a propósito, y no hace falta
+    volver a preguntarle al modelo en la siguiente pasada -- solo los que
+    fallaron antes de guardar opinión (p. ej. por un error de red o, como
+    pasó en la sesión de 2026-09-18, un bug de tipos en
+    `fusionar_empresas_rpc`) se reintentan."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "select id, empresa_a, empresa_b, puntuacion, senales from candidatos_duplicado "
+            "where estado = 'pendiente' and opinion_llm is null order by creado_en"
+        )
+        filas = cur.fetchall()
+    return [
+        {
+            "id": f[0],
+            "empresa_a": str(f[1]),
+            "empresa_b": str(f[2]),
+            "puntuacion": float(f[3]) if f[3] is not None else None,
+            "senales": (f[4] or {}).get("senales", []),
+        }
+        for f in filas
+    ]
+
+
+def cargar_contexto_arbitraje(empresa_id: str, conn: psycopg.Connection) -> dict:
+    """Todo lo que un humano miraría para decidir si dos fichas son la
+    misma empresa o dos homónimas: nombre, NIF, sedes, administradores,
+    objeto social y de qué fuente viene cada una — para
+    `radar.resolucion.arbitraje.arbitrar` (doc 05 §2.5)."""
+    with conn.cursor() as cur:
+        cur.execute("select razon_social, nif, forma_juridica, estado from empresas where id = %s", (empresa_id,))
+        fila = cur.fetchone()
+        if fila is None:
+            raise ValueError(f"Empresa {empresa_id} no existe")
+        cur.execute(
+            "select direccion_original, municipio_nombre, provincia, codigo_postal "
+            "from sedes where empresa_id = %s and activa",
+            (empresa_id,),
+        )
+        sedes = cur.fetchall()
+        cur.execute(
+            "select p.nombre, c.cargo from cargos c join personas p on p.id = c.persona_id "
+            "where c.empresa_id = %s and c.vigente",
+            (empresa_id,),
+        )
+        administradores = cur.fetchall()
+        cur.execute(
+            "select distinct f.nombre from registros_brutos rb join fuentes f on f.id = rb.fuente_id where rb.empresa_id = %s",
+            (empresa_id,),
+        )
+        fuentes = [r[0] for r in cur.fetchall()]
+        cur.execute(
+            "select valor_original from observaciones where empresa_id = %s and campo = 'objeto_social' and vigente "
+            "order by observado_en desc limit 1",
+            (empresa_id,),
+        )
+        objeto = cur.fetchone()
+    return {
+        "empresa_id": str(empresa_id),
+        "razon_social": fila[0],
+        "nif": fila[1],
+        "forma_juridica": fila[2],
+        "estado": fila[3],
+        "sedes": [{"direccion": s[0], "municipio": s[1], "provincia": s[2], "codigo_postal": s[3]} for s in sedes],
+        "administradores": [{"nombre": a[0], "cargo": a[1]} for a in administradores],
+        "fuentes": fuentes,
+        "objeto_social": objeto[0] if objeto else None,
+    }
+
+
+def guardar_opinion_llm_candidato(candidato_id: int, opinion: dict, conn: psycopg.Connection) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "update candidatos_duplicado set opinion_llm = %s::jsonb where id = %s",
+            (json.dumps(opinion, default=str), candidato_id),
+        )
+
+
+def descartar_candidato_duplicado(candidato_id: int, decidido_por: str, conn: psycopg.Connection) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "update candidatos_duplicado set estado = 'rechazado', revisado_por = %s, revisado_en = now() where id = %s",
+            (decidido_por, candidato_id),
+        )
+
+
+def fusionar_empresas_rpc(
+    origen: str, destino: str, motivo: str, decidido_por: str,
+    puntuacion: float | None, candidato_id: int | None, conn: psycopg.Connection,
+) -> None:
+    """Llama a la función Postgres `fusionar_empresas` (migración
+    202609142000) — misma función que usa el panel via `supabase.rpc()`,
+    aquí invocada directamente por SQL porque el worker ya tiene una
+    conexión psycopg abierta.
+
+    Los casts explícitos son necesarios: sin ellos psycopg manda los
+    parámetros como tipo "unknown" y Postgres no encuentra ninguna función
+    `fusionar_empresas` que encaje (el propio mensaje de error lo dice:
+    "function fusionar_empresas(unknown, unknown, unknown, unknown, double
+    precision, smallint) does not exist") -- confirmado en vivo arbitrando
+    los primeros candidatos reales de duplicados de esta sesión."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "select fusionar_empresas(%s::uuid, %s::uuid, %s::text, %s::text, %s::numeric, %s::bigint)",
+            (origen, destino, motivo, decidido_por, puntuacion, candidato_id),
+        )
+
+
 def registrar_resultado_busqueda(
     busqueda_id: str, empresa_id: str, motivo: str | None, relevancia: float | None, conn: psycopg.Connection
 ) -> None:

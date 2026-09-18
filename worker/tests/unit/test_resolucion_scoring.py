@@ -65,3 +65,26 @@ def test_telefono_compartido_no_puntua():
     a = reg(razon_social="Pinturas Sol", telefono="954999999", cp="41001")
     b = reg(razon_social="Fontanería Luna SL", telefono="954999999", cp="41001")
     assert comparar(a, b, telefonos_compartidos={"+34954999999"})["decision"] == "distinta"
+
+
+def test_nombre_identico_sin_ubicacion_va_a_revision():
+    """Caso real encontrado corriendo BORME (2026-09-18, Sevilla, 30 días):
+    'VIMOINSA VIVIENDAS PREFABRICADAS SL' se registró 3 veces como empresa
+    nueva porque el BORME no da NIF ni domicilio en la mayoría de actos --
+    sin esta regla, el nombre solo (0.45) nunca llega a UMBRAL_REVISION
+    (0.55) y el duplicado desaparece sin dejar rastro en
+    candidatos_duplicado."""
+    a = reg(razon_social="VIMOINSA VIVIENDAS PREFABRICADAS SL")
+    b = reg(razon_social="VIMOINSA VIVIENDAS PREFABRICADAS SOCIEDAD LIMITADA")
+    resultado = comparar(a, b)
+    assert resultado["decision"] == "revision"
+    assert resultado["regla"] == "R4_nombre_identico_sin_senal_ubicacion"
+
+
+def test_nombre_identico_con_ubicacion_distinta_sigue_sin_fusionar():
+    """La regla nueva no debe tocar el caso ya cubierto por
+    test_homonimos_en_otra_provincia_no_fusionan: en cuanto hay una señal de
+    ubicación que las distingue, siguen siendo 'distinta', no 'revision'."""
+    a = reg(razon_social="Construcciones García SL", cp="41010")
+    b = reg(razon_social="Construcciones García S.L.", cp="28001")
+    assert comparar(a, b)["decision"] == "distinta"

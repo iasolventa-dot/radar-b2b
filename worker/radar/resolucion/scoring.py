@@ -154,4 +154,29 @@ def comparar(a: dict, b: dict, telefonos_compartidos: set | None = None) -> dict
             senales.append("provincias distintas")
     if dominio_comun:
         p = max(p, PESOS["dominio_minimo"])
+
+    # --- Nombre casi idéntico sin ninguna señal de ubicación (2026-09-18) ---
+    # Nombre solo nunca pasa de PESOS["nombre_095"] (0.45), por debajo de
+    # UMBRAL_REVISION (0.55) -- confirmado con datos reales de BORME: la
+    # misma empresa registrada varias veces bajo el mismo nombre exacto
+    # ("VIMOINSA VIVIENDAS PREFABRICADAS SL" x3, "SPAI INNOVA ASTIGITAS" x8
+    # en un único mes de Sevilla) se creaba como empresa nueva cada vez, sin
+    # dejar ni rastro en candidatos_duplicado. La diferencia con
+    # test_homonimos_en_otra_provincia_no_fusionan (que debe seguir dando
+    # "distinta") es que ahí SÍ hay una señal de ubicación que las distingue
+    # (CP de provincias distintas); esta regla solo actúa cuando NINGUNO de
+    # los dos registros aporta ninguna ubicación (ni coordenadas ni CP) --
+    # es decir, cuando de verdad no hay forma de saber si son la misma o dos
+    # homónimas, nunca cuando hay evidencia de que son distintas.
+    if (
+        p < UMBRAL_REVISION
+        and sim >= 0.95
+        and distintivas
+        and d is None
+        and not a.get("cp")
+        and not b.get("cp")
+    ):
+        senales.append("nombre casi idéntico sin ninguna señal de ubicación en ninguno de los dos registros")
+        return resultado(UMBRAL_REVISION, "R4_nombre_identico_sin_senal_ubicacion")
+
     return resultado(p, "puntuacion")
