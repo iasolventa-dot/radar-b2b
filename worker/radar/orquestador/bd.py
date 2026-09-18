@@ -799,6 +799,53 @@ def fusionar_empresas_rpc(
         )
 
 
+def empresas_con_objeto_social_sin_cnae(conn: psycopg.Connection) -> list[dict]:
+    """Empresas con una observación vigente de `objeto_social` pero
+    todavía sin `cnae_principal` -- candidatas para
+    `scripts/clasificar_cnae.py`. Si una empresa tiene más de una
+    observación de `objeto_social` (varias fuentes o varios actos), se usa
+    la más reciente; no hace falta la maquinaria completa de
+    `consolidar_campo` porque aquí no hay que arbitrar "cuál texto es más
+    fiable", solo con cuál clasificar -- el nivel 4 de la CNAE es
+    mutuamente excluyente, no un valor que puedan reforzar dos fuentes."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            select distinct on (e.id) e.id, e.cnae_version, o.valor_original, o.fuente_id
+            from empresas e
+            join observaciones o on o.empresa_id = e.id and o.campo = 'objeto_social' and o.vigente
+            where e.cnae_principal is null and e.fusionada_en is null
+            order by e.id, o.observado_en desc
+            """
+        )
+        filas = cur.fetchall()
+    return [{"empresa_id": str(f[0]), "cnae_version": f[1], "objeto_social": f[2], "fuente_id": f[3]} for f in filas]
+
+
+def actualizar_cnae_empresa(
+    empresa_id: str, cnae_principal: str, cnae_secundarios: list[str], cnae_version: str, conn: psycopg.Connection
+) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "update empresas set cnae_principal = %s, cnae_secundarios = %s, cnae_version = %s where id = %s",
+            (cnae_principal, cnae_secundarios, cnae_version, empresa_id),
+        )
+
+
+def insertar_observacion_cnae(
+    empresa_id: str, cnae_principal: str, fuente_id: int, confianza: float, evidencia: str, conn: psycopg.Connection
+) -> None:
+    """Traza de dónde salió `cnae_principal` -- mismo patrón append-only
+    que el resto de `observaciones` (nunca se sobreescribe evidencia,
+    principio 2 del proyecto)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "insert into observaciones (empresa_id, fuente_id, campo, valor_original, valor_norm, confianza_fuente) "
+            "values (%s, %s, 'cnae_principal', %s, %s, %s)",
+            (empresa_id, fuente_id, evidencia, cnae_principal, confianza),
+        )
+
+
 def registrar_resultado_busqueda(
     busqueda_id: str, empresa_id: str, motivo: str | None, relevancia: float | None, conn: psycopg.Connection
 ) -> None:
