@@ -125,6 +125,7 @@ class ActoBorme:
     id_borme: str | None
     razon_social: str
     tipos: list[str]
+    domicilio: str | None
     codigo_postal: str | None
     municipio: str | None
     hoja_registral: str | None
@@ -148,6 +149,60 @@ class ActoBorme:
         return _contiene_alguna(self.razon_social, PALABRAS_CONSTRUCCION_NOMBRE)
 
 
+# Los dos únicos actos del BORME que de verdad publican una dirección
+# completa: la constitución ("Domicilio: <dirección> (MUNICIPIO)."), o un
+# cambio de domicilio ("Cambio de domicilio social. <dirección>
+# (MUNICIPIO)."). El resto de actos (ceses, nombramientos, revocaciones,
+# disoluciones...) solo repiten la hoja registral -- confirmado mirando
+# muestras reales de `registros_brutos.payload.texto`, 2026-09-18: no es
+# que el conector no sepa leerlos, es que el BORME no los repite ahí.
+_RE_DOMICILIO = re.compile(
+    r"(?:Domicilio:\s*|Cambio de domicilio social\.\s*)(.+?)"
+    r"(?:\.\s*(?:Capital|Nombramientos?|Datos registrales|Declaraci[oó]n|"
+    r"Otros conceptos|Cambio de objeto social|Modificaciones estatutarias)\b|\.\s*$|$)",
+    re.DOTALL,
+)
+_RE_MUNICIPIO_DOMICILIO = re.compile(r"\(([^()]+)\)\s*$")
+# El código postal aparece en formatos distintos según el acto: con
+# etiqueta ("C.P.: 41001", "CODIGO POSTAL 41510") o suelto, pegado justo
+# antes del municipio entre paréntesis ("... 4 - 41470 (PEÑAFLOR)") --
+# probado contra actos reales (ver test_fuentes_borme.py). Siempre 5
+# dígitos exactos (`\d{2}\.\d{3}` o `\d{5}`, nunca `\d{1,2}\.?\d{3}`): un
+# CP español tiene 5 dígitos siempre -- confirmado en producción, un
+# acto real traía "CP:4193" (4 dígitos, error tipográfico del propio
+# BOE) y un patrón más laxo lo aceptaba, reventando `chk_cp` en `sedes`.
+# Mejor quedarse sin CP que guardar uno inventado/mal leído.
+_RE_CP_ETIQUETADO = re.compile(r"(?:C\.?\s?P\.?:?|C[OÓ]DIGO\s+POSTAL)\s*(\d{2}\.\d{3}|\d{5})\b", re.IGNORECASE)
+_RE_CP_SUELTO = re.compile(r"(?<!\d)(\d{2}\.\d{3}|\d{5})\s*,?\s*$")
+
+
+def _extraer_domicilio(parrafo_txt: str) -> tuple[str | None, str | None, str | None]:
+    """``(domicilio, codigo_postal, municipio)`` a partir del campo
+    "Domicilio: ..." (actos de constitución) o "Cambio de domicilio
+    social. ..." (actos de cambio de domicilio) -- para el resto de actos
+    del BORME no hay ninguna dirección que extraer (ver comentario de
+    `_RE_DOMICILIO`), y esta función devuelve ``(None, None, None)`` en
+    vez de adivinar."""
+    m = _RE_DOMICILIO.search(parrafo_txt)
+    if not m:
+        return None, None, None
+    domicilio = re.sub(r"\s+", " ", m.group(1)).strip(" .,-")
+    if not domicilio:
+        return None, None, None
+
+    municipio = None
+    resto = domicilio
+    m_muni = _RE_MUNICIPIO_DOMICILIO.search(domicilio)
+    if m_muni:
+        municipio = m_muni.group(1).strip()
+        resto = domicilio[: m_muni.start()]
+
+    m_cp = _RE_CP_ETIQUETADO.search(domicilio) or _RE_CP_SUELTO.search(resto.rstrip(" ,-"))
+    codigo_postal = m_cp.group(1).replace(".", "") if m_cp else None
+
+    return domicilio, codigo_postal, municipio
+
+
 def parsear_acto(articulo_txt: str, parrafo_txt: str) -> tuple[str | None, str]:
     """Separa el prefijo numérico BORME de la razón social en `<p class="articulo">`."""
     m = re.match(r"\s*(\d+)\s*-\s*(.+?)\.?\s*$", articulo_txt.strip())
@@ -161,11 +216,7 @@ def parsear_datos_acto(parrafo_txt: str) -> dict[str, Any]:
         etiqueta for etiqueta, patron in TIPOS_ACTO.items() if re.search(patron, parrafo_txt, re.IGNORECASE)
     ]
 
-    m_cp = re.search(r"C\.?\s?P\.?:?\s*(\d{1,2}\.?\d{3})\s*\(([^)]+)\)", parrafo_txt)
-    codigo_postal = municipio = None
-    if m_cp:
-        codigo_postal = m_cp.group(1).replace(".", "")
-        municipio = m_cp.group(2).strip()
+    domicilio, codigo_postal, municipio = _extraer_domicilio(parrafo_txt)
 
     m_hoja = re.search(r"\bH\s?([A-Z]{1,2}\s?\d+)", parrafo_txt)
     hoja_registral = re.sub(r"\s+", "", m_hoja.group(1)) if m_hoja else None
@@ -190,6 +241,7 @@ def parsear_datos_acto(parrafo_txt: str) -> dict[str, Any]:
 
     return {
         "tipos": tipos,
+        "domicilio": domicilio,
         "codigo_postal": codigo_postal,
         "municipio": municipio,
         "hoja_registral": hoja_registral,
@@ -243,7 +295,7 @@ def parsear_listado_provincia(xml_bytes: bytes, url_xml: str) -> list[ActoBorme]
 def acto_a_registro_bruto(acto: ActoBorme) -> RegistroBruto:
     campos = CamposExtraidos(
         razon_social=acto.razon_social,
-        domicilio=None,
+        domicilio=acto.domicilio,
         codigo_postal=acto.codigo_postal,
         municipio=acto.municipio,
         provincia="Sevilla",

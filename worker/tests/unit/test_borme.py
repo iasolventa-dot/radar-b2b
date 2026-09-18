@@ -175,3 +175,131 @@ def test_parsear_datos_acto_presidente():
 def test_estimar_coste_es_cero():
     conector = ConectorBorme(cliente=None)  # type: ignore[arg-type]
     assert conector.estimar_coste({}) == 0.0
+
+
+# --- Domicilio (2026-09-18) ------------------------------------------------
+#
+# Hasta esta fecha `acto_a_registro_bruto` dejaba `domicilio=None` siempre,
+# sin ni intentar leer el campo "Domicilio:"/"Cambio de domicilio social."
+# del texto -- confirmado corriendo BORME 30 días sobre Sevilla: el 82% de
+# las empresas se quedaban sin ninguna fila en `sedes` aunque el 100% de
+# los actos de "constitución" SÍ traen domicilio completo en el texto (solo
+# el conector no lo leía). Los textos de estos tests son reales, capturados
+# en esa corrida -- no inventados.
+
+
+def test_domicilio_constitucion_cp_suelto_sin_etiqueta():
+    texto = (
+        "Constitución. Objeto social: Comercio al por menor de vehículos de motor. "
+        "Domicilio: C/ AVIADOR CARMONA 4 - 41470 (PEÑAFLOR). Capital: 3.054,00 Euros. "
+        "Nombramientos. Adm. Unico: GARCIA DOMINGUEZ MARTA.  Datos registrales. S 8 , H SE155802, I/A 1 (14.08.26)."
+    )
+    datos = parsear_datos_acto(texto)
+    assert datos["domicilio"] == "C/ AVIADOR CARMONA 4 - 41470 (PEÑAFLOR)"
+    assert datos["codigo_postal"] == "41470"
+    assert datos["municipio"] == "PEÑAFLOR"
+
+
+def test_domicilio_constitucion_sin_codigo_postal():
+    texto = (
+        "Constitución. Objeto social: Reparación y mantenimiento de equipos electrónicos y ópticos. "
+        "Domicilio: C/ SAN FRANCISCO 29 - 41410 (CARMONA)."
+    )
+    datos = parsear_datos_acto(texto)
+    assert datos["codigo_postal"] == "41410"
+    texto_sin_cp = (
+        "Constitución. Objeto social: Sociedad holding. "
+        "Domicilio: AVDA VIRGEN DE MONTEMAYOR 51 - CARRETERA ARAHAL-EL (ARAHAL). Capital: 4.358.589,00 Euros."
+    )
+    datos_sin_cp = parsear_datos_acto(texto_sin_cp)
+    assert datos_sin_cp["domicilio"] == "AVDA VIRGEN DE MONTEMAYOR 51 - CARRETERA ARAHAL-EL (ARAHAL)"
+    assert datos_sin_cp["codigo_postal"] is None
+    assert datos_sin_cp["municipio"] == "ARAHAL"
+
+
+def test_domicilio_cambio_de_domicilio_social_con_codigo_postal_etiquetado():
+    texto = (
+        "Modificaciones estatutarias. Artículo de los estatutos: 4. Domicilio social.-. "
+        "Cambio de domicilio social. URB LOS CLAVELES 9 - CODIGO POSTAL 41510 (MAIRENA DEL ALCOR).  "
+        "Datos registrales. S 8 , H SE153590, I/A 2 (11.08.26)."
+    )
+    datos = parsear_datos_acto(texto)
+    assert datos["codigo_postal"] == "41510"
+    assert datos["municipio"] == "MAIRENA DEL ALCOR"
+    # el boilerplate "Domicilio social.-." de qué artículo cambió NO debe
+    # confundirse con la dirección real, que viene después
+    assert "Modificaciones" not in (datos["domicilio"] or "")
+
+
+def test_domicilio_cambio_de_domicilio_social_sin_codigo_postal():
+    texto = (
+        "Modificaciones estatutarias. Artículo de los estatutos: ARTICULO 3. Domicilio social y web corporativa.-. "
+        "Cambio de domicilio social. AVDA REPUBLICA ARGENTINA 35A - PLANTA CUARTA, OFIC (SEVILLA).  "
+        "Datos registrales. S 8 , H SE 92899, I/A 15 (11.09.26)."
+    )
+    datos = parsear_datos_acto(texto)
+    assert datos["domicilio"] == "AVDA REPUBLICA ARGENTINA 35A - PLANTA CUARTA, OFIC (SEVILLA)"
+    assert datos["municipio"] == "SEVILLA"
+    assert datos["codigo_postal"] is None
+
+
+def test_domicilio_cambio_de_domicilio_se_corta_antes_de_cambio_de_objeto_social():
+    texto = (
+        "Cambio de domicilio social. C/ LUIS MONTOTO 11 - LOCAL (SEVILLA). Cambio de objeto social. "
+        "Constituye la actividad principal la siguiente. : Clasificación Nacional de Actividades Económicas "
+        "CNAE es el 5210 \"Depósito y almacenamiento.  Datos registrales. S 8 , H SE146448, I/A 2 (10.09.26)."
+    )
+    datos = parsear_datos_acto(texto)
+    assert datos["domicilio"] == "C/ LUIS MONTOTO 11 - LOCAL (SEVILLA)"
+    assert datos["municipio"] == "SEVILLA"
+
+
+def test_domicilio_ausente_en_actos_sin_direccion():
+    """Ceses, nombramientos y revocaciones no repiten la dirección en el
+    BORME -- no es un fallo de extracción, el dato no está en el texto."""
+    texto = (
+        "Ceses/Dimisiones. Adm. Unico: RUIZ DEL POZO CANEL MARIA YOLANDA. "
+        "Nombramientos. Adm. Unico: BENITEZ FERNANDEZ JUAN MARIA.  "
+        "Datos registrales. S 8 , H SE 39467, I/A 5 (25.08.26)."
+    )
+    datos = parsear_datos_acto(texto)
+    assert datos["domicilio"] is None
+    assert datos["codigo_postal"] is None
+    assert datos["municipio"] is None
+
+
+def test_domicilio_cp_de_4_digitos_se_descarta():
+    """Caso real de producción (2026-09-18): el propio BOE publicó un CP
+    de 4 dígitos ("CP:4193" en vez de 5) -- un CP español SIEMPRE tiene 5
+    dígitos, así que se descarta en vez de guardarlo (mejor sin CP que uno
+    mal leído -- y de hecho violaba `chk_cp` en `sedes`, revirtiendo el
+    reproceso de domicilios a mitad)."""
+    texto = "Constitución. Domicilio: C/ NUESTRA SEÑORA DE LOS DOLORES 25 2 C - CP:4193 (BORMUJOS)."
+    datos = parsear_datos_acto(texto)
+    assert datos["municipio"] == "BORMUJOS"
+    assert datos["codigo_postal"] is None
+
+
+def test_domicilio_cp_literal_sin_numero_no_revienta():
+    """Caso real donde el propio BOE escribe "CP" sin ningún dígito detrás
+    -- no debe intentar inventar un código postal."""
+    texto = (
+        "Constitución. Domicilio: AVDA DE UMBRETE 35 - POLIGONO INDUSTRIAL PIBO, CP (BOLLULLOS DE LA MITACION). "
+        "Capital: 50.000,00 Euros."
+    )
+    datos = parsear_datos_acto(texto)
+    assert datos["municipio"] == "BOLLULLOS DE LA MITACION"
+    assert datos["codigo_postal"] is None
+
+
+def test_acto_a_registro_bruto_incluye_domicilio():
+    """`acto_a_registro_bruto` dejaba `domicilio=None` siempre, sin usar lo
+    que `parsear_datos_acto` sí extraía -- por eso `sedes` se quedaba vacía
+    para la mayoría de constituciones pese a que el BORME publica la
+    dirección completa."""
+    xml_bytes = (FIXTURES / "acto_sevilla_20260908.xml").read_bytes()
+    actos = parsear_listado_provincia(xml_bytes, "https://ejemplo/actos.xml")
+    con_domicilio = [a for a in actos if a.domicilio]
+    assert con_domicilio, "el fixture debería tener al menos una constitución con domicilio"
+    registro = acto_a_registro_bruto(con_domicilio[0])
+    assert registro.campos.domicilio == con_domicilio[0].domicilio
