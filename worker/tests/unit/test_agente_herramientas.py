@@ -16,6 +16,7 @@ from radar.agente.herramientas import (
     HERRAMIENTAS,
     _coincide_sector,
     _url_no_apta_para_enriquecer,
+    fuera_de_zona,
     a_tool_param_anthropic,
     a_tool_param_openai,
     construir_where_empresas,
@@ -310,3 +311,10 @@ def test_directorios_y_redes_no_son_web_propia():
     assert _url_no_apta_para_enriquecer("https://www.linkedin.com/company/reformas-x") is True
     assert _url_no_apta_para_enriquecer("https://www.facebook.com/reformasx") is True
     assert _url_no_apta_para_enriquecer("https://reformasx.es/aviso-legal") is False
+
+
+def test_fuera_de_zona():
+    assert fuera_de_zona("41091", ["41004"]) is True
+    assert fuera_de_zona("41004", ["41004"]) is False
+    assert fuera_de_zona(None, ["41004"]) is False  # municipio desconocido: no se afirma que esté fuera
+    assert fuera_de_zona("41091", []) is False  # sin zona pedida no se filtra

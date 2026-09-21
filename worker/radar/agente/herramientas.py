@@ -646,6 +646,16 @@ def _coincide_sector(objeto_social: str | None, razon_social: str | None, palabr
     return any(_sin_tildes(p.lower()) in texto for p in palabras_clave)
 
 
+def fuera_de_zona(municipio_ine_del_acto: str | None, codigos_zona: list[str]) -> bool:
+    """`True` solo si HAY una zona pedida (municipios concretos), el acto
+    trae un municipio reconocido y ese municipio no está en la zona. Si el
+    acto no permite saber su municipio, no se descarta (no se puede afirmar
+    que esté fuera). Confirmado en vivo (2026-09-21): una búsqueda «en
+    Alcalá de Guadaíra» devolvía empresas de toda la provincia de Sevilla
+    porque el BORME solo se consulta por provincia y nada filtraba después."""
+    return bool(codigos_zona) and municipio_ine_del_acto is not None and municipio_ine_del_acto not in codigos_zona
+
+
 async def descubrir_borme(
     conn: psycopg.Connection,
     cliente_http: httpx.AsyncClient,
@@ -668,14 +678,23 @@ async def descubrir_borme(
     hasta = datetime.now(UTC).date()
     desde = hasta - timedelta(days=dias)
 
+    codigos_zona: list[str] = []
+    if filtros.ubicacion.municipios and not filtros.ubicacion.provincias:
+        codigos_zona = resolver_codigos_municipio(filtros.ubicacion.municipios, conn)
+
     conector = ConectorBorme(cliente_http)
-    contadores = {"candidatos": 0, "descartados_por_sector": 0, "vinculado": 0, "nueva_empresa": 0, "en_revision": 0, "ya_procesado": 0, "error": 0}
+    contadores = {"candidatos": 0, "descartados_por_zona": 0, "descartados_por_sector": 0, "vinculado": 0, "nueva_empresa": 0, "en_revision": 0, "ya_procesado": 0, "error": 0}
 
     async for registro in conector.descubrir({"provincia_titulo": provincia_titulo, "desde": desde, "hasta": hasta}, max_coste_eur=0.0):
         objeto_social = registro.campos.extra.get("objeto_social")
         if not _coincide_sector(objeto_social, registro.campos.razon_social, palabras):
             contadores["descartados_por_sector"] += 1
             continue
+        if codigos_zona and registro.campos.municipio:
+            ine_acto = bd.buscar_municipio_ine(registro.campos.municipio, registro.campos.provincia or provincia_titulo, conn)
+            if fuera_de_zona(ine_acto, codigos_zona):
+                contadores["descartados_por_zona"] += 1
+                continue
         contadores["candidatos"] += 1
         try:
             resultado = procesar_registro(
