@@ -10,7 +10,7 @@
 // ninguna clave: la API todavía no verifica autenticación (ver docstring
 // de radar.api.main — D-03, uso estrictamente interno, a cerrar si esto
 // se expone más allá del equipo).
-import type { BusquedaInterpretadaOut, ConfirmarBusquedaOut, EstadoPlaces, FiltrosBusqueda, ProbarPlacesOut, ProfundizarOut } from "@/lib/tipos";
+import type { BusquedaInterpretadaOut, ConfirmarBusquedaOut, EstadoApify, EstadoPlaces, FiltrosBusqueda, ProbarPlacesOut, ProfundizarOut } from "@/lib/tipos";
 
 function urlBase(): string {
   const url = process.env.NEXT_PUBLIC_API_URL;
@@ -108,4 +108,25 @@ export function borrarClavePlaces(): Promise<EstadoPlaces> {
 /** POST /configuracion/google-places/probar — petición de solo IDs (gratuita) para validar la clave. */
 export function probarClavePlaces(): Promise<ProbarPlacesOut> {
   return peticionJson<ProbarPlacesOut>("/configuracion/google-places/probar", { method: "POST" });
+}
+
+/** Apify (conexión disponible; el agente todavía no la usa). El token solo lo lee el worker. */
+export function estadoApify(): Promise<EstadoApify> {
+  return peticionJson<EstadoApify>("/configuracion/apify");
+}
+
+export function guardarTokenApify(apiToken: string | null, presupuestoMensualUsd?: number): Promise<EstadoApify> {
+  return peticionJson<EstadoApify>("/configuracion/apify", {
+    method: "PUT",
+    body: JSON.stringify({ api_token: apiToken, presupuesto_mensual_usd: presupuestoMensualUsd ?? null }),
+  });
+}
+
+export function borrarTokenApify(): Promise<EstadoApify> {
+  return peticionJson<EstadoApify>("/configuracion/apify", { method: "DELETE" });
+}
+
+/** POST /configuracion/apify/probar — `GET /users/me`, sin consumir crédito. */
+export function probarTokenApify(): Promise<ProbarPlacesOut> {
+  return peticionJson<ProbarPlacesOut>("/configuracion/apify/probar", { method: "POST" });
 }

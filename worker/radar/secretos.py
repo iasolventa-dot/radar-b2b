@@ -16,6 +16,9 @@ from radar.config import get_settings
 CLAVE_PLACES = "google_places_api_key"
 CLAVE_PLACES_PRESUPUESTO_MENSUAL = "google_places_presupuesto_mensual_eur"
 PRESUPUESTO_MENSUAL_PLACES_POR_DEFECTO_EUR = 5.0
+CLAVE_APIFY = "apify_api_token"
+CLAVE_APIFY_PRESUPUESTO_MENSUAL = "apify_presupuesto_mensual_usd"
+PRESUPUESTO_MENSUAL_APIFY_POR_DEFECTO_USD = 5.0
 
 
 def obtener_secreto(clave: str, conn: psycopg.Connection) -> str | None:
@@ -65,5 +68,24 @@ def gasto_mes_places_eur(conn: psycopg.Connection) -> float:
             "select coalesce(sum(coste_eur), 0) from uso_google_places "
             "where creado_en >= date_trunc('month', now())"
         )
+        fila = cur.fetchone()
+    return float(fila[0]) if fila else 0.0
+
+
+def obtener_token_apify(conn: psycopg.Connection) -> str | None:
+    return (obtener_secreto(CLAVE_APIFY, conn) or "").strip() or None
+
+
+def presupuesto_mensual_apify_usd(conn: psycopg.Connection) -> float:
+    valor = obtener_secreto(CLAVE_APIFY_PRESUPUESTO_MENSUAL, conn)
+    try:
+        return float(valor) if valor is not None else PRESUPUESTO_MENSUAL_APIFY_POR_DEFECTO_USD
+    except ValueError:
+        return PRESUPUESTO_MENSUAL_APIFY_POR_DEFECTO_USD
+
+
+def gasto_mes_apify_usd(conn: psycopg.Connection) -> float:
+    with conn.cursor() as cur:
+        cur.execute("select coalesce(sum(coste_usd), 0) from uso_apify where creado_en >= date_trunc('month', now())")
         fila = cur.fetchone()
     return float(fila[0]) if fila else 0.0

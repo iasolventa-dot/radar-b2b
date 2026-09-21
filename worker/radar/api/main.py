@@ -70,8 +70,10 @@ from radar.api.esquemas import (
     BusquedaOut,
     ConfirmarBusquedaIn,
     ConfirmarBusquedaOut,
+    EstadoApifyOut,
     EstadoPlacesOut,
     GuardarClavePlacesIn,
+    GuardarTokenApifyIn,
     PeticionBusquedaIn,
     ProbarPlacesOut,
     ProfundizarIn,
@@ -79,17 +81,23 @@ from radar.api.esquemas import (
 )
 from radar.api.estado import EstadoBusqueda, estado_final_de
 from radar.config import get_settings
+from radar.fuentes.apify import probar_token as probar_token_apify
 from radar.fuentes.places import probar_clave
 from radar.orquestador import bd
 from radar.secretos import (
+    CLAVE_APIFY,
+    CLAVE_APIFY_PRESUPUESTO_MENSUAL,
     CLAVE_PLACES,
     CLAVE_PLACES_PRESUPUESTO_MENSUAL,
     borrar_secreto,
     enmascarar,
+    gasto_mes_apify_usd,
     gasto_mes_places_eur,
     guardar_secreto,
     obtener_clave_places,
     obtener_secreto,
+    obtener_token_apify,
+    presupuesto_mensual_apify_usd,
     presupuesto_mensual_places_eur,
 )
 
@@ -386,4 +394,54 @@ async def probar_places() -> ProbarPlacesOut:
         return ProbarPlacesOut(ok=False, mensaje="No hay ninguna clave configurada.")
     async with httpx.AsyncClient() as cliente_http:
         ok, mensaje = await probar_clave(cliente_http, clave)
+    return ProbarPlacesOut(ok=ok, mensaje=mensaje)
+
+
+# --- Ajustes: Apify (conexión disponible, no usada por el agente) -----------
+
+
+def _estado_apify(conn: psycopg.Connection) -> EstadoApifyOut:
+    token = obtener_token_apify(conn)
+    return EstadoApifyOut(
+        configurado=bool(token), token_enmascarado=enmascarar(token) if token else None,
+        presupuesto_mensual_usd=presupuesto_mensual_apify_usd(conn), gasto_mes_usd=round(gasto_mes_apify_usd(conn), 4),
+    )
+
+
+@app.get("/configuracion/apify", response_model=EstadoApifyOut)
+async def estado_apify() -> EstadoApifyOut:
+    with psycopg.connect(_requerir_db_url()) as conn:
+        return _estado_apify(conn)
+
+
+@app.put("/configuracion/apify", response_model=EstadoApifyOut)
+async def guardar_apify(entrada: GuardarTokenApifyIn) -> EstadoApifyOut:
+    if entrada.api_token is None and entrada.presupuesto_mensual_usd is None:
+        raise HTTPException(status_code=422, detail="indica el token y/o el tope mensual")
+    with psycopg.connect(_requerir_db_url()) as conn:
+        if entrada.api_token is not None:
+            guardar_secreto(CLAVE_APIFY, entrada.api_token.strip(), conn)
+        if entrada.presupuesto_mensual_usd is not None:
+            guardar_secreto(CLAVE_APIFY_PRESUPUESTO_MENSUAL, str(entrada.presupuesto_mensual_usd), conn)
+        conn.commit()
+        return _estado_apify(conn)
+
+
+@app.delete("/configuracion/apify", response_model=EstadoApifyOut)
+async def borrar_apify() -> EstadoApifyOut:
+    with psycopg.connect(_requerir_db_url()) as conn:
+        borrar_secreto(CLAVE_APIFY, conn)
+        conn.commit()
+        return _estado_apify(conn)
+
+
+@app.post("/configuracion/apify/probar", response_model=ProbarPlacesOut)
+async def probar_apify() -> ProbarPlacesOut:
+    """`GET /users/me` de Apify: valida el token sin consumir crédito."""
+    with psycopg.connect(_requerir_db_url()) as conn:
+        token = obtener_token_apify(conn)
+    if not token:
+        return ProbarPlacesOut(ok=False, mensaje="No hay ningún token configurado.")
+    async with httpx.AsyncClient() as cliente_http:
+        ok, mensaje = await probar_token_apify(cliente_http, token)
     return ProbarPlacesOut(ok=ok, mensaje=mensaje)

@@ -330,3 +330,11 @@ export interface ProbarPlacesOut {
   ok: boolean;
   mensaje: string;
 }
+
+// worker/radar/api/esquemas.py::EstadoApifyOut (sección Ajustes)
+export interface EstadoApify {
+  configurado: boolean;
+  token_enmascarado: string | null;
+  presupuesto_mensual_usd: number;
+  gasto_mes_usd: number;
+}

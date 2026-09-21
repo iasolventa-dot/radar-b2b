@@ -70,6 +70,18 @@ class EstadoPlacesOut(BaseModel):
     gasto_mes_eur: float
 
 
+class GuardarTokenApifyIn(BaseModel):
+    api_token: str | None = Field(default=None, min_length=10, max_length=200, description="Token de API de Apify; si se omite, solo se actualiza el tope mensual")
+    presupuesto_mensual_usd: float | None = Field(default=None, ge=0, le=1000)
+
+
+class EstadoApifyOut(BaseModel):
+    configurado: bool
+    token_enmascarado: str | None = None
+    presupuesto_mensual_usd: float
+    gasto_mes_usd: float
+
+
 class ProbarPlacesOut(BaseModel):
     ok: bool
     mensaje: str

@@ -1,3 +1,4 @@
+import { AjustesApify } from "@/components/ajustes-apify";
 import { AjustesPlaces } from "@/components/ajustes-places";
 
 export const dynamic = "force-dynamic";
@@ -13,6 +14,7 @@ export default function PaginaAjustes() {
         </p>
       </div>
       <AjustesPlaces />
+      <AjustesApify />
     </div>
   );
 }
