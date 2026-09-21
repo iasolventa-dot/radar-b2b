@@ -13,6 +13,7 @@ import {
   Users,
 } from "lucide-react";
 import { crearClienteServidor } from "@/lib/supabase/server";
+import { BotonProfundizar } from "@/components/boton-profundizar";
 
 export const dynamic = "force-dynamic";
 
@@ -166,6 +167,8 @@ export default async function PaginaDetalleEmpresa({
           {empresa.confianza_global != null ? empresa.confianza_global.toFixed(2) : "—"}
         </p>
       </div>
+
+      <BotonProfundizar empresaId={id} />
 
       {/* Objeto social + CNAE + tamaño */}
       <Seccion icono={FileText} titulo="Actividad">

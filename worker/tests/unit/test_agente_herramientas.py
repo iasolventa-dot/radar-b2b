@@ -15,6 +15,7 @@ import pytest
 from radar.agente.herramientas import (
     HERRAMIENTAS,
     _coincide_sector,
+    _url_no_apta_para_enriquecer,
     a_tool_param_anthropic,
     a_tool_param_openai,
     construir_where_empresas,
@@ -192,6 +193,22 @@ def test_coincide_sector_busca_en_objeto_y_nombre_sin_tildes():
 
 def test_coincide_sector_no_coincide():
     assert _coincide_sector("Venta al por menor de ropa", "Modas García SL", ["construccion", "obras"]) is False
+
+
+# ---------- _url_no_apta_para_enriquecer ----------
+# Regresión de un fallo real (2026-09-21, primera prueba en vivo de
+# radar.agente.profundizar): buscar_web enriqueció una URL del BOE como si
+# fuera la web de la empresa buscada y guardó como "empresa" el nombre de
+# OTRA empresa del mismo boletín, y en otra URL el propio nombre del BOE.
+
+
+def test_boe_no_es_apta_para_enriquecer():
+    assert _url_no_apta_para_enriquecer("https://www.boe.es/borme/dias/2026/08/25/pdfs/BORME-A-2026-163-41.pdf") is True
+    assert _url_no_apta_para_enriquecer("https://boe.es/diario_borme/txt.php?id=BORME-A-2026-163-41") is True
+
+
+def test_web_de_empresa_normal_si_es_apta():
+    assert _url_no_apta_para_enriquecer("https://www.construccionesejemplo.es/aviso-legal") is False
 
 
 # ---------- esquemas de herramientas ----------

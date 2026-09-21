@@ -52,6 +52,7 @@ from radar.agente.planificador import (
     RondaPlanificador,
     planificar,
 )
+from radar.agente.profundizar import profundizar_empresa
 from radar.api.bd_busquedas import (
     cerrar_busquedas_huerfanas,
     crear_busqueda,
@@ -69,6 +70,8 @@ from radar.api.esquemas import (
     ConfirmarBusquedaIn,
     ConfirmarBusquedaOut,
     PeticionBusquedaIn,
+    ProfundizarIn,
+    ProfundizarOut,
 )
 from radar.api.estado import estado_final_de
 from radar.config import get_settings
@@ -293,3 +296,24 @@ async def cancelar(busqueda_id: str) -> ConfirmarBusquedaOut:
             conn, busqueda_id, resolver_inmediatamente=busqueda.estado == "esperando_respuesta"
         )
     return ConfirmarBusquedaOut(id=busqueda_id, estado=nuevo_estado)
+
+
+@app.post("/empresas/{empresa_id}/profundizar", response_model=ProfundizarOut)
+async def profundizar(empresa_id: str, profundizar_in: ProfundizarIn) -> ProfundizarOut:
+    """Búsqueda en profundidad de UNA empresa concreta (ver docstring de
+    `radar.agente.profundizar`) -- consultas ya dirigidas de forma
+    determinista, sin ambigüedad que interpretar, así que se ejecuta y
+    responde en la misma petición (sin `BackgroundTasks`): 1-4 búsquedas
+    web con presupuesto pequeño (por defecto 0,30€), no el descubrimiento
+    abierto de `POST /busquedas/{id}/confirmar`."""
+    db_url = _requerir_db_url()
+    async with httpx.AsyncClient() as cliente_http:
+        with psycopg.connect(db_url, autocommit=False) as conn:
+            resultado = await profundizar_empresa(
+                empresa_id, conn, cliente_http, None, max_coste_eur=profundizar_in.max_coste_eur
+            )
+    if resultado.error:
+        raise HTTPException(status_code=404, detail=resultado.error)
+    return ProfundizarOut(
+        empresa_id=resultado.empresa_id, consultas=resultado.consultas, resultado=resultado.resultado_buscar_web
+    )

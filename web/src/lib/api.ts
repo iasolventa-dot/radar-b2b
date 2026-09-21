@@ -10,7 +10,7 @@
 // ninguna clave: la API todavía no verifica autenticación (ver docstring
 // de radar.api.main — D-03, uso estrictamente interno, a cerrar si esto
 // se expone más allá del equipo).
-import type { BusquedaInterpretadaOut, ConfirmarBusquedaOut, FiltrosBusqueda } from "@/lib/tipos";
+import type { BusquedaInterpretadaOut, ConfirmarBusquedaOut, FiltrosBusqueda, ProfundizarOut } from "@/lib/tipos";
 
 function urlBase(): string {
   const url = process.env.NEXT_PUBLIC_API_URL;
@@ -75,4 +75,15 @@ export function confirmarBusqueda(
  * está esperando_respuesta (no hay ningún bucle activo que pueda recogerlo). */
 export function cancelarBusqueda(id: string): Promise<ConfirmarBusquedaOut> {
   return peticionJson<ConfirmarBusquedaOut>(`/busquedas/${id}/cancelar`, { method: "POST" });
+}
+
+/** POST /empresas/{id}/profundizar — 1-4 búsquedas web dirigidas a esta empresa
+ * concreta (nombre+NIF/municipio ya conocidos), no un descubrimiento abierto.
+ * Presupuesto pequeño a propósito (por defecto 0,30€); responde en la misma
+ * petición porque no hay nada que interpretar. */
+export function profundizarEmpresa(empresaId: string, maxCosteEur = 0.3): Promise<ProfundizarOut> {
+  return peticionJson<ProfundizarOut>(`/empresas/${empresaId}/profundizar`, {
+    method: "POST",
+    body: JSON.stringify({ max_coste_eur: maxCosteEur }),
+  });
 }

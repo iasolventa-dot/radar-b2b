@@ -197,6 +197,15 @@ export interface ConfirmarBusquedaOut {
   estado: EstadoBusqueda;
 }
 
+// worker/radar/api/esquemas.py::ProfundizarOut -- resultado de "búsqueda en
+// profundidad" de una empresa concreta (worker/radar/agente/profundizar.py).
+export interface ProfundizarOut {
+  empresa_id: string;
+  consultas: string[];
+  resultado: Record<string, unknown>;
+  error?: string | null;
+}
+
 // Fila de la tabla `busquedas` (doc 03b) tal como la lee el panel, ya sea
 // del worker (GET /busquedas) o directamente de Supabase (RLS, igual que el
 // resto del panel) — misma forma en ambos casos salvo `filtros`/`estadisticas`,

@@ -77,7 +77,28 @@ from radar.fuentes.borme import (
     ConectorBorme,
 )
 from radar.fuentes.buscador_web import COSTE_POR_BUSQUEDA_EUR, buscar
+from radar.normalizacion.dominio import extraer_dominio
 from radar.orquestador import bd, procesar_registro
+
+# Dominios que `buscar_web` puede devolver como resultado pero que NO son "la
+# web de una empresa" -- enriquecer_desde_web asume que la portada que se le
+# pasa es del titular, y un boletín público como el BOE/BORME lista decenas
+# de actos de empresas distintas por página, sin un titular único.
+# Confirmado en vivo (2026-09-21, `radar.agente.profundizar`, primera prueba
+# real de "búsqueda en profundidad"): una consulta dirigida a "ECOPROYECTOS
+# MADERA SOCIEDAD LIMITADA" devolvió, entre las URLs del buscador, dos del
+# BOE -- al enriquecerlas como si fueran la web de esa empresa, la extracción
+# devolvió "391807 - GESTOLIVA SA" (OTRA empresa del mismo boletín) y
+# "Agencia Estatal Boletín Oficial del Estado" (el propio organismo
+# publicador) como si fueran el titular. Ya existe un conector dedicado y
+# estructurado para BORME (radar.fuentes.borme, un acto = un registro,
+# extracción por regex no por LLM sobre HTML genérico) -- estas URLs se
+# descartan aquí en vez de fingir que son la web de una empresa.
+_DOMINIOS_NO_APTOS_PARA_ENRIQUECER = {"boe.es"}
+
+
+def _url_no_apta_para_enriquecer(url: str) -> bool:
+    return extraer_dominio(url) in _DOMINIOS_NO_APTOS_PARA_ENRIQUECER
 
 _TABLA_TILDES = str.maketrans("áéíóúÁÉÍÓÚñÑ", "aeiouAEIOUnN")
 
@@ -648,7 +669,7 @@ async def buscar_web(
     `busqueda_id`: ver docstring de `descubrir_borme`, mismo enlace a
     `busqueda_resultados`."""
     contadores = {
-        "consultas_ejecutadas": 0, "urls_encontradas": 0, "urls_no_legibles": 0,
+        "consultas_ejecutadas": 0, "urls_encontradas": 0, "urls_no_legibles": 0, "urls_descartadas_boletin": 0,
         "vinculado": 0, "nueva_empresa": 0, "en_revision": 0, "ya_procesado": 0, "error_busqueda": 0, "error_procesado": 0,
     }
     coste_acumulado = 0.0
@@ -665,6 +686,9 @@ async def buscar_web(
 
         for r in resultado.resultados:
             contadores["urls_encontradas"] += 1
+            if _url_no_apta_para_enriquecer(r.url):
+                contadores["urls_descartadas_boletin"] += 1
+                continue
             registro = await enriquecer_desde_web(cliente_http, r.url)
             if registro is None:
                 contadores["urls_no_legibles"] += 1

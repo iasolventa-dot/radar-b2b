@@ -46,6 +46,17 @@ class ConfirmarBusquedaOut(BaseModel):
     estado: EstadoBusqueda
 
 
+class ProfundizarIn(BaseModel):
+    max_coste_eur: float = Field(default=0.30, gt=0, le=2.0, description="Tope de gasto para esta búsqueda dirigida -- pequeño a propósito (1-2 rondas)")
+
+
+class ProfundizarOut(BaseModel):
+    empresa_id: str
+    consultas: list[str]
+    resultado: dict[str, Any]
+    error: str | None = None
+
+
 class BusquedaOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
