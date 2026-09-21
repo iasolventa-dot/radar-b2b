@@ -241,6 +241,10 @@ export const ETIQUETA_HERRAMIENTA: Record<string, string> = {
   buscar_web: "Buscar en la web",
   preguntar_usuario: "Pregunta al usuario",
   finalizar_busqueda: "Finalizar búsqueda",
+  // No es una herramienta real (el LLM nunca la "llama") -- la genera el
+  // propio planificador para dejar constancia del coste de tokens de cada
+  // turno (radar.agente.planificador.PLANIFICADOR_LLM, 2026-09-21).
+  planificador_llm: "Coste del planificador (LLM)",
 };
 
 // `busqueda_resultados.motivo` (doc 03b) lo escribe

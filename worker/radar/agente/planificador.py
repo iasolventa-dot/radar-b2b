@@ -35,7 +35,13 @@ Reglas del bucle (doc 07 §4, "Termina si..."):
 - El coste real gastado (`ResultadoPlanificador.coste_gastado_eur`) suma
   el `coste_eur` que devuelve cada herramienta con coste (`buscar_web`,
   `descubrir_borme`) — nunca una estimación — y se resta del presupuesto
-  restante antes de la siguiente ronda.
+  restante antes de la siguiente ronda. Desde 2026-09-21 también suma el
+  coste de tokens del propio LLM planificador (`radar.coste_llm`, a partir
+  de `respuesta.usage`, gratis en cada llamada) -- antes NO se descontaba
+  del presupuesto ni se reflejaba en `coste_gastado_eur`/`busquedas.coste_eur`
+  en absoluto (doc "Coste de tokens del LLM no se resta del presupuesto"),
+  así que el coste mostrado en el panel siempre se quedaba corto frente al
+  gasto real de OpenAI/Anthropic.
 
 `planificar()` acepta un `on_ronda` opcional, invocado justo después de
 cada ronda (antes de decidir si el bucle sigue) — pensado para que quien
@@ -81,8 +87,14 @@ from radar.agente.herramientas import (
 from radar.agente.interpretacion import FiltrosBusqueda
 from radar.agente.prompts import PROMPT_PLANIFICADOR_SISTEMA
 from radar.config import Settings, get_settings
+from radar.coste_llm import calcular_coste_eur
 
-HERRAMIENTAS_QUE_CONSUMEN_PRESUPUESTO = {"buscar_web", "descubrir_borme"}
+# Herramienta ficticia (nunca la llama el LLM, la genera el propio bucle)
+# para registrar el coste de tokens de cada llamada al planificador como
+# una "ronda" más -- ver comentario en `_planificar_openai`/`_planificar_anthropic`.
+PLANIFICADOR_LLM = "planificador_llm"
+
+HERRAMIENTAS_QUE_CONSUMEN_PRESUPUESTO = {"buscar_web", "descubrir_borme", PLANIFICADOR_LLM}
 
 OnRonda = Callable[["RondaPlanificador"], Awaitable[None]]
 DebeCancelar = Callable[[], Awaitable[bool]]
@@ -222,6 +234,38 @@ async def _planificar_openai(
             break
         previous_response_id = respuesta.id
 
+        # Coste real del propio LLM (2026-09-21): `respuesta.usage` viene
+        # gratis en cada respuesta y antes no se leía nunca -- el coste
+        # mostrado en el panel solo incluía buscar_web/descubrir_borme, no
+        # el planificador que decide qué llamar. Se registra como una
+        # "ronda" más (herramienta ficticia `PLANIFICADOR_LLM`) para
+        # reaprovechar toda la persistencia/agregación que ya existe por
+        # ronda, en vez de tocar bd_busquedas.py.
+        if respuesta.usage is not None:
+            coste_llm = calcular_coste_eur(
+                settings.modelo_planificador, respuesta.usage.input_tokens, respuesta.usage.output_tokens
+            )
+            contexto.presupuesto_restante_eur -= coste_llm
+            resultado_final.coste_gastado_eur += coste_llm
+            ronda_llm = RondaPlanificador(
+                contador_pasos := contador_pasos + 1,
+                PLANIFICADOR_LLM,
+                {},
+                {
+                    "modelo": settings.modelo_planificador,
+                    "tokens_entrada": respuesta.usage.input_tokens,
+                    "tokens_salida": respuesta.usage.output_tokens,
+                    "coste_eur": round(coste_llm, 6),
+                },
+            )
+            resultado_final.rondas.append(ronda_llm)
+            if on_ronda is not None:
+                try:
+                    await on_ronda(ronda_llm)
+                except Exception as exc:  # noqa: BLE001 — mismo criterio que el resto de rondas
+                    resultado_final.error = f"fallo guardando progreso: {exc}"
+                    break
+
         # isinstance (no `getattr(item, "type", None) == "function_call"`) para que mypy narrowee
         # de verdad el Union de items de `respuesta.output` — mismo motivo que en
         # `radar.fuentes.buscador_web._procesar_respuesta_openai`.
@@ -335,6 +379,34 @@ async def _planificar_anthropic(
         except Exception as exc:  # noqa: BLE001 — nunca inventamos progreso si la API falla
             resultado_final.error = str(exc)
             break
+
+        # Coste real del propio LLM -- ver comentario equivalente en
+        # `_planificar_openai`, mismo criterio, mismo `usage` gratis en la
+        # respuesta (`input_tokens`/`output_tokens` también en Anthropic).
+        if respuesta.usage is not None:
+            coste_llm = calcular_coste_eur(
+                settings.modelo_planificador, respuesta.usage.input_tokens, respuesta.usage.output_tokens
+            )
+            contexto.presupuesto_restante_eur -= coste_llm
+            resultado_final.coste_gastado_eur += coste_llm
+            ronda_llm = RondaPlanificador(
+                contador_pasos := contador_pasos + 1,
+                PLANIFICADOR_LLM,
+                {},
+                {
+                    "modelo": settings.modelo_planificador,
+                    "tokens_entrada": respuesta.usage.input_tokens,
+                    "tokens_salida": respuesta.usage.output_tokens,
+                    "coste_eur": round(coste_llm, 6),
+                },
+            )
+            resultado_final.rondas.append(ronda_llm)
+            if on_ronda is not None:
+                try:
+                    await on_ronda(ronda_llm)
+                except Exception as exc:  # noqa: BLE001 — mismo criterio que el resto de rondas
+                    resultado_final.error = f"fallo guardando progreso: {exc}"
+                    break
 
         contenido_asistente = cast(Any, [_bloque_asistente_a_param(b) for b in respuesta.content])
         mensajes.append({"role": "assistant", "content": contenido_asistente})

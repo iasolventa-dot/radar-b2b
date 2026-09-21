@@ -72,6 +72,12 @@ function resumenRonda(ronda: RondaEstadistica): string {
   }
   if (ronda.herramienta === "preguntar_usuario") return String(r.pregunta ?? "");
   if (ronda.herramienta === "finalizar_busqueda") return String(r.resumen ?? "");
+  if (ronda.herramienta === "planificador_llm") {
+    const entrada = typeof r.tokens_entrada === "number" ? r.tokens_entrada : 0;
+    const salida = typeof r.tokens_salida === "number" ? r.tokens_salida : 0;
+    const coste = typeof r.coste_eur === "number" ? r.coste_eur.toFixed(4) : "0.0000";
+    return `${entrada + salida} tokens (${entrada} entrada, ${salida} salida) · ${coste} €`;
+  }
   return "";
 }
 
