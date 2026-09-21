@@ -248,6 +248,8 @@ export const ETIQUETA_HERRAMIENTA: Record<string, string> = {
   estimar_cobertura: "Estimar cobertura (INE)",
   descubrir_borme: "Descubrir en el BORME",
   buscar_web: "Buscar en la web",
+  descubrir_osm: "Descubrir en OpenStreetMap",
+  descubrir_places: "Descubrir en Google Places",
   preguntar_usuario: "Pregunta al usuario",
   finalizar_busqueda: "Finalizar búsqueda",
   // No es una herramienta real (el LLM nunca la "llama") -- la genera el
@@ -265,6 +267,9 @@ export const ETIQUETA_HERRAMIENTA: Record<string, string> = {
 const ETIQUETA_FUENTE_MOTIVO: Record<string, string> = {
   borme: "BORME",
   buscador_web: "Búsqueda web",
+  osm: "OpenStreetMap",
+  "google_places+web": "Google Places + web propia",
+  google_places: "Google Places",
 };
 
 const ETIQUETA_ACCION_MOTIVO: Record<string, string> = {
@@ -311,3 +316,17 @@ export const PRIORIDAD_CARGO: string[] = [
   "administrador_mancomunado",
   "consejero",
 ];
+
+// worker/radar/api/esquemas.py::EstadoPlacesOut / ProbarPlacesOut (sección Ajustes)
+export interface EstadoPlaces {
+  configurada: boolean;
+  clave_enmascarada: string | null;
+  origen: "panel" | "env" | null;
+  presupuesto_mensual_eur: number;
+  gasto_mes_eur: number;
+}
+
+export interface ProbarPlacesOut {
+  ok: boolean;
+  mensaje: string;
+}

@@ -154,7 +154,7 @@ export default async function PaginaDetalleEmpresa({
 
       <div>
         <div className="flex items-center gap-2">
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{empresa.razon_social}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{empresa.razon_social ?? empresa.nombre_comercial ?? "(sin nombre)"}</h1>
           {empresa.nif ? (
             <span className="badge bg-slate-100 font-mono text-slate-700">{empresa.nif}</span>
           ) : (
@@ -162,7 +162,7 @@ export default async function PaginaDetalleEmpresa({
           )}
         </div>
         <p className="mt-1 text-sm text-slate-500">
-          {empresa.nombre_comercial && <>{empresa.nombre_comercial} · </>}
+          {empresa.razon_social && empresa.nombre_comercial && <>{empresa.nombre_comercial} · </>}
           {empresa.forma_juridica ?? "forma jurídica desconocida"} · {empresa.estado ?? "estado desconocido"} · confianza{" "}
           {empresa.confianza_global != null ? empresa.confianza_global.toFixed(2) : "—"}
         </p>

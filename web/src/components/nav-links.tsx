@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Copy, History, ListChecks, Search, ShieldCheck, type LucideIcon } from "lucide-react";
+import { Copy, History, ListChecks, Search, Settings, ShieldCheck, type LucideIcon } from "lucide-react";
 
 const ENLACES: { href: string; etiqueta: string; icono: LucideIcon }[] = [
   { href: "/", etiqueta: "Nueva búsqueda", icono: Search },
@@ -10,6 +10,7 @@ const ENLACES: { href: string; etiqueta: string; icono: LucideIcon }[] = [
   { href: "/duplicados", etiqueta: "Posibles duplicados", icono: Copy },
   { href: "/revision", etiqueta: "Cola de revisión", icono: ListChecks },
   { href: "/entidades", etiqueta: "Golden set", icono: ShieldCheck },
+  { href: "/ajustes", etiqueta: "Ajustes", icono: Settings },
 ];
 
 export function EnlacesNavegacion() {

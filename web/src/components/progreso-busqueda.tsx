@@ -104,7 +104,7 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
 
       const { data: filas } = await supabase
         .from("busqueda_resultados")
-        .select("empresa_id, motivo, empresas(razon_social, nif, estado, confianza_global, dominio_web)")
+        .select("empresa_id, motivo, empresas(razon_social, nombre_comercial, nif, estado, confianza_global, dominio_web)")
         .eq("busqueda_id", id)
         .limit(200);
       if (cancelado || !filas) return;
@@ -147,7 +147,7 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
       setResultados(
         filas.map((f: Record<string, unknown>) => {
           type Empresa = {
-            razon_social: string; nif: string | null; estado: string | null;
+            razon_social: string | null; nombre_comercial: string | null; nif: string | null; estado: string | null;
             confianza_global: number | null; dominio_web: string | null;
           };
           const empresaRaw = f.empresas as Empresa | Empresa[] | null;
@@ -170,7 +170,7 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
           return {
             empresa_id: empresaId,
             motivo: f.motivo as string | null,
-            razon_social: empresa?.razon_social ?? "(sin nombre)",
+            razon_social: empresa?.razon_social ?? empresa?.nombre_comercial ?? "(sin nombre)",
             nif: empresa?.nif ?? null,
             estado: empresa?.estado ?? null,
             confianza_global: empresa?.confianza_global ?? null,

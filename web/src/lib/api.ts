@@ -10,7 +10,7 @@
 // ninguna clave: la API todavía no verifica autenticación (ver docstring
 // de radar.api.main — D-03, uso estrictamente interno, a cerrar si esto
 // se expone más allá del equipo).
-import type { BusquedaInterpretadaOut, ConfirmarBusquedaOut, FiltrosBusqueda, ProfundizarOut } from "@/lib/tipos";
+import type { BusquedaInterpretadaOut, ConfirmarBusquedaOut, EstadoPlaces, FiltrosBusqueda, ProbarPlacesOut, ProfundizarOut } from "@/lib/tipos";
 
 function urlBase(): string {
   const url = process.env.NEXT_PUBLIC_API_URL;
@@ -86,4 +86,26 @@ export function profundizarEmpresa(empresaId: string, maxCosteEur = 0.3): Promis
     method: "POST",
     body: JSON.stringify({ max_coste_eur: maxCosteEur }),
   });
+}
+
+/** GET /configuracion/google-places — nunca devuelve la clave entera, solo enmascarada. */
+export function estadoPlaces(): Promise<EstadoPlaces> {
+  return peticionJson<EstadoPlaces>("/configuracion/google-places");
+}
+
+/** PUT /configuracion/google-places — guarda la clave (solo la lee el worker) y, opcional, el tope mensual. */
+export function guardarClavePlaces(apiKey: string | null, presupuestoMensualEur?: number): Promise<EstadoPlaces> {
+  return peticionJson<EstadoPlaces>("/configuracion/google-places", {
+    method: "PUT",
+    body: JSON.stringify({ api_key: apiKey, presupuesto_mensual_eur: presupuestoMensualEur ?? null }),
+  });
+}
+
+export function borrarClavePlaces(): Promise<EstadoPlaces> {
+  return peticionJson<EstadoPlaces>("/configuracion/google-places", { method: "DELETE" });
+}
+
+/** POST /configuracion/google-places/probar — petición de solo IDs (gratuita) para validar la clave. */
+export function probarClavePlaces(): Promise<ProbarPlacesOut> {
+  return peticionJson<ProbarPlacesOut>("/configuracion/google-places/probar", { method: "POST" });
 }

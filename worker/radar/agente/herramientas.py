@@ -77,7 +77,9 @@ from radar.fuentes.borme import (
     ConectorBorme,
 )
 from radar.fuentes.buscador_web import COSTE_POR_BUSQUEDA_EUR, buscar
-from radar.normalizacion.dominio import extraer_dominio
+from radar.fuentes.osm import ConectorOSM, OverpassError
+from radar.agente.consultas import generar_consultas
+from radar.normalizacion.dominio import es_dominio_plataforma, extraer_dominio
 from radar.orquestador import bd, procesar_registro
 
 # Dominios que `buscar_web` puede devolver como resultado pero que NO son "la
@@ -98,7 +100,14 @@ _DOMINIOS_NO_APTOS_PARA_ENRIQUECER = {"boe.es"}
 
 
 def _url_no_apta_para_enriquecer(url: str) -> bool:
-    return extraer_dominio(url) in _DOMINIOS_NO_APTOS_PARA_ENRIQUECER
+    """Ni boletines públicos, ni directorios/redes sociales/plataformas
+    (`DOMINIOS_PLATAFORMA`: Páginas Amarillas, einforma, LinkedIn, Facebook...):
+    son listados o perfiles de terceros, no la web propia del titular, y
+    `enriquecer_desde_web` extraería de ellos una empresa cualquiera. La URL
+    solo se usa como resultado de búsqueda -- nunca se descarga ni se
+    scrapea (tampoco LinkedIn)."""
+    dominio = extraer_dominio(url)
+    return dominio in _DOMINIOS_NO_APTOS_PARA_ENRIQUECER or es_dominio_plataforma(dominio)
 
 _TABLA_TILDES = str.maketrans("áéíóúÁÉÍÓÚñÑ", "aeiouAEIOUnN")
 
@@ -187,8 +196,43 @@ HERRAMIENTAS: list[Herramienta] = [
         parametros={
             "type": "object",
             "properties": {
-                "consultas": {"type": "array", "items": {"type": "string"}, "description": "Consultas literales a ejecutar tal cual."},
+                "consultas": {"type": "array", "items": {"type": "string"}, "description": "Consultas literales a ejecutar tal cual. Si se omiten, se generan automáticamente por sector y zona de los filtros (varios patrones)."},
                 "max_resultados_por_consulta": {"type": "integer", "default": 5},
+                "max_coste_eur": {"type": "number", "description": "Tope de gasto para esta llamada."},
+            },
+            "required": ["max_coste_eur"],
+        },
+    ),
+    Herramienta(
+        nombre="descubrir_osm",
+        descripcion=(
+            "Descubre negocios del sector en OpenStreetMap (fuente libre, gratuita) por municipio. Sin NIF y con "
+            "cobertura irregular (datos de voluntarios), pero da nombre, dirección, teléfono y web de negocios que "
+            "no salen en el BORME. Procesa los municipios de los filtros (o los que indiques) en lotes de 15; si "
+            "'quedan_municipios' > 0, vuelve a llamar con 'desplazamiento' = 'siguiente_desplazamiento'."
+        ),
+        parametros={
+            "type": "object",
+            "properties": {
+                "municipios": {"type": "array", "items": {"type": "string"}, "description": "Nombres de municipio; por defecto los de los filtros."},
+                "provincia": {"type": "string", "description": "Nombre de provincia: todos sus municipios, en lotes."},
+                "desplazamiento": {"type": "integer", "default": 0},
+            },
+            "required": [],
+        },
+    ),
+    Herramienta(
+        nombre="descubrir_places",
+        descripcion=(
+            "Google Places (DE PAGO, ~0,035 EUR por página de 20 resultados): úsala solo si las fuentes gratuitas no "
+            "cubren la zona. Google no permite guardar sus datos: solo se guarda el place_id de empresas que ya "
+            "conocemos y se sigue la web propia de las nuevas. Consultas tipo 'reformas en Alcalá de Guadaíra'."
+        ),
+        parametros={
+            "type": "object",
+            "properties": {
+                "consultas": {"type": "array", "items": {"type": "string"}},
+                "max_paginas": {"type": "integer", "default": 1, "description": "Páginas de 20 resultados por consulta (máx. 3)."},
                 "max_coste_eur": {"type": "number", "description": "Tope de gasto para esta llamada."},
             },
             "required": ["consultas", "max_coste_eur"],
@@ -225,6 +269,17 @@ HERRAMIENTAS: list[Herramienta] = [
         },
     ),
 ]
+
+
+def herramientas_activas(conn: psycopg.Connection) -> list[Herramienta]:
+    """`descubrir_places` solo se ofrece al planificador si hay clave de
+    Google configurada (Ajustes): sin ella, el LLM perdería una ronda
+    intentando una herramienta que no puede funcionar."""
+    from radar.secretos import obtener_clave_places
+
+    if obtener_clave_places(conn):
+        return list(HERRAMIENTAS)
+    return [h for h in HERRAMIENTAS if h.nombre != "descubrir_places"]
 
 
 # --- consultar_bd ------------------------------------------------------
@@ -639,6 +694,80 @@ async def descubrir_borme(
     return {**contadores, "coste_eur": 0.0, "rango": f"{desde.isoformat()} a {hasta.isoformat()}"}
 
 
+# --- descubrir_osm ---------------------------------------------------------
+
+LOTE_MUNICIPIOS_OSM = 15
+
+
+def _sector_osm(filtros: FiltrosBusqueda) -> tuple[str, list[str]]:
+    """'construccion' si el sector pedido lo es (etiquetas OSM de oficios de
+    obra); si no, búsqueda por palabras clave en el nombre."""
+    textos = [filtros.sector.sector_interno or "", *filtros.sector.palabras_clave]
+    if any("constru" in _sin_tildes(t.lower()) or "obra" in _sin_tildes(t.lower()) for t in textos):
+        return "construccion", []
+    return "palabras", list(filtros.sector.palabras_clave)
+
+
+def _codigos_municipios(conn: psycopg.Connection, nombres: list[str], provincia: str | None) -> list[str]:
+    if provincia:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select codigo_ine from municipios where normalizar_texto(provincia) = normalizar_texto(%s) order by codigo_ine",
+                (provincia,),
+            )
+            return [f[0] for f in cur.fetchall()]
+    return sorted(resolver_codigos_municipio(nombres, conn))
+
+
+async def descubrir_osm(
+    conn: psycopg.Connection,
+    cliente_http: httpx.AsyncClient,
+    filtros: FiltrosBusqueda,
+    *,
+    municipios: list[str] | None = None,
+    provincia: str | None = None,
+    desplazamiento: int = 0,
+    telefonos_compartidos: set[str] | None = None,
+    busqueda_id: str | None = None,
+) -> dict[str, Any]:
+    nombres = municipios or list(filtros.ubicacion.municipios)
+    if not provincia and not nombres and filtros.ubicacion.provincias:
+        provincia = filtros.ubicacion.provincias[0]
+    codigos = _codigos_municipios(conn, nombres, provincia)
+    if not codigos:
+        return {"soportado": False, "motivo": "sin municipio ni provincia reconocidos: indica 'municipios' o 'provincia'", "coste_eur": 0.0}
+
+    lote = codigos[desplazamiento : desplazamiento + LOTE_MUNICIPIOS_OSM]
+    sector, palabras = _sector_osm(filtros)
+    contadores = {"elementos": 0, "vinculado": 0, "nueva_empresa": 0, "en_revision": 0, "ya_procesado": 0, "error": 0}
+    conector = ConectorOSM(cliente_http)
+    try:
+        async for registro in conector.descubrir(
+            {"codigos_ine_municipio": lote, "sector": sector, "palabras_clave": palabras}, max_coste_eur=0.0
+        ):
+            contadores["elementos"] += 1
+            try:
+                resultado = procesar_registro(registro, conn, busqueda_id=busqueda_id, telefonos_compartidos=telefonos_compartidos)
+                if busqueda_id and resultado.empresa_id:
+                    bd.registrar_resultado_busqueda(
+                        busqueda_id, resultado.empresa_id, f"osm: {resultado.accion}", resultado.puntuacion_match, conn
+                    )
+                conn.commit()
+                contadores[resultado.accion] += 1
+            except Exception:  # noqa: BLE001 -- un elemento que falla no debe tirar el lote
+                conn.rollback()
+                contadores["error"] += 1
+    except (OverpassError, ValueError) as exc:
+        return {**contadores, "error_overpass": str(exc), "coste_eur": 0.0}
+
+    siguiente = desplazamiento + LOTE_MUNICIPIOS_OSM
+    return {
+        **contadores, "coste_eur": 0.0, "municipios_en_lote": len(lote),
+        "quedan_municipios": max(0, len(codigos) - siguiente), "siguiente_desplazamiento": siguiente,
+        "atribucion": "© OpenStreetMap contributors (ODbL)",
+    }
+
+
 # --- buscar_web ------------------------------------------------------------
 
 
@@ -669,7 +798,7 @@ async def buscar_web(
     `busqueda_id`: ver docstring de `descubrir_borme`, mismo enlace a
     `busqueda_resultados`."""
     contadores = {
-        "consultas_ejecutadas": 0, "urls_encontradas": 0, "urls_no_legibles": 0, "urls_descartadas_boletin": 0,
+        "consultas_ejecutadas": 0, "urls_encontradas": 0, "urls_no_legibles": 0, "urls_descartadas_no_web_propia": 0,
         "vinculado": 0, "nueva_empresa": 0, "en_revision": 0, "ya_procesado": 0, "error_busqueda": 0, "error_procesado": 0,
     }
     coste_acumulado = 0.0
@@ -687,7 +816,7 @@ async def buscar_web(
         for r in resultado.resultados:
             contadores["urls_encontradas"] += 1
             if _url_no_apta_para_enriquecer(r.url):
-                contadores["urls_descartadas_boletin"] += 1
+                contadores["urls_descartadas_no_web_propia"] += 1
                 continue
             registro = await enriquecer_desde_web(cliente_http, r.url)
             if registro is None:
@@ -786,9 +915,9 @@ async def ejecutar_herramienta(nombre: str, argumentos: dict[str, Any], contexto
         )
 
     if nombre == "buscar_web":
-        consultas = argumentos.get("consultas")
+        consultas = argumentos.get("consultas") or generar_consultas(contexto.filtros)
         if not consultas:
-            raise ValueError("buscar_web requiere 'consultas' (lista no vacía)")
+            raise ValueError("buscar_web requiere 'consultas' (o zona en los filtros para generarlas)")
         max_coste_eur = argumentos.get("max_coste_eur")
         if max_coste_eur is None:
             raise ValueError("buscar_web requiere 'max_coste_eur'")
@@ -797,6 +926,28 @@ async def ejecutar_herramienta(nombre: str, argumentos: dict[str, Any], contexto
             consultas=list(consultas), max_resultados_por_consulta=argumentos.get("max_resultados_por_consulta", 5),
             max_coste_eur=min(float(max_coste_eur), contexto.presupuesto_restante_eur),
             telefonos_compartidos=contexto.telefonos_compartidos, busqueda_id=contexto.busqueda_id,
+        )
+
+    if nombre == "descubrir_osm":
+        return await descubrir_osm(
+            contexto.conn, contexto.cliente_http, contexto.filtros,
+            municipios=argumentos.get("municipios"), provincia=argumentos.get("provincia"),
+            desplazamiento=int(argumentos.get("desplazamiento", 0)),
+            telefonos_compartidos=contexto.telefonos_compartidos, busqueda_id=contexto.busqueda_id,
+        )
+
+    if nombre == "descubrir_places":
+        from radar.agente.descubrir_places import descubrir_places
+
+        consultas = argumentos.get("consultas")
+        if not consultas:
+            raise ValueError("descubrir_places requiere 'consultas' (lista no vacía)")
+        if argumentos.get("max_coste_eur") is None:
+            raise ValueError("descubrir_places requiere 'max_coste_eur'")
+        return await descubrir_places(
+            contexto.conn, contexto.cliente_http, consultas=list(consultas),
+            max_coste_eur=min(float(argumentos["max_coste_eur"]), contexto.presupuesto_restante_eur),
+            max_paginas=int(argumentos.get("max_paginas", 1)), busqueda_id=contexto.busqueda_id,
         )
 
     if nombre == "preguntar_usuario":

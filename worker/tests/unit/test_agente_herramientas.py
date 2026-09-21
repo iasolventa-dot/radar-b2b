@@ -214,10 +214,11 @@ def test_web_de_empresa_normal_si_es_apta():
 # ---------- esquemas de herramientas ----------
 
 
-def test_herramientas_tiene_las_seis_implementadas():
+def test_herramientas_tiene_las_ocho_implementadas():
     nombres = {h.nombre for h in HERRAMIENTAS}
     assert nombres == {
-        "consultar_bd", "estimar_cobertura", "descubrir_borme", "buscar_web", "preguntar_usuario", "finalizar_busqueda",
+        "consultar_bd", "estimar_cobertura", "descubrir_borme", "descubrir_osm", "descubrir_places", "buscar_web",
+        "preguntar_usuario", "finalizar_busqueda",
     }
 
 
@@ -292,3 +293,20 @@ def test_ejecutar_herramienta_buscar_web_sin_consultas_lanza():
 def test_ejecutar_herramienta_descubrir_borme_sin_provincia_lanza():
     with pytest.raises(ValueError, match="provincia_titulo"):
         asyncio.run(ejecutar_herramienta("descubrir_borme", {}, _ContextoFalso()))  # type: ignore[arg-type]
+
+
+def test_places_sin_clave_no_se_ofrece_al_planificador(monkeypatch):
+    import radar.secretos as secretos
+    from radar.agente.herramientas import herramientas_activas
+
+    monkeypatch.setattr(secretos, "obtener_clave_places", lambda conn: None)
+    assert "descubrir_places" not in {h.nombre for h in herramientas_activas(None)}  # type: ignore[arg-type]
+    monkeypatch.setattr(secretos, "obtener_clave_places", lambda conn: "AIza-x" * 5)
+    assert "descubrir_places" in {h.nombre for h in herramientas_activas(None)}  # type: ignore[arg-type]
+
+
+def test_directorios_y_redes_no_son_web_propia():
+    assert _url_no_apta_para_enriquecer("https://www.paginasamarillas.es/f/sevilla/reformas-x.html") is True
+    assert _url_no_apta_para_enriquecer("https://www.linkedin.com/company/reformas-x") is True
+    assert _url_no_apta_para_enriquecer("https://www.facebook.com/reformasx") is True
+    assert _url_no_apta_para_enriquecer("https://reformasx.es/aviso-legal") is False

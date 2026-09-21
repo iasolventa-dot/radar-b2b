@@ -14,7 +14,8 @@ export const dynamic = "force-dynamic";
 
 interface EmpresaResumen {
   id: string;
-  razon_social: string;
+  razon_social: string | null;
+  nombre_comercial: string | null;
   nif: string | null;
   forma_juridica: string | null;
   objeto_social: string | null;
@@ -44,7 +45,7 @@ export default async function PaginaDuplicados() {
   const { data: empresasFilas } = idsEmpresas.length
     ? await supabase
         .from("empresas")
-        .select("id, razon_social, nif, forma_juridica, objeto_social, estado, confianza_global")
+        .select("id, razon_social, nombre_comercial, nif, forma_juridica, objeto_social, estado, confianza_global")
         .in("id", idsEmpresas)
     : { data: [] as EmpresaResumen[] };
 
@@ -101,7 +102,7 @@ export default async function PaginaDuplicados() {
                   <input type="hidden" name="puntuacion" value={c.puntuacion} />
                   <button type="submit" className="btn-primary">
                     <GitMerge className="h-4 w-4" />
-                    Son la misma — conservar &quot;{a.razon_social}&quot;
+                    Son la misma — conservar &quot;{a.razon_social ?? a.nombre_comercial}&quot;
                   </button>
                 </form>
                 <form action={confirmarFusion}>
@@ -111,7 +112,7 @@ export default async function PaginaDuplicados() {
                   <input type="hidden" name="puntuacion" value={c.puntuacion} />
                   <button type="submit" className="btn-secondary">
                     <GitMerge className="h-4 w-4" />
-                    Son la misma — conservar &quot;{b.razon_social}&quot;
+                    Son la misma — conservar &quot;{b.razon_social ?? b.nombre_comercial}&quot;
                   </button>
                 </form>
                 <form action={descartarDuplicado}>
@@ -133,7 +134,7 @@ export default async function PaginaDuplicados() {
 function TarjetaEmpresa({ empresa }: { empresa: EmpresaResumen }) {
   return (
     <div className="rounded-lg border border-slate-200 p-3">
-      <p className="font-medium text-slate-800">{empresa.razon_social}</p>
+      <p className="font-medium text-slate-800">{empresa.razon_social ?? empresa.nombre_comercial ?? "(sin nombre)"}</p>
       <p className="mt-1 text-xs text-slate-500">
         {empresa.nif ?? "sin NIF"} · {empresa.forma_juridica ?? "forma jurídica desconocida"} · {empresa.estado ?? "estado desconocido"}
         {empresa.confianza_global != null && ` · confianza ${empresa.confianza_global.toFixed(2)}`}

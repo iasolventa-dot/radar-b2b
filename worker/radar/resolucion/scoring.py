@@ -179,4 +179,38 @@ def comparar(a: dict, b: dict, telefonos_compartidos: set | None = None) -> dict
         senales.append("nombre casi idéntico sin ninguna señal de ubicación en ninguno de los dos registros")
         return resultado(UMBRAL_REVISION, "R4_nombre_identico_sin_senal_ubicacion")
 
+    # --- Mismo nombre + mismo punto (2026-09-21) ---
+    # Nombre casi idéntico (con palabras distintivas), a <=50 m y sin forma
+    # jurídica contradictoria: es la misma entidad (el Registro Mercantil no
+    # admite dos denominaciones idénticas, y dos negocios homónimos no
+    # comparten portal). Solo con nombre + distancia la suma daba 0,70 y se
+    # quedaba en "revisión" aunque no hubiera ninguna duda razonable --
+    # detectado al simular Google Places (mismo nombre y mismas coordenadas
+    # no se reconocía como la empresa ya guardada).
+    forma_contradice = bool(
+        a.get("forma_juridica") and b.get("forma_juridica") and a["forma_juridica"] != b["forma_juridica"]
+    )
+    if (
+        p < UMBRAL_FUSION_AUTO
+        and d is not None
+        and d <= 50
+        and sim >= 0.95
+        and distintivas
+        and not forma_contradice
+    ):
+        senales.append("mismo nombre y mismo punto (<=50 m)")
+        return resultado(UMBRAL_FUSION_AUTO, "R6_mismo_nombre_mismo_punto")
+
+    # --- Mismo punto + nombre parcialmente coincidente (2026-09-21) ---
+    # Caso típico entre fuentes: OpenStreetMap trae el nombre COMERCIAL
+    # abreviado ("Grupo Inversor") y el BORME la razón social completa
+    # ("GRUPO INVERSOR DOMINGUEZ PEREZ SL") con las mismas coordenadas. Solo
+    # con nombre parcial + <=50 m la suma daba ~0,40 y se creaba una empresa
+    # nueva sin dejar rastro. Con una palabra DISTINTIVA (no genérica) en
+    # común y a <=50 m se sube a "revisión" -- nunca a fusión automática
+    # (varias empresas comparten portal, y una palabra suelta no basta).
+    if p < UMBRAL_REVISION and d is not None and d <= 50 and distintivas and sim >= 0.5:
+        senales.append("mismo punto (<=50 m) y palabra distintiva del nombre en común")
+        return resultado(UMBRAL_REVISION, "R5_mismo_punto_nombre_parcial")
+
     return resultado(p, "puntuacion")

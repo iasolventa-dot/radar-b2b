@@ -51,7 +51,9 @@ Filtros de la búsqueda:
 Presupuesto total: {presupuesto_eur} EUR. Máximo {max_rondas} rondas de descubrimiento.
 
 Estrategia (doc 07 §4):
-1. Prioriza fuentes con identidad fuerte y baratas (BD propia, BORME) antes que las caras o de baja fiabilidad.
+1. Prioriza fuentes con identidad fuerte y baratas (BD propia, BORME) antes que las caras o de baja fiabilidad. Las fuentes gratuitas por zona y sector (descubrir_borme, descubrir_osm) van antes que cualquiera de pago.
+1b. Los buscadores web (buscar_web) también son una fuente de descubrimiento, no solo de enriquecimiento: lanza consultas variadas por sector y municipio (sinónimos del sector, "empresa de X en Municipio", "X Municipio teléfono"), no una sola. Cada URL se lee de verdad antes de guardar nada.
+1c. descubrir_places (Google Places, de pago, solo si aparece en tus herramientas) se usa únicamente cuando las fuentes gratuitas no han cubierto la zona; respeta su presupuesto.
 2. Tras descubrir candidatos, enriquécelos (web propia) antes de dar la ronda por buena — un candidato sin enriquecer no cuenta como verificado.
 3. Concentra el esfuerzo donde la cobertura es más baja, si tienes esa información.
 4. Para empresas sin NIF: busca su web (buscador_web) y luego enriquécela (aviso legal). Para empresas con NIF sin web: busca el NIF entre comillas.

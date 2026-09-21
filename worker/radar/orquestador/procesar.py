@@ -158,6 +158,33 @@ def _consolidar_y_actualizar_empresa(
             )
 
 
+def reunir_candidatos(campos, campos_norm: dict, compartidos: set[str], conn: psycopg.Connection) -> list[dict]:
+    """Empresas ya guardadas con las que hay que comparar este registro: NIF
+    exacto, contacto exacto (dominio/teléfono/email/place_id) y similitud de
+    nombre (+ cercanía si hay coordenadas). Solo lee. Separada de
+    `procesar_registro` para que un conector que NO puede almacenar el
+    registro (Google Places) reutilice exactamente el mismo criterio de
+    cruce sin escribir nada (`radar.agente.descubrir_places`)."""
+    candidatos_ids: list[str] = []
+    if campos_norm["nif_valido"]:
+        exacto = bd.buscar_candidato_por_nif(campos_norm["nif"], conn)
+        if exacto:
+            candidatos_ids.append(exacto)
+    # Bloqueo por contacto exacto -- ver docstring de bd.buscar_candidatos_por_contacto.
+    for cid in bd.buscar_candidatos_por_contacto(
+        campos_norm.get("dominio"), campos_norm.get("telefonos") or [], campos_norm.get("emails") or [],
+        campos_norm.get("place_id"), set(compartidos) | set(campos_norm.get("telefonos_especiales") or []), conn,
+    ):
+        if cid not in candidatos_ids:
+            candidatos_ids.append(cid)
+    nombre_para_bloqueo = campos.razon_social or campos.nombre_comercial
+    if nombre_para_bloqueo:
+        for c in buscar_candidatos(nombre_para_bloqueo, campos_norm.get("lon"), campos_norm.get("lat"), conexion=conn):
+            if c.empresa_id not in candidatos_ids:
+                candidatos_ids.append(c.empresa_id)
+    return [bd.cargar_registro_empresa_normalizado(cid, conn) for cid in candidatos_ids]
+
+
 def procesar_registro(
     registro: RegistroBruto,
     conn: psycopg.Connection,
@@ -184,19 +211,7 @@ def procesar_registro(
     compartidos = (
         telefonos_compartidos if telefonos_compartidos is not None else cargar_telefonos_compartidos(conexion=conn)
     )
-
-    candidatos_ids: list[str] = []
-    if campos_norm["nif_valido"]:
-        exacto = bd.buscar_candidato_por_nif(campos_norm["nif"], conn)
-        if exacto:
-            candidatos_ids.append(exacto)
-    nombre_para_bloqueo = registro.campos.razon_social or registro.campos.nombre_comercial
-    if nombre_para_bloqueo:
-        for c in buscar_candidatos(nombre_para_bloqueo, campos_norm.get("lon"), campos_norm.get("lat"), conexion=conn):
-            if c.empresa_id not in candidatos_ids:
-                candidatos_ids.append(c.empresa_id)
-
-    candidatos = [bd.cargar_registro_empresa_normalizado(cid, conn) for cid in candidatos_ids]
+    candidatos = reunir_candidatos(registro.campos, campos_norm, compartidos, conn)
     decision = decidir_resolucion(campos_norm, candidatos, compartidos)
 
     if decision.accion == "vincular":

@@ -189,6 +189,74 @@ def buscar_candidato_por_nif(nif: str, conn: psycopg.Connection) -> str | None:
     return str(fila[0]) if fila else None
 
 
+def buscar_candidatos_por_contacto(
+    dominio: str | None,
+    telefonos: list[str],
+    emails: list[str],
+    place_id: str | None,
+    telefonos_excluidos: set[str],
+    conn: psycopg.Connection,
+) -> list[str]:
+    """Candidatos por señal de contacto EXACTA (mismo dominio propio, mismo
+    teléfono, mismo email o mismo place_id), sin mirar el nombre.
+
+    Hasta 2026-09-21 el bloqueo era solo por similitud de nombre
+    (`radar.resolucion.blocking.buscar_candidatos`), así que un registro con
+    el mismo dominio o teléfono que una empresa ya guardada pero con nombre
+    distinto (caso típico entre fuentes: nombre comercial "Meta360" en
+    OpenStreetMap vs razón social "TECNOLOGIAS Y SERVICIOS X SL" en el
+    BORME) nunca llegaba a compararse -- las reglas de `scoring.comparar`
+    para dominio/teléfono (dominio garantiza al menos revisión) eran
+    inalcanzables en ese caso. Esto solo AMPLÍA quién se compara; la
+    decisión sigue siendo de `comparar`/`decidir_resolucion`, nunca se
+    vincula solo por compartir un dato.
+
+    `telefonos_excluidos`: teléfonos compartidos (gestorías/centralitas) y
+    especiales -- no son señal de identidad (doc 05 §2.3).
+    """
+    ids: list[str] = []
+
+    def anadir(filas: list[tuple]) -> None:
+        for (eid,) in filas:
+            if str(eid) not in ids:
+                ids.append(str(eid))
+
+    with conn.cursor() as cur:
+        if dominio:
+            cur.execute(
+                "select id from empresas where fusionada_en is null and dominio_web = %s "
+                "union select empresa_id from identificadores where tipo = 'dominio' and valor = %s",
+                (dominio, dominio),
+            )
+            anadir(cur.fetchall())
+        tels = [t for t in telefonos if t not in telefonos_excluidos]
+        if tels:
+            cur.execute(
+                "select distinct c.empresa_id from canales_contacto c "
+                "join empresas e on e.id = c.empresa_id and e.fusionada_en is null "
+                "where c.tipo = 'telefono' and c.estado <> 'invalido' and c.valor_norm = any(%s)",
+                (tels,),
+            )
+            anadir(cur.fetchall())
+        if emails:
+            cur.execute(
+                "select distinct c.empresa_id from canales_contacto c "
+                "join empresas e on e.id = c.empresa_id and e.fusionada_en is null "
+                "where c.tipo = 'email' and c.estado <> 'invalido' and c.valor_norm = any(%s)",
+                (emails,),
+            )
+            anadir(cur.fetchall())
+        if place_id:
+            cur.execute(
+                "select i.empresa_id from identificadores i "
+                "join empresas e on e.id = i.empresa_id and e.fusionada_en is null "
+                "where i.tipo = 'google_place_id' and i.valor = %s",
+                (place_id,),
+            )
+            anadir(cur.fetchall())
+    return ids
+
+
 _SQL_CANDIDATO_NORMALIZADO = """
 select
     e.nif, e.nif_valido, e.razon_social_norm, e.nombre_comercial_norm, e.forma_juridica, e.dominio_web,
@@ -672,6 +740,29 @@ def upsert_identificadores(
             "insert into identificadores (empresa_id, tipo, valor, fuente_id) values (%s, %s, %s, %s) "
             "on conflict (tipo, valor) do nothing",
             filas,
+        )
+
+
+def registrar_place_id(empresa_id: str, place_id: str, fuente_id: int, conn: psycopg.Connection) -> bool:
+    """Guarda SOLO el `place_id` de Google (lo único que sus términos permiten
+    almacenar indefinidamente, `fuentes.campos_almacenables`). `True` si se
+    insertó, `False` si ese place_id ya estaba (de esta u otra empresa)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "insert into identificadores (empresa_id, tipo, valor, fuente_id) values (%s, 'google_place_id', %s, %s) "
+            "on conflict (tipo, valor) do nothing",
+            (empresa_id, place_id, fuente_id),
+        )
+        return cur.rowcount > 0
+
+
+def registrar_uso_places(operacion: str, peticiones: int, coste_eur: float, detalle: dict, conn: psycopg.Connection) -> None:
+    import json
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "insert into uso_google_places (operacion, peticiones, coste_eur, detalle) values (%s, %s, %s, %s::jsonb)",
+            (operacion, peticiones, coste_eur, json.dumps(detalle)),
         )
 
 

@@ -88,3 +88,67 @@ def test_nombre_identico_con_ubicacion_distinta_sigue_sin_fusionar():
     a = reg(razon_social="Construcciones García SL", cp="41010")
     b = reg(razon_social="Construcciones García S.L.", cp="28001")
     assert comparar(a, b)["decision"] == "distinta"
+
+
+# ---------- cruce entre fuentes (2026-09-21) ----------
+
+
+def test_nombre_comercial_abreviado_en_el_mismo_punto_va_a_revision_no_a_fusion():
+    """OSM: 'Grupo Inversor'; BORME: razón social completa. Mismas coordenadas."""
+    osm = reg(nombre_comercial="Grupo Inversor", lat=37.40426, lon=-5.94973)
+    borme = reg(razon_social="GRUPO INVERSOR DOMINGUEZ PEREZ SL", lat=37.40427, lon=-5.94972)
+    r = comparar(osm, borme)
+    assert r["decision"] == "revision"
+    assert r["regla"] == "R5_mismo_punto_nombre_parcial"
+
+
+def test_mismo_punto_con_nombre_distinto_no_se_relaciona():
+    """Dos negocios en el mismo portal con nombres sin nada en común no se cruzan."""
+    a = reg(nombre_comercial="Fontanería Cobreplas", lat=37.40426, lon=-5.94973)
+    b = reg(razon_social="ELECTRICIDAD NAVARRO SL", lat=37.40427, lon=-5.94972)
+    assert comparar(a, b)["decision"] == "distinta"
+
+
+def test_mismo_punto_solo_palabra_generica_en_comun_no_llega_a_revision():
+    a = reg(nombre_comercial="Reformas Rápidas", lat=37.40426, lon=-5.94973)
+    b = reg(razon_social="REFORMAS GUADAIRA SL", lat=37.40427, lon=-5.94972)
+    assert comparar(a, b)["decision"] == "distinta"
+
+
+def test_nombre_parcial_a_kilometros_no_se_relaciona():
+    a = reg(nombre_comercial="Grupo Inversor", lat=37.40426, lon=-5.94973)
+    b = reg(razon_social="GRUPO INVERSOR DOMINGUEZ PEREZ SL", lat=37.60, lon=-5.50)
+    assert comparar(a, b)["decision"] == "distinta"
+
+
+def test_mismo_dominio_con_nombres_distintos_llega_a_revision():
+    """Caso B del cruce entre fuentes: mismo dominio propio, nombre comercial vs razón social."""
+    a = reg(nombre_comercial="Meta360", web="https://meta360.es/")
+    b = reg(razon_social="TECNOLOGIAS Y SERVICIOS DIGITALES SL", web="meta360.es")
+    r = comparar(a, b)
+    assert r["decision"] == "revision"
+
+
+def test_mismo_nombre_y_mismo_punto_es_la_misma_empresa():
+    a = reg(nombre_comercial="Instalaciones Garmel", lat=37.40426, lon=-5.94973)
+    b = reg(razon_social="INSTALACIONES GARMEL SL", lat=37.40427, lon=-5.94972)
+    r = comparar(a, b)
+    assert r["decision"] == "misma" and r["regla"] == "R6_mismo_nombre_mismo_punto"
+
+
+def test_mismo_nombre_mismo_punto_pero_forma_juridica_distinta_no_fusiona():
+    a = reg(razon_social="INSTALACIONES GARMEL SL", lat=37.40426, lon=-5.94973)
+    b = reg(razon_social="INSTALACIONES GARMEL SA", lat=37.40427, lon=-5.94972)
+    assert comparar(a, b)["decision"] != "misma"
+
+
+def test_mismo_nombre_mismo_punto_con_nif_distinto_nunca_fusiona():
+    a = reg(razon_social="INSTALACIONES GARMEL SL", nif=cif("B", "4155555"), lat=37.40426, lon=-5.94973)
+    b = reg(razon_social="INSTALACIONES GARMEL SL", nif=cif("B", "2166666"), lat=37.40427, lon=-5.94972)
+    assert comparar(a, b)["decision"] == "distinta"
+
+
+def test_mismo_nombre_a_kilometros_no_fusiona():
+    a = reg(razon_social="INSTALACIONES GARMEL SL", lat=37.40426, lon=-5.94973)
+    b = reg(razon_social="INSTALACIONES GARMEL SL", lat=37.90, lon=-4.77)
+    assert comparar(a, b)["decision"] != "misma"

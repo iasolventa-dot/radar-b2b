@@ -1,0 +1,175 @@
+{
+ "elements": [
+  {
+   "type": "node",
+   "id": 2039930074,
+   "lat": 37.3896043,
+   "lon": -5.9703975,
+   "tags": {
+    "craft": "plumber",
+    "name": "Fontanería Cobreplas",
+    "shop": "hardware",
+    "source": "survey",
+    "survey:date": "29-11-2012"
+   }
+  },
+  {
+   "type": "node",
+   "id": 2917229432,
+   "lat": 37.3560678,
+   "lon": -5.9860226,
+   "tags": {
+    "addr:city": "Sevilla",
+    "addr:housenumber": "10",
+    "addr:postcode": "41012",
+    "addr:street": "Avenida del Padre García Tejero",
+    "contact:email": "info@meta360.es",
+    "contact:website": "http://meta360.es/",
+    "craft": "builder",
+    "name": "meta360"
+   }
+  },
+  {
+   "type": "node",
+   "id": 3068055430,
+   "lat": 37.3793593,
+   "lon": -6.0101812,
+   "tags": {
+    "addr:city": "Sevilla",
+    "addr:housenumber": "13",
+    "addr:postcode": "41010",
+    "addr:street": "Avenida Álvar Núñez",
+    "craft": "electrician",
+    "name": "Imel Grove"
+   }
+  },
+  {
+   "type": "node",
+   "id": 3149527771,
+   "lat": 37.3953793,
+   "lon": -5.999664,
+   "tags": {
+    "craft": "glaziery",
+    "name": "venta y reparacion de lámparas cristal",
+    "shop": "furniture"
+   }
+  },
+  {
+   "type": "node",
+   "id": 3157719319,
+   "lat": 37.3979841,
+   "lon": -5.9824606,
+   "tags": {
+    "addr:city": "Sevilla",
+    "addr:housenumber": "6",
+    "addr:postcode": "41003",
+    "addr:street": "Calle Aceituno",
+    "addr:unit": "B",
+    "craft": "carpenter",
+    "email": "info@isabellepradas.com",
+    "name": "WUD - Taller",
+    "phone": "+34 657169404",
+    "sport": "gymnastics",
+    "website": "https://www.isabellepradas.com/"
+   }
+  },
+  {
+   "type": "node",
+   "id": 3179794156,
+   "lat": 37.3460445,
+   "lon": -5.9790407,
+   "tags": {
+    "addr:city": "Sevilla",
+    "addr:postcode": "41012",
+    "addr:street": "Avenida Paseo de Europa",
+    "craft": "window_construction",
+    "name": "Aluminios Nazarenos - Ventanas de Aluminio y PVC",
+    "phone": "+34 691 38 32 11"
+   }
+  },
+  {
+   "type": "node",
+   "id": 3234429935,
+   "lat": 37.3972111,
+   "lon": -5.992965,
+   "tags": {
+    "addr:city": "Sevilla",
+    "addr:housenumber": "4",
+    "addr:postcode": "41002",
+    "addr:street": "Calle Correduría",
+    "craft": "stonemason",
+    "name": "Reformas RDH",
+    "website": "https://www.deobrasyreformas.com/reformas-rdh-renovacion-y-decoracion-del-hogar-vreformas-138141.html"
+   }
+  },
+  {
+   "type": "node",
+   "id": 3782433654,
+   "lat": 37.3765005,
+   "lon": -6.0031301,
+   "tags": {
+    "addr:city": "Sevilla",
+    "addr:housenumber": "76",
+    "addr:postcode": "41011",
+    "addr:street": "Calle Niebla",
+    "check_date": "2025-05-13",
+    "craft": "builder",
+    "name": "Obras y Reformas Sevilla"
+   }
+  },
+  {
+   "type": "node",
+   "id": 3869675663,
+   "lat": 37.37888,
+   "lon": -5.998137,
+   "tags": {
+    "craft": "plumber",
+    "name": "Don Baño",
+    "source": "flashmapmob",
+    "wheelchair": "no"
+   }
+  },
+  {
+   "type": "node",
+   "id": 4037761861,
+   "lat": 37.3800242,
+   "lon": -6.003738,
+   "tags": {
+    "craft": "window_construction",
+    "name": "Futuvent",
+    "shop": "convenience"
+   }
+  },
+  {
+   "type": "node",
+   "id": 4059501233,
+   "lat": 37.3793519,
+   "lon": -6.0066946,
+   "tags": {
+    "craft": "plumber",
+    "name": "Infogas Pilares"
+   }
+  },
+  {
+   "type": "node",
+   "id": 4059588967,
+   "lat": 37.3795341,
+   "lon": -6.0040024,
+   "tags": {
+    "addr:full": "Calle Esperanza de Triana, 26 41010 Sevilla",
+    "contact:phone": "+34 954 00 74 75",
+    "name": "Reformas Majestre",
+    "office": "construction_company"
+   }
+  },
+  {
+   "type": "node",
+   "id": 1,
+   "lat": 37.38,
+   "lon": -5.98,
+   "tags": {
+    "craft": "builder"
+   }
+  }
+ ]
+}

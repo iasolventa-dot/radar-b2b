@@ -78,7 +78,7 @@ from openai import OpenAI
 from openai.types.responses import ResponseFunctionToolCall
 
 from radar.agente.herramientas import (
-    HERRAMIENTAS,
+    herramientas_activas,
     ContextoHerramientas,
     a_tool_param_anthropic,
     a_tool_param_openai,
@@ -94,7 +94,7 @@ from radar.coste_llm import calcular_coste_eur
 # una "ronda" más -- ver comentario en `_planificar_openai`/`_planificar_anthropic`.
 PLANIFICADOR_LLM = "planificador_llm"
 
-HERRAMIENTAS_QUE_CONSUMEN_PRESUPUESTO = {"buscar_web", "descubrir_borme", PLANIFICADOR_LLM}
+HERRAMIENTAS_QUE_CONSUMEN_PRESUPUESTO = {"buscar_web", "descubrir_borme", "descubrir_places", PLANIFICADOR_LLM}
 
 OnRonda = Callable[["RondaPlanificador"], Awaitable[None]]
 DebeCancelar = Callable[[], Awaitable[bool]]
@@ -204,7 +204,7 @@ async def _planificar_openai(
     # cast: a_tool_param_openai devuelve dict[str, Any] a propósito (herramientas.py no depende
     # de ningún SDK); el union de TypedDicts que espera `tools` es demasiado específico para que
     # mypy lo acepte sin ayuda — el SDK valida la forma real en tiempo de ejecución igualmente.
-    tools = cast(Any, [a_tool_param_openai(h) for h in HERRAMIENTAS])
+    tools = cast(Any, [a_tool_param_openai(h) for h in herramientas_activas(conn)])
     resultado_final = ResultadoPlanificador()
     # Contador de PASOS (una llamada a una herramienta), no de vueltas al LLM
     # ("rondas" en el sentido de max_rondas/numero_ronda abajo). Un mismo turno
@@ -361,7 +361,7 @@ async def _planificar_anthropic(
     contexto = ContextoHerramientas(
         conn=conn, cliente_http=cliente_http, filtros=filtros, presupuesto_restante_eur=presupuesto_eur, busqueda_id=busqueda_id
     )
-    tools = cast(Any, [a_tool_param_anthropic(h) for h in HERRAMIENTAS])  # ver comentario de `_planificar_openai`
+    tools = cast(Any, [a_tool_param_anthropic(h) for h in herramientas_activas(conn)])  # ver comentario de `_planificar_openai`
     resultado_final = ResultadoPlanificador()
     contador_pasos = 0  # ver comentario de `_planificar_openai` -- mismo motivo, mismo arreglo
 

@@ -57,6 +57,24 @@ class ProfundizarOut(BaseModel):
     error: str | None = None
 
 
+class GuardarClavePlacesIn(BaseModel):
+    api_key: str | None = Field(default=None, min_length=20, max_length=200, description="Clave de API de Google Cloud con Places API (New); si se omite, solo se actualiza el tope mensual")
+    presupuesto_mensual_eur: float | None = Field(default=None, ge=0, le=1000)
+
+
+class EstadoPlacesOut(BaseModel):
+    configurada: bool
+    clave_enmascarada: str | None = None
+    origen: str | None = None  # 'panel' | 'env'
+    presupuesto_mensual_eur: float
+    gasto_mes_eur: float
+
+
+class ProbarPlacesOut(BaseModel):
+    ok: bool
+    mensaje: str
+
+
 class BusquedaOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

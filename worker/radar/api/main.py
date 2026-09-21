@@ -69,13 +69,28 @@ from radar.api.esquemas import (
     BusquedaOut,
     ConfirmarBusquedaIn,
     ConfirmarBusquedaOut,
+    EstadoPlacesOut,
+    GuardarClavePlacesIn,
     PeticionBusquedaIn,
+    ProbarPlacesOut,
     ProfundizarIn,
     ProfundizarOut,
 )
 from radar.api.estado import estado_final_de
 from radar.config import get_settings
+from radar.fuentes.places import probar_clave
 from radar.orquestador import bd
+from radar.secretos import (
+    CLAVE_PLACES,
+    CLAVE_PLACES_PRESUPUESTO_MENSUAL,
+    borrar_secreto,
+    enmascarar,
+    gasto_mes_places_eur,
+    guardar_secreto,
+    obtener_clave_places,
+    obtener_secreto,
+    presupuesto_mensual_places_eur,
+)
 
 
 @asynccontextmanager
@@ -104,7 +119,7 @@ if _settings_arranque.cors_allow_origins:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[o.strip() for o in _settings_arranque.cors_allow_origins.split(",") if o.strip()],
-        allow_methods=["GET", "POST"],
+        allow_methods=["GET", "POST", "PUT", "DELETE"],
         allow_headers=["*"],
     )
 
@@ -317,3 +332,57 @@ async def profundizar(empresa_id: str, profundizar_in: ProfundizarIn) -> Profund
     return ProfundizarOut(
         empresa_id=resultado.empresa_id, consultas=resultado.consultas, resultado=resultado.resultado_buscar_web
     )
+
+
+# --- Ajustes: Google Places -------------------------------------------------
+# La clave se guarda en `configuracion_secretos` (RLS sin políticas: solo este
+# worker la lee) y NUNCA se devuelve entera al navegador.
+
+
+def _estado_places(conn: psycopg.Connection) -> EstadoPlacesOut:
+    clave = obtener_clave_places(conn)
+    guardada_en_panel = obtener_secreto(CLAVE_PLACES, conn) is not None
+    return EstadoPlacesOut(
+        configurada=bool(clave), clave_enmascarada=enmascarar(clave) if clave else None,
+        origen=("panel" if guardada_en_panel else "env") if clave else None,
+        presupuesto_mensual_eur=presupuesto_mensual_places_eur(conn), gasto_mes_eur=round(gasto_mes_places_eur(conn), 4),
+    )
+
+
+@app.get("/configuracion/google-places", response_model=EstadoPlacesOut)
+async def estado_places() -> EstadoPlacesOut:
+    with psycopg.connect(_requerir_db_url()) as conn:
+        return _estado_places(conn)
+
+
+@app.put("/configuracion/google-places", response_model=EstadoPlacesOut)
+async def guardar_places(entrada: GuardarClavePlacesIn) -> EstadoPlacesOut:
+    with psycopg.connect(_requerir_db_url()) as conn:
+        if entrada.api_key is None and entrada.presupuesto_mensual_eur is None:
+            raise HTTPException(status_code=422, detail="indica la clave y/o el tope mensual")
+        if entrada.api_key is not None:
+            guardar_secreto(CLAVE_PLACES, entrada.api_key.strip(), conn)
+        if entrada.presupuesto_mensual_eur is not None:
+            guardar_secreto(CLAVE_PLACES_PRESUPUESTO_MENSUAL, str(entrada.presupuesto_mensual_eur), conn)
+        conn.commit()
+        return _estado_places(conn)
+
+
+@app.delete("/configuracion/google-places", response_model=EstadoPlacesOut)
+async def borrar_places() -> EstadoPlacesOut:
+    with psycopg.connect(_requerir_db_url()) as conn:
+        borrar_secreto(CLAVE_PLACES, conn)
+        conn.commit()
+        return _estado_places(conn)
+
+
+@app.post("/configuracion/google-places/probar", response_model=ProbarPlacesOut)
+async def probar_places() -> ProbarPlacesOut:
+    """Petición de solo IDs (SKU gratuito): valida la clave sin gastar."""
+    with psycopg.connect(_requerir_db_url()) as conn:
+        clave = obtener_clave_places(conn)
+    if not clave:
+        return ProbarPlacesOut(ok=False, mensaje="No hay ninguna clave configurada.")
+    async with httpx.AsyncClient() as cliente_http:
+        ok, mensaje = await probar_clave(cliente_http, clave)
+    return ProbarPlacesOut(ok=ok, mensaje=mensaje)
