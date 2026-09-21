@@ -6,9 +6,6 @@ y `test_resolucion_arbitraje.py`."""
 
 import json
 
-import pytest
-from pydantic import ValidationError
-
 from radar.clasificacion.candidatos import CandidatoCnae
 from radar.clasificacion.llm import (
     RespuestaClasificacionCnae,

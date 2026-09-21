@@ -16,13 +16,13 @@ from radar.agente.herramientas import (
     HERRAMIENTAS,
     _coincide_sector,
     _url_no_apta_para_enriquecer,
-    fuera_de_zona,
     a_tool_param_anthropic,
     a_tool_param_openai,
     construir_where_empresas,
     ejecutar_herramienta,
     estimar_cobertura,
     finalizar_busqueda,
+    fuera_de_zona,
     preguntar_usuario,
     resolver_codigos_municipio,
 )
@@ -297,7 +297,7 @@ def test_ejecutar_herramienta_descubrir_borme_sin_provincia_lanza():
 
 
 def test_places_sin_clave_no_se_ofrece_al_planificador(monkeypatch):
-    import radar.secretos as secretos
+    from radar import secretos
     from radar.agente.herramientas import herramientas_activas
 
     monkeypatch.setattr(secretos, "obtener_clave_places", lambda conn: None)

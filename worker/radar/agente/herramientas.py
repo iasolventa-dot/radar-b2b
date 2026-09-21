@@ -69,6 +69,7 @@ from typing import Any, Literal
 import httpx
 import psycopg
 
+from radar.agente.consultas import generar_consultas
 from radar.agente.interpretacion import FiltrosBusqueda
 from radar.extraccion import enriquecer_desde_web
 from radar.fuentes.borme import (
@@ -78,7 +79,6 @@ from radar.fuentes.borme import (
 )
 from radar.fuentes.buscador_web import COSTE_POR_BUSQUEDA_EUR, buscar
 from radar.fuentes.osm import ConectorOSM, OverpassError
-from radar.agente.consultas import generar_consultas
 from radar.normalizacion.dominio import es_dominio_plataforma, extraer_dominio
 from radar.orquestador import bd, procesar_registro
 

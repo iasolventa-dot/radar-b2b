@@ -26,7 +26,7 @@ def test_sector_construccion_sin_palabras_usa_las_por_defecto():
 
 def test_sin_duplicados_y_respeta_maximo():
     cs = generar_consultas(_f(["A", "B"], ["x", "y"]), max_consultas=4)
-    assert len(cs) == len(set(c.lower() for c in cs)) == 4
+    assert len(cs) == len({c.lower() for c in cs}) == 4
 
 
 def test_provincia_si_no_hay_municipios():

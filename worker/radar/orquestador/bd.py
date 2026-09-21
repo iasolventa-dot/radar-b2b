@@ -196,6 +196,7 @@ def buscar_candidatos_por_contacto(
     place_id: str | None,
     telefonos_excluidos: set[str],
     conn: psycopg.Connection,
+    hoja_registral: str | None = None,
 ) -> list[str]:
     """Candidatos por señal de contacto EXACTA (mismo dominio propio, mismo
     teléfono, mismo email o mismo place_id), sin mirar el nombre.
@@ -246,6 +247,14 @@ def buscar_candidatos_por_contacto(
                 (emails,),
             )
             anadir(cur.fetchall())
+        if hoja_registral:
+            cur.execute(
+                "select i.empresa_id from identificadores i "
+                "join empresas e on e.id = i.empresa_id and e.fusionada_en is null "
+                "where i.tipo = 'borme_hoja' and i.valor = %s",
+                (hoja_registral,),
+            )
+            anadir(cur.fetchall())
         if place_id:
             cur.execute(
                 "select i.empresa_id from identificadores i "
@@ -272,7 +281,8 @@ select
     s.codigo_postal, s.provincia,
     extensions.st_y(s.geom::extensions.geometry) as lat,
     extensions.st_x(s.geom::extensions.geometry) as lon,
-    (select i.valor from identificadores i where i.empresa_id = e.id and i.tipo = 'google_place_id' limit 1) as place_id
+    (select i.valor from identificadores i where i.empresa_id = e.id and i.tipo = 'google_place_id' limit 1) as place_id,
+    (select i.valor from identificadores i where i.empresa_id = e.id and i.tipo = 'borme_hoja' limit 1) as hoja_registral
 from empresas e
 left join lateral (
     select * from sedes sd
@@ -304,7 +314,7 @@ def cargar_registro_empresa_normalizado(empresa_id: str, conn: psycopg.Connectio
     if fila is None:
         raise ValueError(f"Empresa {empresa_id} no existe")
     (nif, nif_valido, nombre_norm, comercial_norm, forma_juridica, dominio,
-     telefonos, emails, cp, provincia, lat, lon, place_id) = fila
+     telefonos, emails, cp, provincia, lat, lon, place_id, hoja_registral) = fila
     return {
         "empresa_id": str(empresa_id),
         "nif": nif,
@@ -322,6 +332,7 @@ def cargar_registro_empresa_normalizado(empresa_id: str, conn: psycopg.Connectio
         "lat": lat,
         "lon": lon,
         "place_id": place_id,
+        "hoja_registral": hoja_registral,
     }
 
 

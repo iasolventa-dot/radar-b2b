@@ -4,7 +4,7 @@ from radar.agente.profundizar import DatosEmpresaProfundizar, construir_consulta
 
 
 def _datos(**overrides) -> DatosEmpresaProfundizar:
-    base = dict(id="1", razon_social="CONSTRUCCIONES EJEMPLO SL", nif=None, municipio=None, provincia=None, dominio_web=None)
+    base = {"id": "1", "razon_social": "CONSTRUCCIONES EJEMPLO SL", "nif": None, "municipio": None, "provincia": None, "dominio_web": None}
     base.update(overrides)
     return DatosEmpresaProfundizar(**base)
 

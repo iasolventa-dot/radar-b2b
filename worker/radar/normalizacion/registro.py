@@ -93,4 +93,5 @@ def normalizar_registro(reg: dict) -> dict:
         "lat": reg.get("lat"),
         "lon": reg.get("lon"),
         "place_id": reg.get("place_id") if reg.get("place_id") and str(reg.get("place_id")) != "nan" else None,
+        "hoja_registral": (str(reg.get("hoja_registral")).strip().upper() or None) if reg.get("hoja_registral") else None,
     }

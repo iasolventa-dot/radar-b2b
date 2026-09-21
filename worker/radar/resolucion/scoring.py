@@ -57,6 +57,11 @@ def _mejor_similitud(a: dict, b: dict) -> tuple[float, bool]:
     return mejor, distintivas
 
 
+def _numeros(r: dict) -> frozenset[str]:
+    nombre = r.get("nombre_norm") or r.get("comercial_norm") or ""
+    return frozenset(t for t in nombre.split() if t.isdigit())
+
+
 def comparar(a: dict, b: dict, telefonos_compartidos: set | None = None) -> dict:
     """Compara dos registros NORMALIZADOS (salida de `normalizar_registro`).
 
@@ -91,6 +96,14 @@ def comparar(a: dict, b: dict, telefonos_compartidos: set | None = None) -> dict
     if a.get("place_id") and a.get("place_id") == b.get("place_id"):
         senales.append("mismo place_id de Google")
         return resultado(0.95, "R3_place_id")
+
+    # Hoja registral del Registro Mercantil: identifica UNA sociedad (el
+    # BORME la publica en cada acto). Misma hoja = misma empresa aunque el
+    # BORME no dé NIF ni domicilio -- 155 de los 259 «posibles duplicados»
+    # pendientes eran actos distintos de la misma hoja (2026-09-21).
+    if a.get("hoja_registral") and a.get("hoja_registral") == b.get("hoja_registral"):
+        senales.append(f"misma hoja registral ({a['hoja_registral']})")
+        return resultado(0.95, "R3b_hoja_registral")
 
     p = 0.0
     # --- Nombre ---
@@ -154,6 +167,18 @@ def comparar(a: dict, b: dict, telefonos_compartidos: set | None = None) -> dict
             senales.append("provincias distintas")
     if dominio_comun:
         p = max(p, PESOS["dominio_minimo"])
+
+    # --- Series numeradas (2026-09-21) ---
+    # «ARENA GREEN POWER REN 410 SL» y «... REN 414 SL» son sociedades
+    # distintas (series de vehículos/proyectos): un identificador numérico
+    # distinto en un nombre por lo demás igual es evidencia de que NO son la
+    # misma (104 falsos «posibles duplicados» en la base). Solo si no las une
+    # un dominio o teléfono propio.
+    nums_a = _numeros(a)
+    nums_b = _numeros(b)
+    if nums_a and nums_b and nums_a != nums_b and not dominio_comun and not tel_comunes:
+        senales.append(f"identificadores numéricos distintos en el nombre ({sorted(nums_a)} ≠ {sorted(nums_b)})")
+        return resultado(min(p, 0.2), "R7_numeros_distintos")
 
     # --- Nombre casi idéntico sin ninguna señal de ubicación (2026-09-18) ---
     # Nombre solo nunca pasa de PESOS["nombre_095"] (0.45), por debajo de

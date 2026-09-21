@@ -48,7 +48,7 @@ def main() -> None:
         if not fila:
             print("No hay empresas geocodificadas para probar.")
             return
-        eid, razon, nif, lat, lon, municipio, provincia = fila
+        eid, razon, _nif, lat, lon, municipio, provincia = fila
         print(f"Empresa base: {razon} ({municipio}, {provincia}) @ {lat:.5f},{lon:.5f}\n")
 
         corto = " ".join(razon.replace(".", "").split()[:2]).title()

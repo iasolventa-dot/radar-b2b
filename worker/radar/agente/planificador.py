@@ -78,11 +78,11 @@ from openai import OpenAI
 from openai.types.responses import ResponseFunctionToolCall
 
 from radar.agente.herramientas import (
-    herramientas_activas,
     ContextoHerramientas,
     a_tool_param_anthropic,
     a_tool_param_openai,
     ejecutar_herramienta,
+    herramientas_activas,
 )
 from radar.agente.interpretacion import FiltrosBusqueda
 from radar.agente.prompts import PROMPT_PLANIFICADOR_SISTEMA

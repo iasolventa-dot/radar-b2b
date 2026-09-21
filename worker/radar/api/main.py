@@ -39,6 +39,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from contextlib import asynccontextmanager
+from typing import cast
 
 import httpx
 import psycopg
@@ -76,7 +77,7 @@ from radar.api.esquemas import (
     ProfundizarIn,
     ProfundizarOut,
 )
-from radar.api.estado import estado_final_de
+from radar.api.estado import EstadoBusqueda, estado_final_de
 from radar.config import get_settings
 from radar.fuentes.places import probar_clave
 from radar.orquestador import bd
@@ -310,7 +311,7 @@ async def cancelar(busqueda_id: str) -> ConfirmarBusquedaOut:
         nuevo_estado = solicitar_cancelacion(
             conn, busqueda_id, resolver_inmediatamente=busqueda.estado == "esperando_respuesta"
         )
-    return ConfirmarBusquedaOut(id=busqueda_id, estado=nuevo_estado)
+    return ConfirmarBusquedaOut(id=busqueda_id, estado=cast(EstadoBusqueda, nuevo_estado))
 
 
 @app.post("/empresas/{empresa_id}/profundizar", response_model=ProfundizarOut)

@@ -33,6 +33,7 @@ def campos_a_dict_normalizacion(campos: CamposExtraidos) -> dict:
         "lat": campos.lat,
         "lon": campos.lon,
         "place_id": campos.extra.get("place_id"),
+        "hoja_registral": campos.extra.get("hoja_registral"),
     }
 
 

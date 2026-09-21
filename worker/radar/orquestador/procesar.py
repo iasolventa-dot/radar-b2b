@@ -174,6 +174,7 @@ def reunir_candidatos(campos, campos_norm: dict, compartidos: set[str], conn: ps
     for cid in bd.buscar_candidatos_por_contacto(
         campos_norm.get("dominio"), campos_norm.get("telefonos") or [], campos_norm.get("emails") or [],
         campos_norm.get("place_id"), set(compartidos) | set(campos_norm.get("telefonos_especiales") or []), conn,
+        hoja_registral=campos_norm.get("hoja_registral"),
     ):
         if cid not in candidatos_ids:
             candidatos_ids.append(cid)

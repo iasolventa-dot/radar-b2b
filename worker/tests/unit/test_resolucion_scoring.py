@@ -152,3 +152,38 @@ def test_mismo_nombre_a_kilometros_no_fusiona():
     a = reg(razon_social="INSTALACIONES GARMEL SL", lat=37.40426, lon=-5.94973)
     b = reg(razon_social="INSTALACIONES GARMEL SL", lat=37.90, lon=-4.77)
     assert comparar(a, b)["decision"] != "misma"
+
+
+# ---------- hoja registral y series numeradas (2026-09-21) ----------
+
+
+def test_misma_hoja_registral_es_la_misma_empresa_aunque_no_haya_mas_datos():
+    a = reg(razon_social="JOAQUIN FERNANDEZ SA", hoja_registral="SE52426")
+    b = reg(razon_social="JOAQUIN FERNANDEZ SA", hoja_registral="se52426")
+    r = comparar(a, b)
+    assert r["decision"] == "misma" and r["regla"] == "R3b_hoja_registral"
+
+
+def test_hojas_registrales_distintas_no_activan_la_regla():
+    a = reg(razon_social="JOAQUIN FERNANDEZ SA", hoja_registral="SE52426")
+    b = reg(razon_social="JOAQUIN FERNANDEZ SA", hoja_registral="SE11111")
+    assert comparar(a, b)["regla"] != "R3b_hoja_registral"
+
+
+def test_series_numeradas_son_empresas_distintas():
+    a = reg(razon_social="ARENA GREEN POWER REN 410 SOCIEDAD LIMITADA")
+    b = reg(razon_social="ARENA GREEN POWER REN 414 SOCIEDAD LIMITADA")
+    r = comparar(a, b)
+    assert r["decision"] == "distinta" and r["regla"] == "R7_numeros_distintos"
+
+
+def test_mismo_numero_no_dispara_la_regla_de_series():
+    a = reg(razon_social="ARENA GREEN POWER REN 410 SL")
+    b = reg(razon_social="ARENA GREEN POWER REN 410 SL")
+    assert comparar(a, b)["regla"] != "R7_numeros_distintos"
+
+
+def test_numeros_distintos_pero_mismo_dominio_no_se_descarta():
+    a = reg(razon_social="ARENA GREEN POWER REN 410 SL", web="arena.es")
+    b = reg(razon_social="ARENA GREEN POWER REN 414 SL", web="arena.es")
+    assert comparar(a, b)["regla"] != "R7_numeros_distintos"

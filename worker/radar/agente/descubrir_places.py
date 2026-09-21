@@ -38,7 +38,11 @@ from radar.orquestador import bd, procesar_registro
 from radar.orquestador.logica import campos_a_dict_normalizacion, decidir_resolucion
 from radar.orquestador.procesar import reunir_candidatos
 from radar.resolucion.blocking import telefonos_compartidos as cargar_telefonos_compartidos
-from radar.secretos import gasto_mes_places_eur, obtener_clave_places, presupuesto_mensual_places_eur
+from radar.secretos import (
+    gasto_mes_places_eur,
+    obtener_clave_places,
+    presupuesto_mensual_places_eur,
+)
 
 MAX_PAGINAS_POR_CONSULTA = 3
 _DOMINIOS_NO_UTILES = {"boe.es"}
