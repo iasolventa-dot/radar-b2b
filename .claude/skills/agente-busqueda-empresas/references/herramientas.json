@@ -1,0 +1,222 @@
+{
+  "_comentario": "Herramientas del agente planificador de Radar B2B, en el formato de tool use de la API de Anthropic (name, description, input_schema). Cada herramienta la implementa el worker; devuelve resúmenes compactos, nunca páginas completas. Revisar la documentación vigente de tool use antes de implementar.",
+  "tools": [
+    {
+      "name": "consultar_bd",
+      "description": "Busca en la base de datos propia empresas que cumplen los filtros y devuelve un recuento, estadísticas de calidad (confianza media, % con teléfono verificado, % con NIF) y una muestra de hasta 10 empresas. Úsala al principio de cada búsqueda y tras cada ronda para medir el progreso. No devuelve la lista completa.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "filtros": {
+            "type": "object",
+            "description": "Filtros estructurados confirmados por el usuario (salida del módulo de interpretación)."
+          },
+          "incluir_muestra": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "filtros"
+        ]
+      }
+    },
+    {
+      "name": "estimar_cobertura",
+      "description": "Estima el universo de empresas que cumplen los filtros usando INE DIRCE (por CNAE, provincia y estrato de asalariados) y lo compara con lo que hay en la base de datos. Devuelve el total estimado, el porcentaje cubierto y el desglose por provincia/municipio y subsector para detectar lagunas.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "filtros": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "filtros"
+        ]
+      }
+    },
+    {
+      "name": "lanzar_descubrimiento",
+      "description": "Encola un trabajo de descubrimiento en una fuente concreta. Devuelve inmediatamente un id de trabajo y el coste estimado; el resultado se consulta con estado_trabajos. Fuentes: 'bd_propia_ampliada', 'placsp' (licitaciones públicas), 'rea' (registro de empresas acreditadas de construcción), 'borme' (constituciones y actos por provincia), 'google_places' (búsqueda por rejilla; solo se persiste el place_id), 'buscador_web' (consultas a API de búsqueda para encontrar webs corporativas), 'proveedor_comercial'. No uses una fuente si el presupuesto restante no cubre su coste estimado.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "busqueda_id": {
+            "type": "string"
+          },
+          "fuente": {
+            "type": "string",
+            "enum": [
+              "bd_propia_ampliada",
+              "placsp",
+              "rea",
+              "borme",
+              "google_places",
+              "buscador_web",
+              "proveedor_comercial"
+            ]
+          },
+          "parametros": {
+            "type": "object",
+            "description": "Parámetros específicos de la fuente. Ej. google_places: {\"municipios\": [\"Dos Hermanas\"], \"consultas\": [\"constructora\", \"empresa de reformas\"], \"tam_celda_km\": 2}. buscador_web: {\"consultas\": [\"constructora Écija\"], \"max_resultados_por_consulta\": 20}. placsp: {\"provincias\": [\"Sevilla\"], \"cpv_prefijos\": [\"45\"], \"desde\": \"2024-01-01\"}."
+          },
+          "max_coste_eur": {
+            "type": "number",
+            "description": "Tope de gasto para este trabajo."
+          }
+        },
+        "required": [
+          "busqueda_id",
+          "fuente",
+          "parametros",
+          "max_coste_eur"
+        ]
+      }
+    },
+    {
+      "name": "estado_trabajos",
+      "description": "Devuelve el progreso de los trabajos de una búsqueda: por trabajo, candidatos encontrados, vinculados a empresas existentes, empresas nuevas, en revisión, descartados, errores y coste real. Incluye el total de empresas verificadas nuevas en la ronda.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "busqueda_id": {
+            "type": "string"
+          },
+          "solo_activos": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "busqueda_id"
+        ]
+      }
+    },
+    {
+      "name": "enriquecer_pendientes",
+      "description": "Lanza el enriquecimiento de candidatos pendientes: lectura de su web (aviso legal, contacto) con extracción por reglas y, solo si faltan datos, con LLM; normalización; resolución de entidades y cálculo de confianza. Úsala tras cada ronda de descubrimiento. Devuelve id de trabajo y coste estimado.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "busqueda_id": {
+            "type": "string"
+          },
+          "max_candidatos": {
+            "type": "integer",
+            "default": 500
+          },
+          "max_coste_eur": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "busqueda_id",
+          "max_coste_eur"
+        ]
+      }
+    },
+    {
+      "name": "arbitrar_duplicados",
+      "description": "Procesa pares de posibles duplicados en zona gris (puntuación 0,55-0,80) con el prompt de arbitraje. Los veredictos 'incierto' o de baja confianza pasan a la cola humana. Devuelve cuántos se resolvieron como misma/distinta/incierto.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "busqueda_id": {
+            "type": "string"
+          },
+          "max_pares": {
+            "type": "integer",
+            "default": 100
+          }
+        },
+        "required": [
+          "busqueda_id"
+        ]
+      }
+    },
+    {
+      "name": "verificar_empresa",
+      "description": "Verificación profunda de UNA empresa concreta (ya en BD o candidata): comprueba identidad (NIF en fuentes oficiales y aviso legal), estado (BORME: disolución, extinción, concurso; señales de cierre), sede y canales de contacto. Úsala para casos dudosos o de alto valor, no en masa. Devuelve resultado y confianza por campo, y las fuentes consultadas.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "empresa_id": {
+            "type": "string",
+            "description": "UUID de la empresa en BD, si existe."
+          },
+          "datos_conocidos": {
+            "type": "object",
+            "description": "Si no está en BD: razon_social, nif, web, telefono, municipio… lo que se sepa."
+          },
+          "campos": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "identidad",
+                "estado",
+                "sede",
+                "contacto"
+              ]
+            },
+            "description": "Por defecto, todos."
+          },
+          "max_coste_eur": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "max_coste_eur"
+        ]
+      }
+    },
+    {
+      "name": "preguntar_usuario",
+      "description": "Hace una pregunta al usuario cuando una ambigüedad cambia mucho el resultado (p. ej. límites de una zona o si incluir autónomos). Úsala como mucho una vez por búsqueda salvo necesidad real; en lo demás, aplica un supuesto razonable y decláralo.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "pregunta": {
+            "type": "string"
+          },
+          "opciones": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "pregunta"
+        ]
+      }
+    },
+    {
+      "name": "finalizar_busqueda",
+      "description": "Cierra la búsqueda: congela los resultados que cumplen filtros y confianza mínima, genera la exportación (CSV/Excel con columnas de confianza, fuente y fecha de verificación) y las estadísticas finales para el informe.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "busqueda_id": {
+            "type": "string"
+          },
+          "motivo": {
+            "type": "string",
+            "enum": [
+              "cobertura_alcanzada",
+              "presupuesto_agotado",
+              "rendimientos_decrecientes",
+              "max_rondas",
+              "cancelada_usuario"
+            ]
+          }
+        },
+        "required": [
+          "busqueda_id",
+          "motivo"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+Razón social,Nombre comercial,CIF,Teléfono,Email,Web,Código postal,Localidad,Provincia,place_id,caso_prueba
+"Construcciones Pérez, S.L.",,B41123456,955 12 34 56,info@perezobras.es,https://www.perezobras.es,41001,Sevilla,Sevilla,,A: original BORME+web
+CONSTRUCCIONES PEREZ SL,,,+34955123456,,,41001,Sevilla,Sevilla,,A: mismo sin NIF (directorio) → fusionar
+,Pérez Obras,,,,perezobras.es,41001,Sevilla,Sevilla,ChIJ_perez,A: nombre comercial + mismo dominio → revisión
+Construcciones Pérez Sevilla SL,,B41987652,955 00 11 22,,,41005,Sevilla,Sevilla,,B: NIF distinto → distinta
+Construcciones García SL,,B41000118,954 11 22 33,,,41010,Sevilla,Sevilla,,C: García Sevilla
+Construcciones García S.L.,,,91 555 44 33,,,28001,Madrid,Madrid,,D: homónimo en Madrid → distinta
+Reformas Hogar Plus SL,Hogar Plus,B41555558,955 33 44 55,,https://reformashogarplus.com,41003,Sevilla,Sevilla,,E: franquicia Sevilla
+Reformas Hogar Plus Huelva SL,Hogar Plus,B21666664,959 33 44 55,,https://reformashogarplus.com,21001,Huelva,Huelva,,"F: franquicia Huelva, NIF distinto → distinta"
+Talleres Martín SL,,B41777772,955 77 88 99,,https://talleresmartin.es,41007,Sevilla,Sevilla,,G: NIF de la agencia en el aviso legal
+Diseño Web Sur SL,,B41777772,955 70 70 70,,https://disenowebsur.es,41020,Sevilla,Sevilla,,G: agencia real → revisión por NIF igual y nombres distintos
+Reformas Manolo,,28123456E,654 32 19 87,manolo.ruiz@gmail.com,,41700,Dos Hermanas,Sevilla,,H: autónomo (persona física)
+Áridos Levante SL,,B04111118,950 12 12 12,,,4001,Almería,Almería,,I: CP sin cero inicial
+Excavaciones Rubio SL,,B1234567X,955 45 45 45,,,41400,Écija,Sevilla,,J: NIF mal escrito
+Excavaciones Rubio S.L.,,B12345674,955454545,,,41400,Écija,Sevilla,,J: mismo con NIF válido → fusionar
+Reformas y Construcciones del Sur SL,,,954 60 60 60,,,41010,Sevilla,Sevilla,,K: nombre genérico
+Construcciones del Sur SL,,,954 61 61 61,,,41010,Sevilla,Sevilla,,K: otro nombre genérico → distinta
+Gestoría Cliente 1 SL,,B41001017,954 99 99 99,,,41001,Sevilla,Sevilla,,L: teléfono de gestoría compartido
+Instalaciones Vega SL,,B41002023,954 99 99 99,,,41001,Sevilla,Sevilla,,L
+Carpintería Ruiz SL,,B41003039,954 99 99 99,,,41001,Sevilla,Sevilla,,L
+Fontanería Luna SL,,B41004045,954 99 99 99,,,41001,Sevilla,Sevilla,,L
+Pinturas Sol,,,954 99 99 99,,,41001,Sevilla,Sevilla,,"L: sin NIF, comparte teléfono de gestoría → no fusionar"
+Estructuras Alcor SA,,A41333337,955 21 21 21,,,41500,Alcalá de Guadaíra,Sevilla,ChIJ_alcor,M
+Estructuras Alcor,,,,,,,Alcalá de Guadaíra,Sevilla,ChIJ_alcor,M: mismo place_id → fusionar
+Estructuras Alcor SL,,,955 21 21 21,,,41500,Alcalá de Guadaíra,Huelva,,N: forma jurídica distinta + provincia mal → no fusionar auto
