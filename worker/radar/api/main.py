@@ -60,6 +60,7 @@ from radar.api.bd_busquedas import (
     debe_cancelarse,
     finalizar_busqueda_db,
     guardar_progreso_ronda,
+    leer_opciones,
     listar_busquedas,
     marcar_en_curso,
     obtener_busqueda,
@@ -191,6 +192,7 @@ async def _ejecutar_planificador_en_fondo(busqueda_id: str, max_rondas: int) -> 
 
     with psycopg.connect(db_url) as conn_lectura:
         busqueda = obtener_busqueda(conn_lectura, busqueda_id)
+        opciones = leer_opciones(conn_lectura, busqueda_id)
     if busqueda is None:
         return
 
@@ -224,6 +226,7 @@ async def _ejecutar_planificador_en_fondo(busqueda_id: str, max_rondas: int) -> 
                 resultado = await planificar(
                     conn_trabajo, cliente_http, filtros, presupuesto_eur=presupuesto_eur, max_rondas=max_rondas_reales,
                     on_ronda=on_ronda, debe_cancelar=debe_cancelar, busqueda_id=busqueda_id,
+                    usar_places=bool(opciones.get("usar_google_places")), usar_apify=bool(opciones.get("usar_apify")),
                 )
     except Exception as exc:  # noqa: BLE001 — nunca dejar la búsqueda en 'en_curso' colgada para siempre
         resultado_error = ResultadoPlanificador(error=str(exc))
@@ -252,7 +255,10 @@ async def confirmar(busqueda_id: str, confirmar_in: ConfirmarBusquedaIn, tareas:
             raise HTTPException(status_code=409, detail=f"la búsqueda está en estado '{busqueda.estado}', no se puede (re)confirmar")
 
         filtros = confirmar_in.filtros or FiltrosBusqueda.model_validate(busqueda.filtros)
-        marcar_en_curso(conn, busqueda_id, filtros=filtros, max_rondas=confirmar_in.max_rondas)
+        marcar_en_curso(
+            conn, busqueda_id, filtros=filtros, max_rondas=confirmar_in.max_rondas,
+            usar_google_places=confirmar_in.usar_google_places, usar_apify=confirmar_in.usar_apify,
+        )
 
     tareas.add_task(_ejecutar_planificador_en_fondo, busqueda_id, confirmar_in.max_rondas)
     return ConfirmarBusquedaOut(id=busqueda_id, estado="en_curso")

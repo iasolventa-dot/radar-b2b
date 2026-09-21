@@ -239,6 +239,23 @@ HERRAMIENTAS: list[Herramienta] = [
         },
     ),
     Herramienta(
+        nombre="enriquecer_con_apify",
+        descripcion=(
+            "Apify (DE PAGO, marcada por el usuario para esta búsqueda): rastrea las webs PROPIAS de empresas "
+            "(hasta 5 URLs por llamada, 3 páginas cada una) con un rastreador que ejecuta JavaScript, para webs que "
+            "buscar_web no consigue leer. Solo para webs de empresa: se descartan directorios y redes sociales. "
+            "El texto se valida con las mismas reglas que cualquier web."
+        ),
+        parametros={
+            "type": "object",
+            "properties": {
+                "urls": {"type": "array", "items": {"type": "string"}, "description": "URLs de la web propia de cada empresa."},
+                "max_coste_eur": {"type": "number", "description": "Tope de gasto para esta llamada."},
+            },
+            "required": ["urls", "max_coste_eur"],
+        },
+    ),
+    Herramienta(
         nombre="preguntar_usuario",
         descripcion=(
             "Hace una pregunta al usuario cuando una ambigüedad cambia mucho el resultado. Úsala como mucho "
@@ -271,15 +288,19 @@ HERRAMIENTAS: list[Herramienta] = [
 ]
 
 
-def herramientas_activas(conn: psycopg.Connection) -> list[Herramienta]:
-    """`descubrir_places` solo se ofrece al planificador si hay clave de
-    Google configurada (Ajustes): sin ella, el LLM perdería una ronda
-    intentando una herramienta que no puede funcionar."""
-    from radar.secretos import obtener_clave_places
+def herramientas_activas(conn: psycopg.Connection, *, usar_places: bool = False, usar_apify: bool = False) -> list[Herramienta]:
+    """Las herramientas de pago solo se ofrecen si el usuario las marcó en la
+    búsqueda (casillas de "Nueva búsqueda") Y hay clave/token configurado en
+    Ajustes: sin ello, el LLM perdería una ronda intentando una herramienta
+    que no puede funcionar (o gastaría dinero sin permiso)."""
+    from radar.secretos import obtener_clave_places, obtener_token_apify
 
-    if obtener_clave_places(conn):
-        return list(HERRAMIENTAS)
-    return [h for h in HERRAMIENTAS if h.nombre != "descubrir_places"]
+    excluidas: set[str] = set()
+    if not (usar_places and obtener_clave_places(conn)):
+        excluidas.add("descubrir_places")
+    if not (usar_apify and obtener_token_apify(conn)):
+        excluidas.add("enriquecer_con_apify")
+    return [h for h in HERRAMIENTAS if h.nombre not in excluidas]
 
 
 # --- consultar_bd ------------------------------------------------------
@@ -904,6 +925,10 @@ class ContextoHerramientas:
     # esta búsqueda en `busqueda_resultados` (bd.registrar_resultado_busqueda).
     # `None` en tests/uso suelto: las herramientas simplemente no enlazan nada.
     busqueda_id: str | None = None
+    # Casillas de la búsqueda: sin marcar, las herramientas de pago se niegan
+    # aunque el LLM las pidiera igualmente.
+    usar_places: bool = False
+    usar_apify: bool = False
 
 
 async def ejecutar_herramienta(nombre: str, argumentos: dict[str, Any], contexto: ContextoHerramientas) -> dict[str, Any]:
@@ -958,6 +983,9 @@ async def ejecutar_herramienta(nombre: str, argumentos: dict[str, Any], contexto
     if nombre == "descubrir_places":
         from radar.agente.descubrir_places import descubrir_places
 
+        if not contexto.usar_places:
+            return {"error": "Google Places no está habilitado en esta búsqueda", "coste_eur": 0.0}
+
         consultas = argumentos.get("consultas")
         if not consultas:
             raise ValueError("descubrir_places requiere 'consultas' (lista no vacía)")
@@ -967,6 +995,21 @@ async def ejecutar_herramienta(nombre: str, argumentos: dict[str, Any], contexto
             contexto.conn, contexto.cliente_http, consultas=list(consultas),
             max_coste_eur=min(float(argumentos["max_coste_eur"]), contexto.presupuesto_restante_eur),
             max_paginas=int(argumentos.get("max_paginas", 1)), busqueda_id=contexto.busqueda_id,
+        )
+
+    if nombre == "enriquecer_con_apify":
+        from radar.agente.enriquecer_apify import enriquecer_con_apify
+
+        if not contexto.usar_apify:
+            return {"error": "Apify no está habilitado en esta búsqueda", "coste_eur": 0.0}
+        if not argumentos.get("urls"):
+            raise ValueError("enriquecer_con_apify requiere 'urls' (lista no vacía)")
+        if argumentos.get("max_coste_eur") is None:
+            raise ValueError("enriquecer_con_apify requiere 'max_coste_eur'")
+        return await enriquecer_con_apify(
+            contexto.conn, contexto.cliente_http, urls=list(argumentos["urls"]),
+            max_coste_eur=min(float(argumentos["max_coste_eur"]), contexto.presupuesto_restante_eur),
+            telefonos_compartidos=contexto.telefonos_compartidos, busqueda_id=contexto.busqueda_id,
         )
 
     if nombre == "preguntar_usuario":

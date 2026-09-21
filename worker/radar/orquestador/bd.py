@@ -777,6 +777,16 @@ def registrar_uso_places(operacion: str, peticiones: int, coste_eur: float, deta
         )
 
 
+def registrar_uso_apify(
+    actor: str, run_id: str | None, estado: str | None, coste_usd: float, detalle: dict, conn: psycopg.Connection
+) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "insert into uso_apify (actor, run_id, estado, coste_usd, detalle) values (%s, %s, %s, %s, %s::jsonb)",
+            (actor, run_id, estado, coste_usd, json.dumps(detalle)),
+        )
+
+
 def upsert_persona(nombre: str, conn: psycopg.Connection) -> str:
     """Busca una persona por `nombre_norm` exacto; si no existe, la crea
     (migración 202609141600). Deduplicación deliberadamente simple: sin

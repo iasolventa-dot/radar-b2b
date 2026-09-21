@@ -6,37 +6,13 @@ import json
 import httpx
 import pytest
 
-from radar.fuentes.apify import ActorNoPermitido, ejecutar_actor, probar_token, verificar_solicitud
+from radar.fuentes.apify import ejecutar_actor, probar_token
 
 TOKEN = "apify_api_TOKEN-SECRETO-DE-PRUEBA-123"
 
 
 def _cliente(handler) -> httpx.AsyncClient:
     return httpx.AsyncClient(transport=httpx.MockTransport(handler))
-
-
-@pytest.mark.parametrize(
-    "actor,entrada",
-    [
-        ("curious_coder/linkedin-profile-scraper", {}),
-        ("compass/crawler-google-places", {"searchStringsArray": ["reformas"]}),
-        ("apify/website-content-crawler", {"startUrls": [{"url": "https://www.linkedin.com/company/x"}]}),
-        ("apify/instagram-scraper", None),
-        ("apify/website-content-crawler", {"startUrls": [{"url": "https://facebook.com/x"}]}),
-        ("apify/website-content-crawler", {"startUrls": [{"url": "https://www.google.com/maps/place/x"}]}),
-    ],
-)
-def test_bloquea_plataformas_prohibidas(actor, entrada):
-    with pytest.raises(ActorNoPermitido):
-        verificar_solicitud(actor, entrada)
-
-
-def test_permite_rastrear_una_web_propia():
-    verificar_solicitud("apify/website-content-crawler", {"startUrls": [{"url": "https://reformasgarcia.es/"}]})
-
-
-def test_dominio_que_solo_contiene_x_com_no_se_bloquea():
-    verificar_solicitud("apify/website-content-crawler", {"startUrls": [{"url": "https://index.com/"}]})
 
 
 def test_probar_token_ok_y_ko():
@@ -113,17 +89,21 @@ def test_error_http_no_filtra_el_token():
     assert r.error and TOKEN not in r.error
 
 
-def test_ejecutar_actor_prohibido_no_hace_ninguna_peticion():
-    llamadas = []
+def test_el_cliente_ejecuta_cualquier_actor_sin_filtrar():
+    """El cliente es una tubería genérica: no decide qué Actor ni qué entrada."""
+    vistos = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
-        llamadas.append(req)
-        return httpx.Response(200, json={})
+        if req.method == "POST":
+            vistos["ruta"] = req.url.path
+            return httpx.Response(201, json={"data": {"id": "R", "status": "SUCCEEDED", "defaultDatasetId": "D"}})
+        if req.url.path.endswith("/items"):
+            return httpx.Response(200, json=[{"ok": 1}])
+        return httpx.Response(200, json={"data": {"status": "SUCCEEDED", "defaultDatasetId": "D"}})
 
     async def run():
         async with _cliente(handler) as c:
-            await ejecutar_actor(c, TOKEN, "curious_coder/linkedin-profile-scraper", {})
+            return await ejecutar_actor(c, TOKEN, "cualquiera/actor", {"cualquier": "entrada"}, intervalo_s=0.0)
 
-    with pytest.raises(ActorNoPermitido):
-        asyncio.run(run())
-    assert llamadas == []
+    r = asyncio.run(run())
+    assert vistos["ruta"] == "/v2/actors/cualquiera~actor/runs" and r.items == [{"ok": 1}]

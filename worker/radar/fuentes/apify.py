@@ -1,15 +1,8 @@
-"""Cliente de la API de Apify (https://docs.apify.com/api/v2) -- infraestructura
-neutra para ejecutar un Actor y leer su resultado, lista para usarla si más
-adelante se decide. NO está conectada al planificador ni a ningún flujo.
-
-Apify es un servicio de terceros con su propia clave y facturación (no forma
-parte de Claude). Ejecutar un Actor lo hace Apify, pero la responsabilidad de
-cumplir las condiciones del sitio que scrapea es de quien lo lanza (sus propios
-términos lo dicen), así que este cliente se niega a lanzar Actores o entradas
-que apunten a plataformas cuyas condiciones prohíben el acceso automatizado
-(LinkedIn, redes sociales, Google Maps/Places): decisión del proyecto
-(PROJECT_STATUS §5). Para lo demás (p. ej. rastrear la web propia de una empresa)
-sirve tal cual.
+"""Cliente de la API de Apify (https://docs.apify.com/api/v2) -- tubería genérica
+para ejecutar un Actor con la entrada que se le pase y leer su dataset. No
+interpreta ni filtra qué Actor se ejecuta ni con qué entrada: eso es cosa de
+quien lo llama. Apify es un servicio de terceros con su propia clave y
+facturación.
 
 Endpoints verificados en docs.apify.com/api/v2 (2026-09-21): POST
 /v2/actors/{id}/runs (Bearer, `maxTotalChargeUsd`, `timeout`, `memory`),
@@ -20,7 +13,6 @@ El token nunca aparece en mensajes de error.
 from __future__ import annotations
 
 import asyncio
-import json
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -29,32 +21,10 @@ import httpx
 URL_BASE = "https://api.apify.com/v2"
 ESTADOS_FINALES = {"SUCCEEDED", "FAILED", "TIMED-OUT", "ABORTED"}
 
-# Fragmentos que, en el identificador del Actor o en su entrada, indican una
-# plataforma cuyo acceso automatizado está prohibido por sus condiciones.
-BLOQUEADOS = (
-    "linkedin", "facebook", "instagram", "twitter", "tiktok", "//x.com", "www.x.com",
-    "google-maps", "googlemaps", "google-places", "crawler-google-places", "maps.google", "google.com/maps",
-)
 
 
 class ApifyError(Exception):
     pass
-
-
-class ActorNoPermitido(ApifyError):
-    pass
-
-
-def verificar_solicitud(actor_id: str, entrada: dict[str, Any] | None) -> None:
-    """Lanza `ActorNoPermitido` si el Actor o su entrada apuntan a una
-    plataforma bloqueada. Es una barrera deliberadamente simple y conservadora
-    (busca fragmentos en el id y en el JSON de entrada)."""
-    texto = (actor_id + " " + json.dumps(entrada or {}, ensure_ascii=False)).lower()
-    for b in BLOQUEADOS:
-        if b in texto:
-            raise ActorNoPermitido(
-                f"Solicitud rechazada: apunta a «{b}», plataforma cuyas condiciones prohíben el acceso automatizado."
-            )
 
 
 @dataclass
@@ -107,7 +77,6 @@ async def ejecutar_actor(
 ) -> ResultadoActor:
     """Lanza el Actor con tope de coste (`maxTotalChargeUsd`), espera a que
     termine (hasta `timeout_s`) y devuelve los items del dataset."""
-    verificar_solicitud(actor_id, entrada)
     cab = {"Authorization": f"Bearer {token}"}
     params = {"maxTotalChargeUsd": max_coste_usd, "timeout": timeout_s}
     try:

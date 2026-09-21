@@ -108,7 +108,13 @@ async def enriquecer_desde_web(
     texto, urls = await _texto_relevante(cliente, url_portada)
     if not texto:
         return None
+    return registro_desde_texto(texto, urls, url_portada, dominio)
 
+
+def registro_desde_texto(texto: str, urls: list[str], url_portada: str, dominio: str | None) -> RegistroBruto:
+    """Reglas (+ LLM si faltan campos) sobre un texto ya obtenido. Separado de
+    `enriquecer_desde_web` para reutilizarlo cuando el texto lo ha descargado
+    otro sistema (p. ej. el rastreador de Apify) en vez de `descargar()`."""
     resultado_reglas = reglas.extraer(texto, dominio)
     campos = campos_desde_reglas(resultado_reglas, dominio)
 

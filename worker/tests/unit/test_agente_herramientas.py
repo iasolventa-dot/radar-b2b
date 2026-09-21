@@ -218,7 +218,7 @@ def test_web_de_empresa_normal_si_es_apta():
 def test_herramientas_tiene_las_ocho_implementadas():
     nombres = {h.nombre for h in HERRAMIENTAS}
     assert nombres == {
-        "consultar_bd", "estimar_cobertura", "descubrir_borme", "descubrir_osm", "descubrir_places", "buscar_web",
+        "consultar_bd", "estimar_cobertura", "descubrir_borme", "descubrir_osm", "descubrir_places", "enriquecer_con_apify", "buscar_web",
         "preguntar_usuario", "finalizar_busqueda",
     }
 
@@ -296,14 +296,37 @@ def test_ejecutar_herramienta_descubrir_borme_sin_provincia_lanza():
         asyncio.run(ejecutar_herramienta("descubrir_borme", {}, _ContextoFalso()))  # type: ignore[arg-type]
 
 
-def test_places_sin_clave_no_se_ofrece_al_planificador(monkeypatch):
+def test_herramientas_de_pago_solo_si_se_marcan_y_hay_credencial(monkeypatch):
     from radar import secretos
     from radar.agente.herramientas import herramientas_activas
 
-    monkeypatch.setattr(secretos, "obtener_clave_places", lambda conn: None)
-    assert "descubrir_places" not in {h.nombre for h in herramientas_activas(None)}  # type: ignore[arg-type]
+    def nombres(**kw):
+        return {h.nombre for h in herramientas_activas(None, **kw)}  # type: ignore[arg-type]
+
     monkeypatch.setattr(secretos, "obtener_clave_places", lambda conn: "AIza-x" * 5)
-    assert "descubrir_places" in {h.nombre for h in herramientas_activas(None)}  # type: ignore[arg-type]
+    monkeypatch.setattr(secretos, "obtener_token_apify", lambda conn: "apify_api_x" * 3)
+    # con credenciales pero sin marcar las casillas: no se ofrecen
+    assert not ({"descubrir_places", "enriquecer_con_apify"} & nombres())
+    assert "descubrir_places" in nombres(usar_places=True)
+    assert "enriquecer_con_apify" not in nombres(usar_places=True)
+    assert "enriquecer_con_apify" in nombres(usar_apify=True)
+    # marcadas pero sin credencial: tampoco
+    monkeypatch.setattr(secretos, "obtener_clave_places", lambda conn: None)
+    monkeypatch.setattr(secretos, "obtener_token_apify", lambda conn: None)
+    assert not ({"descubrir_places", "enriquecer_con_apify"} & nombres(usar_places=True, usar_apify=True))
+
+
+def test_ejecutar_herramienta_de_pago_sin_casilla_se_niega():
+    from radar.agente.herramientas import ContextoHerramientas
+
+    ctx = ContextoHerramientas(conn=None, cliente_http=None, filtros=FiltrosBusqueda())  # type: ignore[arg-type]
+    for nombre, args in (
+        ("descubrir_places", {"consultas": ["x"], "max_coste_eur": 1.0}),
+        ("enriquecer_con_apify", {"urls": ["https://a.es"], "max_coste_eur": 1.0}),
+    ):
+        r = asyncio.run(ejecutar_herramienta(nombre, args, ctx))
+        assert "no está habilitado" in r["error"] and r["coste_eur"] == 0.0
+
 
 
 def test_directorios_y_redes_no_son_web_propia():

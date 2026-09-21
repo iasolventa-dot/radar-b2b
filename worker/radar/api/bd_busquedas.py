@@ -85,14 +85,29 @@ def listar_busquedas(conn: psycopg.Connection, *, limite: int = 20) -> list[Busq
     return [_fila_a_busqueda(f) for f in filas]
 
 
-def marcar_en_curso(conn: psycopg.Connection, busqueda_id: str, *, filtros: FiltrosBusqueda, max_rondas: int) -> None:
+def leer_opciones(conn: psycopg.Connection, busqueda_id: str) -> dict:
+    """Casillas de fuentes de pago de esta búsqueda (columna `opciones`)."""
+    with conn.cursor() as cur:
+        cur.execute("select opciones from busquedas where id = %s", (busqueda_id,))
+        fila = cur.fetchone()
+    return dict(fila[0]) if fila and fila[0] else {}
+
+
+def marcar_en_curso(
+    conn: psycopg.Connection, busqueda_id: str, *, filtros: FiltrosBusqueda, max_rondas: int,
+    usar_google_places: bool = False, usar_apify: bool = False,
+) -> None:
     """Se llama al confirmar (`POST /busquedas/{id}/confirmar`), antes de
     lanzar el planificador en segundo plano. Si `filtros` viene editado
     respecto a la interpretación original, se sobrescribe aquí."""
     with conn.cursor() as cur:
         cur.execute(
-            "update busquedas set estado = 'en_curso', filtros = %s::jsonb, estadisticas = %s::jsonb where id = %s",
-            (filtros.model_dump_json(), json.dumps(serializar_estadisticas([], max_rondas=max_rondas)), busqueda_id),
+            "update busquedas set estado = 'en_curso', filtros = %s::jsonb, estadisticas = %s::jsonb, "
+            "opciones = %s::jsonb where id = %s",
+            (
+                filtros.model_dump_json(), json.dumps(serializar_estadisticas([], max_rondas=max_rondas)),
+                json.dumps({"usar_google_places": usar_google_places, "usar_apify": usar_apify}), busqueda_id,
+            ),
         )
     conn.commit()
 

@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, ArrowRight, Loader2, RotateCcw, Sparkles } from "lucide-react";
-import { confirmarBusqueda, interpretarBusqueda } from "@/lib/api";
+import { confirmarBusqueda, estadoApify, estadoPlaces, interpretarBusqueda } from "@/lib/api";
 import { describirFiltros } from "@/lib/filtros";
 import type { BusquedaInterpretadaOut } from "@/lib/tipos";
 
@@ -30,6 +30,16 @@ export function FormularioNuevaBusqueda({
   const [maxRondas, setMaxRondas] = useState(MAX_RONDAS_POR_DEFECTO);
   const [interpretacion, setInterpretacion] = useState<BusquedaInterpretadaOut | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Fuentes de pago: solo se usan si se marcan aquí (y hay clave/token en Ajustes).
+  const [usarPlaces, setUsarPlaces] = useState(false);
+  const [usarApify, setUsarApify] = useState(false);
+  const [placesConfigurado, setPlacesConfigurado] = useState<boolean | null>(null);
+  const [apifyConfigurado, setApifyConfigurado] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    estadoPlaces().then((e) => setPlacesConfigurado(e.configurada)).catch(() => setPlacesConfigurado(false));
+    estadoApify().then((e) => setApifyConfigurado(e.configurado)).catch(() => setApifyConfigurado(false));
+  }, []);
 
   async function interpretar(e: React.FormEvent) {
     e.preventDefault();
@@ -51,7 +61,11 @@ export function FormularioNuevaBusqueda({
     setEstado("confirmando");
     setError(null);
     try {
-      await confirmarBusqueda(interpretacion.id, { maxRondas });
+      await confirmarBusqueda(interpretacion.id, {
+        maxRondas,
+        usarGooglePlaces: usarPlaces && placesConfigurado === true,
+        usarApify: usarApify && apifyConfigurado === true,
+      });
       router.push(`/busquedas/${interpretacion.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -127,6 +141,17 @@ export function FormularioNuevaBusqueda({
               <p>{error}</p>
             </div>
           )}
+
+          <SelectorFuentes
+            prefijo="ini"
+            deshabilitado={estado === "interpretando"}
+            usarPlaces={usarPlaces}
+            setUsarPlaces={setUsarPlaces}
+            placesConfigurado={placesConfigurado}
+            usarApify={usarApify}
+            setUsarApify={setUsarApify}
+            apifyConfigurado={apifyConfigurado}
+          />
 
           <button type="submit" disabled={estado === "interpretando" || !peticion.trim()} className="btn-primary">
             {estado === "interpretando" ? (
@@ -210,6 +235,17 @@ export function FormularioNuevaBusqueda({
             />
           </div>
 
+          <SelectorFuentes
+            prefijo="rev"
+            deshabilitado={estado === "confirmando"}
+            usarPlaces={usarPlaces}
+            setUsarPlaces={setUsarPlaces}
+            placesConfigurado={placesConfigurado}
+            usarApify={usarApify}
+            setUsarApify={setUsarApify}
+            apifyConfigurado={apifyConfigurado}
+          />
+
           {error && (
             <div className="flex items-start gap-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-800">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -241,5 +277,80 @@ export function FormularioNuevaBusqueda({
         </div>
       )}
     </div>
+  );
+}
+
+function FuenteDePago({
+  id,
+  titulo,
+  descripcion,
+  marcada,
+  onCambio,
+  configurada,
+}: {
+  id: string;
+  titulo: string;
+  descripcion: string;
+  marcada: boolean;
+  onCambio: (v: boolean) => void;
+  configurada: boolean | null;
+}) {
+  const disponible = configurada === true;
+  return (
+    <label
+      htmlFor={id}
+      className={`flex items-start gap-3 rounded-lg border border-slate-200 p-3 text-sm ${disponible ? "cursor-pointer" : "opacity-60"}`}
+    >
+      <input
+        id={id}
+        type="checkbox"
+        className="mt-0.5 h-4 w-4"
+        checked={marcada && disponible}
+        disabled={!disponible}
+        onChange={(e) => onCambio(e.target.checked)}
+      />
+      <span>
+        <span className="font-medium text-slate-800">Incluir {titulo}</span>
+        <span className="block text-xs text-slate-500">{descripcion}</span>
+        {configurada === false && (
+          <span className="block text-xs text-amber-700">
+            No configurada: añade la clave en <a href="/ajustes" className="underline">Ajustes</a>.
+          </span>
+        )}
+      </span>
+    </label>
+  );
+}
+
+function SelectorFuentes(props: {
+  prefijo: string;
+  deshabilitado: boolean;
+  usarPlaces: boolean;
+  setUsarPlaces: (v: boolean) => void;
+  placesConfigurado: boolean | null;
+  usarApify: boolean;
+  setUsarApify: (v: boolean) => void;
+  apifyConfigurado: boolean | null;
+}) {
+  return (
+    <fieldset className="space-y-2" disabled={props.deshabilitado}>
+      <legend className="label-field">Fuentes de pago para esta búsqueda</legend>
+      <FuenteDePago
+        id={`${props.prefijo}-usar-places`}
+        titulo="Google Places"
+        descripcion="Descubre negocios por zona y categoría (~0,035 € por página de 20)."
+        marcada={props.usarPlaces}
+        onCambio={props.setUsarPlaces}
+        configurada={props.placesConfigurado}
+      />
+      <FuenteDePago
+        id={`${props.prefijo}-usar-apify`}
+        titulo="Apify"
+        descripcion="Rastrea webs de empresa con JavaScript para enriquecerlas."
+        marcada={props.usarApify}
+        onCambio={props.setUsarApify}
+        configurada={props.apifyConfigurado}
+      />
+    </fieldset>
   );
 }

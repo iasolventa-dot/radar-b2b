@@ -75,12 +75,11 @@ export function AjustesApify() {
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-            <KeyRound className="h-4 w-4 text-slate-400" /> Apify (de pago, aún no usado por el agente)
+            <KeyRound className="h-4 w-4 text-slate-400" /> Apify (de pago)
           </h2>
           <p className="mt-1 text-xs text-slate-500">
-            Conexión con la API de Apify lista para usar si más adelante se decide; hoy ningún flujo la llama.
-            Apify es un servicio aparte (cuenta y facturación propias). Por decisión del proyecto, el cliente
-            rechaza Actores o entradas que apunten a LinkedIn, redes sociales o Google Maps.
+            Conexión con la API de Apify. Solo se usa en las búsquedas donde marques «Incluir Apify» (rastreo de
+            webs de empresa). Apify es un servicio aparte, con cuenta y facturación propias.
           </p>
         </div>
         <span

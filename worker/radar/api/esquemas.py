@@ -36,6 +36,8 @@ class BusquedaInterpretadaOut(BaseModel):
 
 class ConfirmarBusquedaIn(BaseModel):
     max_rondas: int = Field(default=10, ge=1, le=50)
+    usar_google_places: bool = Field(default=False, description="Permite descubrir con Google Places (de pago) en esta búsqueda")
+    usar_apify: bool = Field(default=False, description="Permite enriquecer webs con Apify (de pago) en esta búsqueda")
     filtros: FiltrosBusqueda | None = Field(
         default=None, description="Si se manda, sustituye a los filtros interpretados (para que el usuario los edite antes de lanzar)"
     )

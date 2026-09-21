@@ -62,11 +62,16 @@ export function interpretarBusqueda(
 /** POST /busquedas/{id}/confirmar — lanza el planificador en segundo plano en el worker. */
 export function confirmarBusqueda(
   id: string,
-  opciones: { maxRondas?: number; filtros?: FiltrosBusqueda } = {}
+  opciones: { maxRondas?: number; filtros?: FiltrosBusqueda; usarGooglePlaces?: boolean; usarApify?: boolean } = {}
 ): Promise<ConfirmarBusquedaOut> {
   return peticionJson<ConfirmarBusquedaOut>(`/busquedas/${id}/confirmar`, {
     method: "POST",
-    body: JSON.stringify({ max_rondas: opciones.maxRondas ?? 10, filtros: opciones.filtros ?? null }),
+    body: JSON.stringify({
+      max_rondas: opciones.maxRondas ?? 10,
+      filtros: opciones.filtros ?? null,
+      usar_google_places: opciones.usarGooglePlaces ?? false,
+      usar_apify: opciones.usarApify ?? false,
+    }),
   });
 }
 
