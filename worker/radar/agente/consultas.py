@@ -25,6 +25,17 @@ def _zonas(filtros: FiltrosBusqueda, max_zonas: int) -> list[str]:
     return zonas[:max_zonas]
 
 
+def zona_texto(filtros: FiltrosBusqueda) -> str | None:
+    """Una zona como texto para actors de Apify que buscan por ubicación libre
+    (`locationQuery` de compass/crawler-google-places, `countryCode`+contexto
+    de google-search-scraper): el municipio más específico si lo hay, si no la
+    provincia, si no la CCAA. `None` si la búsqueda no trae ninguna zona (no
+    tiene sentido pedirle a un Actor de pago que busque "por España")."""
+    u = filtros.ubicacion
+    zonas = u.municipios or u.provincias or u.ccaa
+    return f"{zonas[0]}, España" if zonas else None
+
+
 def generar_consultas(filtros: FiltrosBusqueda, *, max_consultas: int = 6, max_zonas: int = 3, max_palabras: int = 3) -> list[str]:
     """Hasta `max_consultas` consultas distintas, intercalando patrones y
     palabras clave para maximizar la variedad de resultados con pocas

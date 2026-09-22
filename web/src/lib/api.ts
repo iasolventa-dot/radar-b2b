@@ -10,7 +10,7 @@
 // ninguna clave: la API todavía no verifica autenticación (ver docstring
 // de radar.api.main — D-03, uso estrictamente interno, a cerrar si esto
 // se expone más allá del equipo).
-import type { BusquedaInterpretadaOut, ConfirmarBusquedaOut, EstadoApify, EstadoPlaces, FiltrosBusqueda, ProbarPlacesOut, ProfundizarOut } from "@/lib/tipos";
+import type { ApifyActor, BusquedaInterpretadaOut, ConfirmarBusquedaOut, EstadoApify, EstadoPlaces, FiltrosBusqueda, ProbarPlacesOut, ProfundizarOut } from "@/lib/tipos";
 
 function urlBase(): string {
   const url = process.env.NEXT_PUBLIC_API_URL;
@@ -62,7 +62,7 @@ export function interpretarBusqueda(
 /** POST /busquedas/{id}/confirmar — lanza el planificador en segundo plano en el worker. */
 export function confirmarBusqueda(
   id: string,
-  opciones: { maxRondas?: number; filtros?: FiltrosBusqueda; usarGooglePlaces?: boolean; usarApify?: boolean } = {}
+  opciones: { maxRondas?: number; filtros?: FiltrosBusqueda; usarGooglePlaces?: boolean; apifyActores?: ApifyActor[] } = {}
 ): Promise<ConfirmarBusquedaOut> {
   return peticionJson<ConfirmarBusquedaOut>(`/busquedas/${id}/confirmar`, {
     method: "POST",
@@ -70,7 +70,7 @@ export function confirmarBusqueda(
       max_rondas: opciones.maxRondas ?? 10,
       filtros: opciones.filtros ?? null,
       usar_google_places: opciones.usarGooglePlaces ?? false,
-      usar_apify: opciones.usarApify ?? false,
+      apify_actores: opciones.apifyActores ?? [],
     }),
   });
 }

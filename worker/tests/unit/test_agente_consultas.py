@@ -32,3 +32,11 @@ def test_sin_duplicados_y_respeta_maximo():
 def test_provincia_si_no_hay_municipios():
     cs = generar_consultas(_f(["Sevilla"], ["reformas"], tipo="provincias"), max_consultas=1)
     assert cs == ['"reformas" "Sevilla"']
+
+
+def test_zona_texto_prioriza_municipio_sobre_provincia():
+    from radar.agente.consultas import zona_texto
+
+    assert zona_texto(_f(["Alcalá de Guadaíra"], tipo="municipios")) == "Alcalá de Guadaíra, España"
+    assert zona_texto(_f(["Sevilla"], tipo="provincias")) == "Sevilla, España"
+    assert zona_texto(FiltrosBusqueda()) is None

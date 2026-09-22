@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle, ArrowRight, Loader2, RotateCcw, Sparkles } from "lucide-react";
 import { confirmarBusqueda, estadoApify, estadoPlaces, interpretarBusqueda } from "@/lib/api";
 import { describirFiltros } from "@/lib/filtros";
-import type { BusquedaInterpretadaOut } from "@/lib/tipos";
+import type { ApifyActor, BusquedaInterpretadaOut } from "@/lib/tipos";
 
 type Estado = "formulario" | "interpretando" | "revision" | "confirmando";
 
@@ -31,10 +31,21 @@ export function FormularioNuevaBusqueda({
   const [interpretacion, setInterpretacion] = useState<BusquedaInterpretadaOut | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Fuentes de pago: solo se usan si se marcan aquí (y hay clave/token en Ajustes).
+  // Apify tiene varios Actors independientes (uno por checkbox); "web_crawler",
+  // "google_search", "google_maps", "linkedin", "facebook" -- ver ApifyActor en tipos.ts.
   const [usarPlaces, setUsarPlaces] = useState(false);
-  const [usarApify, setUsarApify] = useState(false);
+  const [apifyActores, setApifyActores] = useState<Set<ApifyActor>>(new Set());
   const [placesConfigurado, setPlacesConfigurado] = useState<boolean | null>(null);
   const [apifyConfigurado, setApifyConfigurado] = useState<boolean | null>(null);
+
+  function alternarApifyActor(actor: ApifyActor, marcado: boolean) {
+    setApifyActores((prev) => {
+      const siguiente = new Set(prev);
+      if (marcado) siguiente.add(actor);
+      else siguiente.delete(actor);
+      return siguiente;
+    });
+  }
 
   useEffect(() => {
     estadoPlaces().then((e) => setPlacesConfigurado(e.configurada)).catch(() => setPlacesConfigurado(false));
@@ -64,7 +75,7 @@ export function FormularioNuevaBusqueda({
       await confirmarBusqueda(interpretacion.id, {
         maxRondas,
         usarGooglePlaces: usarPlaces && placesConfigurado === true,
-        usarApify: usarApify && apifyConfigurado === true,
+        apifyActores: apifyConfigurado === true ? Array.from(apifyActores) : [],
       });
       router.push(`/busquedas/${interpretacion.id}`);
     } catch (err) {
@@ -148,8 +159,8 @@ export function FormularioNuevaBusqueda({
             usarPlaces={usarPlaces}
             setUsarPlaces={setUsarPlaces}
             placesConfigurado={placesConfigurado}
-            usarApify={usarApify}
-            setUsarApify={setUsarApify}
+            apifyActores={apifyActores}
+            alternarApifyActor={alternarApifyActor}
             apifyConfigurado={apifyConfigurado}
           />
 
@@ -241,8 +252,8 @@ export function FormularioNuevaBusqueda({
             usarPlaces={usarPlaces}
             setUsarPlaces={setUsarPlaces}
             placesConfigurado={placesConfigurado}
-            usarApify={usarApify}
-            setUsarApify={setUsarApify}
+            apifyActores={apifyActores}
+            alternarApifyActor={alternarApifyActor}
             apifyConfigurado={apifyConfigurado}
           />
 
@@ -322,14 +333,22 @@ function FuenteDePago({
   );
 }
 
+const ACTORS_APIFY: { actor: ApifyActor; titulo: string; descripcion: string }[] = [
+  { actor: "web_crawler", titulo: "Apify · rastreo de webs", descripcion: "Rastrea webs de empresa con JavaScript, para las que buscar_web no lee bien." },
+  { actor: "google_search", titulo: "Apify · búsqueda en Google", descripcion: "Alternativa a la búsqueda web con más control (paginación, país)." },
+  { actor: "google_maps", titulo: "Apify · Google Maps", descripcion: "Descubre negocios por zona y categoría (scraping, no la API oficial de Google)." },
+  { actor: "linkedin", titulo: "Apify · LinkedIn", descripcion: "Busca la página de empresa en LinkedIn por nombre y extrae sus datos públicos." },
+  { actor: "facebook", titulo: "Apify · Facebook", descripcion: "Lee páginas de empresa de Facebook (dirección, teléfono, email, web)." },
+];
+
 function SelectorFuentes(props: {
   prefijo: string;
   deshabilitado: boolean;
   usarPlaces: boolean;
   setUsarPlaces: (v: boolean) => void;
   placesConfigurado: boolean | null;
-  usarApify: boolean;
-  setUsarApify: (v: boolean) => void;
+  apifyActores: Set<ApifyActor>;
+  alternarApifyActor: (actor: ApifyActor, marcado: boolean) => void;
   apifyConfigurado: boolean | null;
 }) {
   return (
@@ -343,14 +362,17 @@ function SelectorFuentes(props: {
         onCambio={props.setUsarPlaces}
         configurada={props.placesConfigurado}
       />
-      <FuenteDePago
-        id={`${props.prefijo}-usar-apify`}
-        titulo="Apify"
-        descripcion="Rastrea webs de empresa con JavaScript para enriquecerlas."
-        marcada={props.usarApify}
-        onCambio={props.setUsarApify}
-        configurada={props.apifyConfigurado}
-      />
+      {ACTORS_APIFY.map(({ actor, titulo, descripcion }) => (
+        <FuenteDePago
+          key={actor}
+          id={`${props.prefijo}-apify-${actor}`}
+          titulo={titulo}
+          descripcion={descripcion}
+          marcada={props.apifyActores.has(actor)}
+          onCambio={(v) => props.alternarApifyActor(actor, v)}
+          configurada={props.apifyConfigurado}
+        />
+      ))}
     </fieldset>
   );
 }

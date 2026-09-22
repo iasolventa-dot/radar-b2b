@@ -338,3 +338,7 @@ export interface EstadoApify {
   presupuesto_mensual_usd: number;
   gasto_mes_usd: number;
 }
+
+// worker/radar/api/esquemas.py::ConfirmarBusquedaIn.apify_actores -- un Actor
+// de Apify por checkbox en "Nueva búsqueda" (radar/agente/herramientas.py::_HERRAMIENTAS_APIFY).
+export type ApifyActor = "web_crawler" | "google_search" | "google_maps" | "linkedin" | "facebook";

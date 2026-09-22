@@ -7,6 +7,7 @@ tiene tests."""
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -95,7 +96,7 @@ def leer_opciones(conn: psycopg.Connection, busqueda_id: str) -> dict:
 
 def marcar_en_curso(
     conn: psycopg.Connection, busqueda_id: str, *, filtros: FiltrosBusqueda, max_rondas: int,
-    usar_google_places: bool = False, usar_apify: bool = False,
+    usar_google_places: bool = False, apify_actores: Sequence[str] | None = None,
 ) -> None:
     """Se llama al confirmar (`POST /busquedas/{id}/confirmar`), antes de
     lanzar el planificador en segundo plano. Si `filtros` viene editado
@@ -106,7 +107,7 @@ def marcar_en_curso(
             "opciones = %s::jsonb where id = %s",
             (
                 filtros.model_dump_json(), json.dumps(serializar_estadisticas([], max_rondas=max_rondas)),
-                json.dumps({"usar_google_places": usar_google_places, "usar_apify": usar_apify}), busqueda_id,
+                json.dumps({"usar_google_places": usar_google_places, "apify_actores": apify_actores or []}), busqueda_id,
             ),
         )
     conn.commit()

@@ -226,7 +226,7 @@ async def _ejecutar_planificador_en_fondo(busqueda_id: str, max_rondas: int) -> 
                 resultado = await planificar(
                     conn_trabajo, cliente_http, filtros, presupuesto_eur=presupuesto_eur, max_rondas=max_rondas_reales,
                     on_ronda=on_ronda, debe_cancelar=debe_cancelar, busqueda_id=busqueda_id,
-                    usar_places=bool(opciones.get("usar_google_places")), usar_apify=bool(opciones.get("usar_apify")),
+                    usar_places=bool(opciones.get("usar_google_places")), apify_actores=set(opciones.get("apify_actores") or []),
                 )
     except Exception as exc:  # noqa: BLE001 — nunca dejar la búsqueda en 'en_curso' colgada para siempre
         resultado_error = ResultadoPlanificador(error=str(exc))
@@ -257,7 +257,7 @@ async def confirmar(busqueda_id: str, confirmar_in: ConfirmarBusquedaIn, tareas:
         filtros = confirmar_in.filtros or FiltrosBusqueda.model_validate(busqueda.filtros)
         marcar_en_curso(
             conn, busqueda_id, filtros=filtros, max_rondas=confirmar_in.max_rondas,
-            usar_google_places=confirmar_in.usar_google_places, usar_apify=confirmar_in.usar_apify,
+            usar_google_places=confirmar_in.usar_google_places, apify_actores=confirmar_in.apify_actores,
         )
 
     tareas.add_task(_ejecutar_planificador_en_fondo, busqueda_id, confirmar_in.max_rondas)

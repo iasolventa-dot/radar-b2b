@@ -5,7 +5,7 @@ esperar sin tener que leer este código)."""
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -37,7 +37,9 @@ class BusquedaInterpretadaOut(BaseModel):
 class ConfirmarBusquedaIn(BaseModel):
     max_rondas: int = Field(default=10, ge=1, le=50)
     usar_google_places: bool = Field(default=False, description="Permite descubrir con Google Places (de pago) en esta búsqueda")
-    usar_apify: bool = Field(default=False, description="Permite enriquecer webs con Apify (de pago) en esta búsqueda")
+    apify_actores: list[Literal["web_crawler", "google_search", "google_maps", "linkedin", "facebook"]] = Field(
+        default_factory=list, description="Actors de Apify (de pago) habilitados para esta búsqueda"
+    )
     filtros: FiltrosBusqueda | None = Field(
         default=None, description="Si se manda, sustituye a los filtros interpretados (para que el usuario los edite antes de lanzar)"
     )

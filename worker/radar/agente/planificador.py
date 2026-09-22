@@ -94,7 +94,11 @@ from radar.coste_llm import calcular_coste_eur
 # una "ronda" más -- ver comentario en `_planificar_openai`/`_planificar_anthropic`.
 PLANIFICADOR_LLM = "planificador_llm"
 
-HERRAMIENTAS_QUE_CONSUMEN_PRESUPUESTO = {"buscar_web", "descubrir_borme", "descubrir_places", "enriquecer_con_apify", PLANIFICADOR_LLM}
+HERRAMIENTAS_QUE_CONSUMEN_PRESUPUESTO = {
+    "buscar_web", "descubrir_borme", "descubrir_places", "enriquecer_con_apify",
+    "descubrir_google_search", "descubrir_apify_maps", "enriquecer_con_linkedin", "enriquecer_con_facebook",
+    PLANIFICADOR_LLM,
+}
 
 OnRonda = Callable[["RondaPlanificador"], Awaitable[None]]
 DebeCancelar = Callable[[], Awaitable[bool]]
@@ -153,7 +157,7 @@ async def planificar(
     debe_cancelar: DebeCancelar | None = None,
     busqueda_id: str | None = None,
     usar_places: bool = False,
-    usar_apify: bool = False,
+    apify_actores: frozenset[str] | set[str] = frozenset(),
 ) -> ResultadoPlanificador:
     """Punto de entrada único; despacha según `settings.proveedor_llm` (ver
     docstring del módulo). `cliente`, si se pasa, debe ser del cliente
@@ -174,11 +178,11 @@ async def planificar(
     if settings.proveedor_llm == "openai":
         return await _planificar_openai(
             conn, cliente_http, filtros, presupuesto_eur, max_rondas, cliente, settings, on_ronda, debe_cancelar, busqueda_id,
-            usar_places, usar_apify,
+            usar_places, apify_actores,
         )
     return await _planificar_anthropic(
         conn, cliente_http, filtros, presupuesto_eur, max_rondas, cliente, settings, on_ronda, debe_cancelar, busqueda_id,
-        usar_places, usar_apify,
+        usar_places, apify_actores,
     )
 
 
@@ -197,7 +201,7 @@ async def _planificar_openai(
     debe_cancelar: DebeCancelar | None = None,
     busqueda_id: str | None = None,
     usar_places: bool = False,
-    usar_apify: bool = False,
+    apify_actores: frozenset[str] | set[str] = frozenset(),
 ) -> ResultadoPlanificador:
     if cliente is None:
         if not settings.openai_api_key:
@@ -206,12 +210,12 @@ async def _planificar_openai(
 
     contexto = ContextoHerramientas(
         conn=conn, cliente_http=cliente_http, filtros=filtros, presupuesto_restante_eur=presupuesto_eur, busqueda_id=busqueda_id,
-        usar_places=usar_places, usar_apify=usar_apify,
+        usar_places=usar_places, apify_actores=frozenset(apify_actores),
     )
     # cast: a_tool_param_openai devuelve dict[str, Any] a propósito (herramientas.py no depende
     # de ningún SDK); el union de TypedDicts que espera `tools` es demasiado específico para que
     # mypy lo acepte sin ayuda — el SDK valida la forma real en tiempo de ejecución igualmente.
-    tools = cast(Any, [a_tool_param_openai(h) for h in herramientas_activas(conn, usar_places=usar_places, usar_apify=usar_apify)])
+    tools = cast(Any, [a_tool_param_openai(h) for h in herramientas_activas(conn, usar_places=usar_places, apify_actores=apify_actores)])
     resultado_final = ResultadoPlanificador()
     # Contador de PASOS (una llamada a una herramienta), no de vueltas al LLM
     # ("rondas" en el sentido de max_rondas/numero_ronda abajo). Un mismo turno
@@ -360,7 +364,7 @@ async def _planificar_anthropic(
     debe_cancelar: DebeCancelar | None = None,
     busqueda_id: str | None = None,
     usar_places: bool = False,
-    usar_apify: bool = False,
+    apify_actores: frozenset[str] | set[str] = frozenset(),
 ) -> ResultadoPlanificador:
     if cliente is None:
         if not settings.anthropic_api_key:
@@ -369,9 +373,9 @@ async def _planificar_anthropic(
 
     contexto = ContextoHerramientas(
         conn=conn, cliente_http=cliente_http, filtros=filtros, presupuesto_restante_eur=presupuesto_eur, busqueda_id=busqueda_id,
-        usar_places=usar_places, usar_apify=usar_apify,
+        usar_places=usar_places, apify_actores=frozenset(apify_actores),
     )
-    tools = cast(Any, [a_tool_param_anthropic(h) for h in herramientas_activas(conn, usar_places=usar_places, usar_apify=usar_apify)])  # ver comentario de `_planificar_openai`
+    tools = cast(Any, [a_tool_param_anthropic(h) for h in herramientas_activas(conn, usar_places=usar_places, apify_actores=apify_actores)])  # ver comentario de `_planificar_openai`
     resultado_final = ResultadoPlanificador()
     contador_pasos = 0  # ver comentario de `_planificar_openai` -- mismo motivo, mismo arreglo
 

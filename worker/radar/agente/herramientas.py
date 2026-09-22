@@ -256,6 +256,74 @@ HERRAMIENTAS: list[Herramienta] = [
         },
     ),
     Herramienta(
+        nombre="descubrir_google_search",
+        descripcion=(
+            "Apify (DE PAGO, marcada por el usuario para esta búsqueda): busca en Google con más control que "
+            "buscar_web (paginación, país). Las webs propias encontradas se procesan igual que buscar_web. Las URLs "
+            "de facebook.com/linkedin.com se devuelven sin procesar en candidatos_facebook/candidatos_linkedin: si "
+            "quieres esos datos, llama después a enriquecer_con_facebook / enriquecer_con_linkedin con ellas."
+        ),
+        parametros={
+            "type": "object",
+            "properties": {
+                "consultas": {"type": "array", "items": {"type": "string"}, "description": "Consultas literales a ejecutar."},
+                "max_paginas_por_consulta": {"type": "integer", "default": 1},
+                "max_coste_eur": {"type": "number", "description": "Tope de gasto para esta llamada."},
+            },
+            "required": ["consultas", "max_coste_eur"],
+        },
+    ),
+    Herramienta(
+        nombre="descubrir_apify_maps",
+        descripcion=(
+            "Apify (DE PAGO, marcada por el usuario para esta búsqueda): descubre negocios en Google Maps por zona "
+            "y palabras clave (scraping, no la API oficial). A diferencia de descubrir_places, SÍ guarda el registro "
+            "completo (nombre, dirección, teléfono, web) como cualquier fuente. Usa la zona ya confirmada de la "
+            "búsqueda; no hace falta pasarla."
+        ),
+        parametros={
+            "type": "object",
+            "properties": {
+                "palabras_clave": {"type": "array", "items": {"type": "string"}, "description": "Qué tipo de negocio buscar, p. ej. ['fontanería', 'reformas']."},
+                "max_coste_eur": {"type": "number", "description": "Tope de gasto para esta llamada."},
+            },
+            "required": ["palabras_clave", "max_coste_eur"],
+        },
+    ),
+    Herramienta(
+        nombre="enriquecer_con_linkedin",
+        descripcion=(
+            "Apify (DE PAGO, marcada por el usuario para esta búsqueda): busca la página de empresa en LinkedIn por "
+            "nombre (o por URL si ya la tienes) y extrae sus datos públicos (web, sede, sector, tamaño). Útil cuando "
+            "una empresa encontrada en el BORME no tiene web conocida."
+        ),
+        parametros={
+            "type": "object",
+            "properties": {
+                "nombres": {"type": "array", "items": {"type": "string"}, "description": "Nombres de empresa a resolver en LinkedIn."},
+                "urls": {"type": "array", "items": {"type": "string"}, "description": "URLs o slugs de LinkedIn ya conocidos."},
+                "max_coste_eur": {"type": "number", "description": "Tope de gasto para esta llamada."},
+            },
+            "required": ["max_coste_eur"],
+        },
+    ),
+    Herramienta(
+        nombre="enriquecer_con_facebook",
+        descripcion=(
+            "Apify (DE PAGO, marcada por el usuario para esta búsqueda): lee páginas de empresa de Facebook "
+            "(dirección, teléfono, email, web) para URLs de facebook.com ya encontradas, p. ej. en "
+            "candidatos_facebook de descubrir_google_search."
+        ),
+        parametros={
+            "type": "object",
+            "properties": {
+                "urls": {"type": "array", "items": {"type": "string"}, "description": "URLs de páginas de Facebook."},
+                "max_coste_eur": {"type": "number", "description": "Tope de gasto para esta llamada."},
+            },
+            "required": ["urls", "max_coste_eur"],
+        },
+    ),
+    Herramienta(
         nombre="preguntar_usuario",
         descripcion=(
             "Hace una pregunta al usuario cuando una ambigüedad cambia mucho el resultado. Úsala como mucho "
@@ -288,7 +356,22 @@ HERRAMIENTAS: list[Herramienta] = [
 ]
 
 
-def herramientas_activas(conn: psycopg.Connection, *, usar_places: bool = False, usar_apify: bool = False) -> list[Herramienta]:
+# Nombre de la herramienta -> valor esperado en `apify_actores` (casillas de
+# "Nueva búsqueda", una por Actor de Apify -- todas comparten un único
+# token/presupuesto, pero se activan una a una para que el usuario decida
+# exactamente cuáles paga en cada búsqueda).
+_HERRAMIENTAS_APIFY = {
+    "enriquecer_con_apify": "web_crawler",
+    "descubrir_google_search": "google_search",
+    "descubrir_apify_maps": "google_maps",
+    "enriquecer_con_linkedin": "linkedin",
+    "enriquecer_con_facebook": "facebook",
+}
+
+
+def herramientas_activas(
+    conn: psycopg.Connection, *, usar_places: bool = False, apify_actores: frozenset[str] | set[str] = frozenset()
+) -> list[Herramienta]:
     """Las herramientas de pago solo se ofrecen si el usuario las marcó en la
     búsqueda (casillas de "Nueva búsqueda") Y hay clave/token configurado en
     Ajustes: sin ello, el LLM perdería una ronda intentando una herramienta
@@ -298,8 +381,10 @@ def herramientas_activas(conn: psycopg.Connection, *, usar_places: bool = False,
     excluidas: set[str] = set()
     if not (usar_places and obtener_clave_places(conn)):
         excluidas.add("descubrir_places")
-    if not (usar_apify and obtener_token_apify(conn)):
-        excluidas.add("enriquecer_con_apify")
+    hay_token_apify = bool(obtener_token_apify(conn))
+    for nombre, actor in _HERRAMIENTAS_APIFY.items():
+        if not (hay_token_apify and actor in apify_actores):
+            excluidas.add(nombre)
     return [h for h in HERRAMIENTAS if h.nombre not in excluidas]
 
 
@@ -926,9 +1011,10 @@ class ContextoHerramientas:
     # `None` en tests/uso suelto: las herramientas simplemente no enlazan nada.
     busqueda_id: str | None = None
     # Casillas de la búsqueda: sin marcar, las herramientas de pago se niegan
-    # aunque el LLM las pidiera igualmente.
+    # aunque el LLM las pidiera igualmente. `apify_actores`: ver
+    # `_HERRAMIENTAS_APIFY` -- un valor por Actor de Apify habilitado.
     usar_places: bool = False
-    usar_apify: bool = False
+    apify_actores: frozenset[str] = frozenset()
 
 
 async def ejecutar_herramienta(nombre: str, argumentos: dict[str, Any], contexto: ContextoHerramientas) -> dict[str, Any]:
@@ -997,16 +1083,70 @@ async def ejecutar_herramienta(nombre: str, argumentos: dict[str, Any], contexto
             max_paginas=int(argumentos.get("max_paginas", 1)), busqueda_id=contexto.busqueda_id,
         )
 
+    if nombre in _HERRAMIENTAS_APIFY and _HERRAMIENTAS_APIFY[nombre] not in contexto.apify_actores:
+        return {"error": f"Apify ({_HERRAMIENTAS_APIFY[nombre]}) no está habilitado en esta búsqueda", "coste_eur": 0.0}
+
     if nombre == "enriquecer_con_apify":
         from radar.agente.enriquecer_apify import enriquecer_con_apify
 
-        if not contexto.usar_apify:
-            return {"error": "Apify no está habilitado en esta búsqueda", "coste_eur": 0.0}
         if not argumentos.get("urls"):
             raise ValueError("enriquecer_con_apify requiere 'urls' (lista no vacía)")
         if argumentos.get("max_coste_eur") is None:
             raise ValueError("enriquecer_con_apify requiere 'max_coste_eur'")
         return await enriquecer_con_apify(
+            contexto.conn, contexto.cliente_http, urls=list(argumentos["urls"]),
+            max_coste_eur=min(float(argumentos["max_coste_eur"]), contexto.presupuesto_restante_eur),
+            telefonos_compartidos=contexto.telefonos_compartidos, busqueda_id=contexto.busqueda_id,
+        )
+
+    if nombre == "descubrir_google_search":
+        from radar.agente.descubrir_google_search import descubrir_google_search
+
+        if not argumentos.get("consultas"):
+            raise ValueError("descubrir_google_search requiere 'consultas' (lista no vacía)")
+        if argumentos.get("max_coste_eur") is None:
+            raise ValueError("descubrir_google_search requiere 'max_coste_eur'")
+        return await descubrir_google_search(
+            contexto.conn, contexto.cliente_http, consultas=list(argumentos["consultas"]),
+            max_paginas_por_consulta=int(argumentos.get("max_paginas_por_consulta", 1)),
+            max_coste_eur=min(float(argumentos["max_coste_eur"]), contexto.presupuesto_restante_eur),
+            telefonos_compartidos=contexto.telefonos_compartidos, busqueda_id=contexto.busqueda_id,
+        )
+
+    if nombre == "descubrir_apify_maps":
+        from radar.agente.descubrir_apify_maps import descubrir_apify_maps
+
+        if not argumentos.get("palabras_clave"):
+            raise ValueError("descubrir_apify_maps requiere 'palabras_clave' (lista no vacía)")
+        if argumentos.get("max_coste_eur") is None:
+            raise ValueError("descubrir_apify_maps requiere 'max_coste_eur'")
+        return await descubrir_apify_maps(
+            contexto.conn, contexto.cliente_http, contexto.filtros, palabras_clave=list(argumentos["palabras_clave"]),
+            max_coste_eur=min(float(argumentos["max_coste_eur"]), contexto.presupuesto_restante_eur),
+            telefonos_compartidos=contexto.telefonos_compartidos, busqueda_id=contexto.busqueda_id,
+        )
+
+    if nombre == "enriquecer_con_linkedin":
+        from radar.agente.enriquecer_apify_linkedin import enriquecer_con_linkedin
+
+        if not argumentos.get("nombres") and not argumentos.get("urls"):
+            raise ValueError("enriquecer_con_linkedin requiere 'nombres' y/o 'urls'")
+        if argumentos.get("max_coste_eur") is None:
+            raise ValueError("enriquecer_con_linkedin requiere 'max_coste_eur'")
+        return await enriquecer_con_linkedin(
+            contexto.conn, contexto.cliente_http, nombres=argumentos.get("nombres"), urls=argumentos.get("urls"),
+            max_coste_eur=min(float(argumentos["max_coste_eur"]), contexto.presupuesto_restante_eur),
+            telefonos_compartidos=contexto.telefonos_compartidos, busqueda_id=contexto.busqueda_id,
+        )
+
+    if nombre == "enriquecer_con_facebook":
+        from radar.agente.enriquecer_apify_facebook import enriquecer_con_facebook
+
+        if not argumentos.get("urls"):
+            raise ValueError("enriquecer_con_facebook requiere 'urls' (lista no vacía)")
+        if argumentos.get("max_coste_eur") is None:
+            raise ValueError("enriquecer_con_facebook requiere 'max_coste_eur'")
+        return await enriquecer_con_facebook(
             contexto.conn, contexto.cliente_http, urls=list(argumentos["urls"]),
             max_coste_eur=min(float(argumentos["max_coste_eur"]), contexto.presupuesto_restante_eur),
             telefonos_compartidos=contexto.telefonos_compartidos, busqueda_id=contexto.busqueda_id,

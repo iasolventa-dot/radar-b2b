@@ -215,10 +215,11 @@ def test_web_de_empresa_normal_si_es_apta():
 # ---------- esquemas de herramientas ----------
 
 
-def test_herramientas_tiene_las_ocho_implementadas():
+def test_herramientas_tiene_las_trece_implementadas():
     nombres = {h.nombre for h in HERRAMIENTAS}
     assert nombres == {
-        "consultar_bd", "estimar_cobertura", "descubrir_borme", "descubrir_osm", "descubrir_places", "enriquecer_con_apify", "buscar_web",
+        "consultar_bd", "estimar_cobertura", "descubrir_borme", "descubrir_osm", "descubrir_places", "enriquecer_con_apify",
+        "descubrir_google_search", "descubrir_apify_maps", "enriquecer_con_linkedin", "enriquecer_con_facebook", "buscar_web",
         "preguntar_usuario", "finalizar_busqueda",
     }
 
@@ -303,17 +304,22 @@ def test_herramientas_de_pago_solo_si_se_marcan_y_hay_credencial(monkeypatch):
     def nombres(**kw):
         return {h.nombre for h in herramientas_activas(None, **kw)}  # type: ignore[arg-type]
 
+    TODOS_LOS_ACTORS = {"web_crawler", "google_search", "google_maps", "linkedin", "facebook"}
+    HERRAMIENTAS_APIFY = {"enriquecer_con_apify", "descubrir_google_search", "descubrir_apify_maps", "enriquecer_con_linkedin", "enriquecer_con_facebook"}
+
     monkeypatch.setattr(secretos, "obtener_clave_places", lambda conn: "AIza-x" * 5)
     monkeypatch.setattr(secretos, "obtener_token_apify", lambda conn: "apify_api_x" * 3)
-    # con credenciales pero sin marcar las casillas: no se ofrecen
-    assert not ({"descubrir_places", "enriquecer_con_apify"} & nombres())
+    # con credenciales pero sin marcar ninguna casilla: no se ofrece nada de pago
+    assert not (({"descubrir_places"} | HERRAMIENTAS_APIFY) & nombres())
     assert "descubrir_places" in nombres(usar_places=True)
-    assert "enriquecer_con_apify" not in nombres(usar_places=True)
-    assert "enriquecer_con_apify" in nombres(usar_apify=True)
+    assert not (HERRAMIENTAS_APIFY & nombres(usar_places=True))
+    # cada Actor de Apify se activa uno a uno, independientemente de los demás
+    assert nombres(apify_actores={"web_crawler"}) & HERRAMIENTAS_APIFY == {"enriquecer_con_apify"}
+    assert nombres(apify_actores=TODOS_LOS_ACTORS) & HERRAMIENTAS_APIFY == HERRAMIENTAS_APIFY
     # marcadas pero sin credencial: tampoco
     monkeypatch.setattr(secretos, "obtener_clave_places", lambda conn: None)
     monkeypatch.setattr(secretos, "obtener_token_apify", lambda conn: None)
-    assert not ({"descubrir_places", "enriquecer_con_apify"} & nombres(usar_places=True, usar_apify=True))
+    assert not (({"descubrir_places"} | HERRAMIENTAS_APIFY) & nombres(usar_places=True, apify_actores=TODOS_LOS_ACTORS))
 
 
 def test_ejecutar_herramienta_de_pago_sin_casilla_se_niega():
@@ -323,6 +329,10 @@ def test_ejecutar_herramienta_de_pago_sin_casilla_se_niega():
     for nombre, args in (
         ("descubrir_places", {"consultas": ["x"], "max_coste_eur": 1.0}),
         ("enriquecer_con_apify", {"urls": ["https://a.es"], "max_coste_eur": 1.0}),
+        ("descubrir_google_search", {"consultas": ["x"], "max_coste_eur": 1.0}),
+        ("descubrir_apify_maps", {"palabras_clave": ["x"], "max_coste_eur": 1.0}),
+        ("enriquecer_con_linkedin", {"nombres": ["x"], "max_coste_eur": 1.0}),
+        ("enriquecer_con_facebook", {"urls": ["https://facebook.com/x"], "max_coste_eur": 1.0}),
     ):
         r = asyncio.run(ejecutar_herramienta(nombre, args, ctx))
         assert "no está habilitado" in r["error"] and r["coste_eur"] == 0.0

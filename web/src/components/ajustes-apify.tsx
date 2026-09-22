@@ -78,8 +78,9 @@ export function AjustesApify() {
             <KeyRound className="h-4 w-4 text-slate-400" /> Apify (de pago)
           </h2>
           <p className="mt-1 text-xs text-slate-500">
-            Conexión con la API de Apify. Solo se usa en las búsquedas donde marques «Incluir Apify» (rastreo de
-            webs de empresa). Apify es un servicio aparte, con cuenta y facturación propias.
+            Un único token para varios Actors de Apify: rastreo de webs propias, búsqueda en Google, Google Maps,
+            LinkedIn y Facebook. En «Nueva búsqueda» marcas, uno a uno, cuáles quieres usar en cada búsqueda. Apify
+            es un servicio aparte, con cuenta y facturación propias.
           </p>
         </div>
         <span
