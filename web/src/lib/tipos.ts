@@ -250,6 +250,12 @@ export const ETIQUETA_HERRAMIENTA: Record<string, string> = {
   buscar_web: "Buscar en la web",
   descubrir_osm: "Descubrir en OpenStreetMap",
   descubrir_places: "Descubrir en Google Places",
+  descubrir_apify_maps: "Descubrir en Google Maps (Apify)",
+  descubrir_google_search: "Buscar en Google (Apify)",
+  enriquecer_con_apify: "Rastrear webs (Apify)",
+  enriquecer_con_linkedin: "Enriquecer con LinkedIn (Apify)",
+  enriquecer_con_facebook: "Enriquecer con Facebook (Apify)",
+  completar_contacto: "Completar contacto (web, teléfono, email)",
   preguntar_usuario: "Pregunta al usuario",
   finalizar_busqueda: "Finalizar búsqueda",
   // No es una herramienta real (el LLM nunca la "llama") -- la genera el
@@ -270,6 +276,15 @@ const ETIQUETA_FUENTE_MOTIVO: Record<string, string> = {
   osm: "OpenStreetMap",
   "google_places+web": "Google Places + web propia",
   google_places: "Google Places",
+  apify_maps: "Google Maps (Apify)",
+  "apify_maps+web": "Google Maps + web propia",
+  apify_google_search: "Google (Apify)",
+  facebook: "Facebook",
+  linkedin: "LinkedIn",
+  "apify+web": "Web (rastreo Apify)",
+  contacto_web: "Web propia (contacto)",
+  contacto_maps: "Google Maps (contacto)",
+  "contacto_maps+web": "Google Maps + web (contacto)",
 };
 
 const ETIQUETA_ACCION_MOTIVO: Record<string, string> = {

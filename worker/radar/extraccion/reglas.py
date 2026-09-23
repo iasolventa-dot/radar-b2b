@@ -131,6 +131,31 @@ class DatosLegalesExtraidos:
         )
 
 
+
+# Frases de texto legal que el regex de "Titular: ..." a veces toma como si
+# fueran el nombre (visto en vivo 2026-09-23: razón social = "propietario de
+# todos los derechos de propiedad intelectual e industrial de su página web").
+_RX_NO_ES_NOMBRE = re.compile(
+    r"derechos|propiedad intelectual|p[aá]gina web|sitio web|presente (?:sitio|p[aá]gina|aviso)|usuario|"
+    r"condiciones|aviso legal|pol[ií]tica de|responsable del|datos personales|cookies",
+    re.IGNORECASE,
+)
+_RX_NIF_DELANTE = re.compile(r"^[A-Za-z]?\d{7,8}[A-Za-z]?[\s.,:;-]+")
+
+
+def limpiar_razon_social(c: str | None) -> str | None:
+    """Normaliza una razón social candidata o devuelve `None` si no parece un
+    nombre de empresa (texto legal, demasiado larga)."""
+    if not c:
+        return None
+    c = re.sub(r"^(?:la\s+empresa|la\s+sociedad|el\s+titular|esta\s+web\s+es\s+propiedad\s+de|propiedad\s+de)\s+", "", c, flags=re.IGNORECASE)
+    c = _RX_NIF_DELANTE.sub("", c.strip())
+    c = re.sub(r"\s+", " ", c).strip(" ,:;-").lstrip(".")
+    if not (3 <= len(c) <= 100) or len(c.split()) > 12 or _RX_NO_ES_NOMBRE.search(c):
+        return None
+    return c
+
+
 def extraer(texto: str, dominio: str | None = None) -> DatosLegalesExtraidos:
     res = DatosLegalesExtraidos()
 
@@ -177,9 +202,8 @@ def extraer(texto: str, dominio: str | None = None) -> DatosLegalesExtraidos:
     ordenadas = [c for _, c in sorted(candidatas, key=lambda par: par[0])]
     limpias: list[str] = []
     for c in ordenadas:
-        c = re.sub(r"^(?:la\s+empresa|la\s+sociedad|el\s+titular|esta\s+web\s+es\s+propiedad\s+de|propiedad\s+de)\s+", "", c, flags=re.IGNORECASE)
-        c = re.sub(r"\s+", " ", c).strip()
-        if 3 <= len(c) <= 100 and c.lower() not in [x.lower() for x in limpias]:
+        c = limpiar_razon_social(c)
+        if c and c.lower() not in [x.lower() for x in limpias]:
             limpias.append(c)
     res.razones_sociales = limpias[:5]
 

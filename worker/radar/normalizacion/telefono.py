@@ -37,6 +37,10 @@ def normalizar_telefono(tel: object) -> dict:
     if len(digitos) != 9:
         r["aviso"] = f"longitud {len(digitos)} (se esperaban 9 dígitos)"
         return r
+    if len(set(digitos[1:])) == 1:
+        # Relleno de plantilla web ("600 000 000"), visto en vivo 2026-09-23.
+        r["aviso"] = "número de relleno (dígitos repetidos)"
+        return r
     p = digitos[0]
     if p in "67":
         tipo = "movil"

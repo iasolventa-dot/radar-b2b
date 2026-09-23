@@ -20,6 +20,11 @@ from radar.secretos import gasto_mes_apify_usd, obtener_token_apify, presupuesto
 
 ACTOR_LINKEDIN = "automation-lab/linkedin-company-scraper"
 MAX_EMPRESAS_POR_LLAMADA = 10
+# Tarifa real del plan FREE (pricingInfo del Actor, 2026-09-23). La resolución
+# por NOMBRE es poco fiable (en vivo no encontró ni "Acciona": candidateCount 0);
+# con URL/slug de LinkedIn exacto sí funciona.
+COSTE_POR_EMPRESA_USD = 0.00345
+COSTE_ARRANQUE_USD = 0.005
 
 
 async def enriquecer_con_linkedin(
@@ -43,11 +48,17 @@ async def enriquecer_con_linkedin(
 
     restante_mes = presupuesto_mensual_apify_usd(conn) - gasto_mes_apify_usd(conn)
     tope = min(max_coste_eur, restante_mes)
-    if tope <= 0:
-        return {"motivo_parada": "presupuesto_mensual_de_apify_agotado", "coste_eur": 0.0}
+    cabe = max(0, int((tope - COSTE_ARRANQUE_USD) / COSTE_POR_EMPRESA_USD))
+    urls = urls[:cabe]
+    nombres = nombres[: cabe - len(urls)]
+    if not urls and not nombres:
+        return {"motivo_parada": "presupuesto_insuficiente_para_apify", "coste_eur": 0.0}
 
-    entrada = {"companyNames": nombres, "companyUrls": urls, "maxCompanies": len(nombres) + len(urls), "maxConcurrency": 3}
-    res = await ejecutar_actor(cliente_http, token, ACTOR_LINKEDIN, entrada, max_coste_usd=tope, timeout_s=120)
+    total = len(nombres) + len(urls)
+    entrada = {"companyNames": nombres, "companyUrls": urls, "maxCompanies": total, "maxConcurrency": 3}
+    res = await ejecutar_actor(
+        cliente_http, token, ACTOR_LINKEDIN, entrada, max_coste_usd=tope, max_items=total, timeout_s=120
+    )
 
     bd.registrar_uso_apify(ACTOR_LINKEDIN, res.run_id, res.estado, res.coste_usd, {"nombres": nombres, "urls": urls}, conn)
     conn.commit()

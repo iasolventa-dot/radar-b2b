@@ -38,7 +38,10 @@ def test_ejecutar_actor_flujo_completo_con_tope_de_coste():
     def handler(req: httpx.Request) -> httpx.Response:
         ruta = req.url.path
         if req.method == "POST" and ruta == "/v2/actors/apify~website-content-crawler/runs":
-            assert req.url.params["maxTotalChargeUsd"] == "0.25"
+            # Apify rechaza topes < 0,50 $ en Actors de pago por evento: el tope nunca baja de ahí
+            # y el gasto real se limita con maxItems (confirmado en vivo 2026-09-23).
+            assert req.url.params["maxTotalChargeUsd"] == "0.5"
+            assert req.url.params["maxItems"] == "7"
             vistos["entrada"] = json.loads(req.content)
             return httpx.Response(201, json={"data": {"id": "RUN1", "status": "READY"}})
         if ruta == "/v2/actor-runs/RUN1":
@@ -53,7 +56,7 @@ def test_ejecutar_actor_flujo_completo_con_tope_de_coste():
         async with _cliente(handler) as c:
             return await ejecutar_actor(
                 c, TOKEN, "apify/website-content-crawler", {"startUrls": [{"url": "https://a.es"}]},
-                max_coste_usd=0.25, timeout_s=30, intervalo_s=0.0,
+                max_coste_usd=0.25, max_items=7, timeout_s=30, intervalo_s=0.0,
             )
 
     r = asyncio.run(run())

@@ -105,6 +105,26 @@ def comparar(a: dict, b: dict, telefonos_compartidos: set | None = None) -> dict
         senales.append(f"misma hoja registral ({a['hoja_registral']})")
         return resultado(0.95, "R3b_hoja_registral")
 
+    # Marca + sociedad bajo la misma web propia (2026-09-23): un negocio de
+    # Google Maps/OSM solo trae su nombre comercial ("Ardigral") y el aviso
+    # legal de SU web trae la sociedad que hay detrás ("ARTE Y DISEÑO
+    # INTEGRALES, S.L"). Mismo dominio propio (nunca uno de plataforma: esos
+    # no llegan a `dominio`), sin NIF contradictorio (R1 ya lo habría
+    # descartado) y uno con razón social y el otro solo con marca: es la
+    # misma empresa. Antes quedaban como dos empresas "en revisión" (visto en
+    # vivo: 5 de 18 negocios de una búsqueda de fontanería).
+    # También si uno de los dos no trae ningún nombre (web cuyo aviso legal
+    # no se pudo leer): la misma web propia basta, porque no hay dos
+    # sociedades distintas que comparar. Solo se excluye el caso de DOS
+    # razones sociales distintas bajo un mismo dominio (grupo empresarial).
+    if (
+        a.get("dominio")
+        and a.get("dominio") == b.get("dominio")
+        and not (a.get("nombre_norm") and b.get("nombre_norm"))
+    ):
+        senales.append(f"marca y razón social bajo la misma web propia ({a['dominio']})")
+        return resultado(UMBRAL_FUSION_AUTO, "R8_marca_y_sociedad_misma_web")
+
     p = 0.0
     # --- Nombre ---
     if (a.get("nombre_norm") or a.get("comercial_norm")) and (b.get("nombre_norm") or b.get("comercial_norm")):

@@ -78,7 +78,7 @@ def campos_desde_llm(base: CamposExtraidos, llm_resp: RespuestaExtraccionLLM) ->
     """
     t = llm_resp.titular
     return CamposExtraidos(
-        razon_social=t.razon_social or base.razon_social,
+        razon_social=reglas.limpiar_razon_social(t.razon_social) or base.razon_social,
         nombre_comercial=t.nombre_comercial or base.nombre_comercial,
         nif=t.nif or base.nif,
         domicilio=t.domicilio or base.domicilio,
@@ -111,11 +111,28 @@ async def enriquecer_desde_web(
     return registro_desde_texto(texto, urls, url_portada, dominio)
 
 
-def registro_desde_texto(texto: str, urls: list[str], url_portada: str, dominio: str | None) -> RegistroBruto:
+# Una web de empresa tiene unos pocos teléfonos/emails; un directorio o
+# portal (listados de "fontaneros en X") tiene decenas. Visto en vivo
+# 2026-09-23: instaladoresdemadrid.com se guardó como UNA empresa con 100
+# teléfonos y 100 emails de otros negocios. Estos umbrales cortan eso sin
+# afectar a empresas reales con varias delegaciones (HomeServe: 5 y 4).
+MAX_TELEFONOS_WEB_EMPRESA = 8
+MAX_EMAILS_WEB_EMPRESA = 8
+
+
+def parece_directorio(r: reglas.DatosLegalesExtraidos) -> bool:
+    return len(set(r.telefonos)) > MAX_TELEFONOS_WEB_EMPRESA or len({e.email for e in r.emails}) > MAX_EMAILS_WEB_EMPRESA
+
+
+def registro_desde_texto(texto: str, urls: list[str], url_portada: str, dominio: str | None) -> RegistroBruto | None:
     """Reglas (+ LLM si faltan campos) sobre un texto ya obtenido. Separado de
     `enriquecer_desde_web` para reutilizarlo cuando el texto lo ha descargado
-    otro sistema (p. ej. el rastreador de Apify) en vez de `descargar()`."""
+    otro sistema (p. ej. el rastreador de Apify) en vez de `descargar()`.
+    `None` si la página parece un directorio/portal (`parece_directorio`):
+    no es la web de UNA empresa y no se puede atribuir su contenido a nadie."""
     resultado_reglas = reglas.extraer(texto, dominio)
+    if parece_directorio(resultado_reglas):
+        return None
     campos = campos_desde_reglas(resultado_reglas, dominio)
 
     resultado_llm_dict = None

@@ -84,3 +84,11 @@ def test_email_fuera_del_dominio_genera_aviso():
     texto = "Contacto: info@otrodominio.com"
     r = extraer(texto, dominio="perezobras.es")
     assert any("ningún email pertenece" in a for a in r.avisos)
+
+
+def test_limpiar_razon_social_descarta_texto_legal_y_quita_nif_delante():
+    from radar.extraccion.reglas import limpiar_razon_social
+
+    assert limpiar_razon_social("propietario de todos los derechos de propiedad intelectual e industrial de su página web") is None
+    assert limpiar_razon_social("A80192727. INFORMA D&B S.A.U") == "INFORMA D&B S.A.U"
+    assert limpiar_razon_social("Construcciones Pérez, S.L.") == "Construcciones Pérez, S.L."

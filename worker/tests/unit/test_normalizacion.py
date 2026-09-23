@@ -77,3 +77,10 @@ def test_normalizar_registro_combina_campos():
     assert r["cp"] == "04001"
     assert r["dominio"] == "perezobras.es"
     assert r["forma_coherente_nif"] is True  # letra B ↔ SL
+
+
+def test_telefono_de_relleno_no_es_valido():
+    from radar.normalizacion.telefono import normalizar_telefono
+
+    assert normalizar_telefono("+34 600 000 000")["valido"] is False
+    assert normalizar_telefono("954 11 22 33")["valido"] is True

@@ -97,7 +97,7 @@ PLANIFICADOR_LLM = "planificador_llm"
 HERRAMIENTAS_QUE_CONSUMEN_PRESUPUESTO = {
     "buscar_web", "descubrir_borme", "descubrir_places", "enriquecer_con_apify",
     "descubrir_google_search", "descubrir_apify_maps", "enriquecer_con_linkedin", "enriquecer_con_facebook",
-    PLANIFICADOR_LLM,
+    "completar_contacto", PLANIFICADOR_LLM,
 }
 
 OnRonda = Callable[["RondaPlanificador"], Awaitable[None]]
@@ -139,13 +139,14 @@ async def _ejecutar_segura(nombre: str, argumentos: dict[str, Any], contexto: Co
         return {"error": str(exc)}
 
 
-def _sistema(filtros: FiltrosBusqueda, presupuesto_eur: float, max_rondas: int) -> str:
-    return PROMPT_PLANIFICADOR_SISTEMA.format(
-        filtros_json=filtros.model_dump_json(), presupuesto_eur=presupuesto_eur, max_rondas=max_rondas
+def _sistema(filtros: FiltrosBusqueda, presupuesto_eur: float, max_rondas: int, contexto_previo: str = "") -> str:
+    base = PROMPT_PLANIFICADOR_SISTEMA.format(
+        filtros_json=filtros.model_dump_json(), presupuesto_eur=round(presupuesto_eur, 4), max_rondas=max_rondas
     )
+    return f"{base}\n\n{contexto_previo}" if contexto_previo else base
 
 
-async def planificar(
+async def _bucle_llm(
     conn: psycopg.Connection,
     cliente_http: httpx.AsyncClient,
     filtros: FiltrosBusqueda,
@@ -158,8 +159,10 @@ async def planificar(
     busqueda_id: str | None = None,
     usar_places: bool = False,
     apify_actores: frozenset[str] | set[str] = frozenset(),
+    paso_inicial: int = 0,
+    contexto_previo: str = "",
 ) -> ResultadoPlanificador:
-    """Punto de entrada único; despacha según `settings.proveedor_llm` (ver
+    """Bucle del LLM; despacha según `settings.proveedor_llm` (ver
     docstring del módulo). `cliente`, si se pasa, debe ser del cliente
     nativo del proveedor del planificador (`openai.OpenAI` o
     `anthropic.Anthropic`) — para tests/inyección; en producción se
@@ -178,11 +181,11 @@ async def planificar(
     if settings.proveedor_llm == "openai":
         return await _planificar_openai(
             conn, cliente_http, filtros, presupuesto_eur, max_rondas, cliente, settings, on_ronda, debe_cancelar, busqueda_id,
-            usar_places, apify_actores,
+            usar_places, apify_actores, paso_inicial, contexto_previo,
         )
     return await _planificar_anthropic(
         conn, cliente_http, filtros, presupuesto_eur, max_rondas, cliente, settings, on_ronda, debe_cancelar, busqueda_id,
-        usar_places, apify_actores,
+        usar_places, apify_actores, paso_inicial, contexto_previo,
     )
 
 
@@ -202,6 +205,8 @@ async def _planificar_openai(
     busqueda_id: str | None = None,
     usar_places: bool = False,
     apify_actores: frozenset[str] | set[str] = frozenset(),
+    paso_inicial: int = 0,
+    contexto_previo: str = "",
 ) -> ResultadoPlanificador:
     if cliente is None:
         if not settings.openai_api_key:
@@ -223,9 +228,9 @@ async def _planificar_openai(
     # lo impide) -- usar numero_ronda como numero de RondaPlanificador hacía
     # que dos llamadas del mismo turno compartieran número, y React (la key
     # del <li> en progreso-busqueda.tsx) las trataba como el mismo elemento.
-    contador_pasos = 0
+    contador_pasos = paso_inicial
 
-    entrada: Any = _sistema(filtros, presupuesto_eur, max_rondas)
+    entrada: Any = _sistema(filtros, presupuesto_eur, max_rondas, contexto_previo)
     previous_response_id: str | None = None
 
     for numero_ronda in range(1, max_rondas + 1):
@@ -365,6 +370,8 @@ async def _planificar_anthropic(
     busqueda_id: str | None = None,
     usar_places: bool = False,
     apify_actores: frozenset[str] | set[str] = frozenset(),
+    paso_inicial: int = 0,
+    contexto_previo: str = "",
 ) -> ResultadoPlanificador:
     if cliente is None:
         if not settings.anthropic_api_key:
@@ -377,9 +384,9 @@ async def _planificar_anthropic(
     )
     tools = cast(Any, [a_tool_param_anthropic(h) for h in herramientas_activas(conn, usar_places=usar_places, apify_actores=apify_actores)])  # ver comentario de `_planificar_openai`
     resultado_final = ResultadoPlanificador()
-    contador_pasos = 0  # ver comentario de `_planificar_openai` -- mismo motivo, mismo arreglo
+    contador_pasos = paso_inicial  # ver comentario de `_planificar_openai` -- mismo motivo, mismo arreglo
 
-    sistema = _sistema(filtros, presupuesto_eur, max_rondas)
+    sistema = _sistema(filtros, presupuesto_eur, max_rondas, contexto_previo)
     mensajes: list[MessageParam] = [{"role": "user", "content": "Empieza la búsqueda."}]
 
     for numero_ronda in range(1, max_rondas + 1):
@@ -473,3 +480,118 @@ async def _planificar_anthropic(
 
     resultado_final.coste_gastado_eur = round(resultado_final.coste_gastado_eur, 4)
     return resultado_final
+
+
+# --- Orquestación en fases (2026-09-23) ---------------------------------
+
+
+def _resumen_fase_previa(rondas: list[RondaPlanificador]) -> str:
+    if not rondas:
+        return ""
+    lineas = [
+        f"- {r.herramienta}: nuevas={r.resultado.get('nueva_empresa', 0)}, vinculadas={r.resultado.get('vinculado', 0)}, "
+        f"coste={r.resultado.get('coste_eur', 0)} EUR" + (f", error={r.resultado['error']}" if r.resultado.get("error") else "")
+        for r in rondas
+    ]
+    return (
+        "YA EJECUTADO AUTOMÁTICAMENTE antes de ti (fuentes de pago que el usuario marcó; no las repitas con los mismos "
+        "argumentos):\n" + "\n".join(lineas)
+    )
+
+
+async def planificar(
+    conn: psycopg.Connection,
+    cliente_http: httpx.AsyncClient,
+    filtros: FiltrosBusqueda,
+    *,
+    presupuesto_eur: float,
+    max_rondas: int = 10,
+    cliente: Any | None = None,
+    on_ronda: OnRonda | None = None,
+    debe_cancelar: DebeCancelar | None = None,
+    busqueda_id: str | None = None,
+    usar_places: bool = False,
+    apify_actores: frozenset[str] | set[str] = frozenset(),
+) -> ResultadoPlanificador:
+    """Punto de entrada único. Tres fases (ver `radar.agente.fases`):
+    1) fuentes de pago marcadas por el usuario, siempre; 2) el bucle del LLM
+    (`_bucle_llm`) con el presupuesto restante; 3) `completar_contacto` sobre
+    todo lo encontrado. `on_ronda`/`debe_cancelar`: ver docstring del módulo
+    -- se aplican igual a las rondas de las fases 1 y 3."""
+    from radar.agente.completar_contacto import completar_contacto
+    from radar.agente.fases import ejecutar_con_tope, planes_fuentes_marcadas
+
+    actores = frozenset(apify_actores)
+    contexto = ContextoHerramientas(
+        conn=conn, cliente_http=cliente_http, filtros=filtros, presupuesto_restante_eur=presupuesto_eur,
+        busqueda_id=busqueda_id, usar_places=usar_places, apify_actores=actores,
+    )
+    total = ResultadoPlanificador()
+
+    async def registrar(nombre: str, argumentos: dict[str, Any], resultado: dict[str, Any]) -> bool:
+        """Añade la ronda, descuenta su coste y avisa. `True` = hay que parar."""
+        coste = _coste_de(nombre, resultado)
+        contexto.presupuesto_restante_eur -= coste
+        total.coste_gastado_eur += coste
+        ronda = RondaPlanificador(len(total.rondas) + 1, nombre, argumentos, resultado)
+        total.rondas.append(ronda)
+        if on_ronda is not None:
+            try:
+                await on_ronda(ronda)
+            except Exception as exc:  # noqa: BLE001
+                total.error = f"fallo guardando progreso: {exc}"
+                return True
+        if debe_cancelar is not None:
+            try:
+                if await debe_cancelar():
+                    total.motivo_fin = "cancelada_por_usuario"
+                    return True
+            except Exception as exc:  # noqa: BLE001
+                total.error = f"fallo comprobando cancelación: {exc}"
+                return True
+        return False
+
+    def cerrar() -> ResultadoPlanificador:
+        total.coste_gastado_eur = round(total.coste_gastado_eur, 4)
+        return total
+
+    # --- Fase 1: fuentes de pago marcadas --------------------------------
+    for nombre, argumentos in planes_fuentes_marcadas(filtros, usar_places=usar_places, apify_actores=actores):
+        args, resultado = await ejecutar_con_tope(nombre, argumentos, contexto, presupuesto_eur)
+        if await registrar(nombre, args, resultado):
+            return cerrar()
+        if nombre == "descubrir_google_search":
+            encadenadas = []
+            if "facebook" in actores and resultado.get("candidatos_facebook"):
+                encadenadas.append(("enriquecer_con_facebook", {"urls": resultado["candidatos_facebook"]}))
+            if "linkedin" in actores and resultado.get("candidatos_linkedin"):
+                encadenadas.append(("enriquecer_con_linkedin", {"urls": resultado["candidatos_linkedin"]}))
+            for n2, a2 in encadenadas:
+                args2, res2 = await ejecutar_con_tope(n2, a2, contexto, presupuesto_eur)
+                if await registrar(n2, args2, res2):
+                    return cerrar()
+
+    # --- Fase 2: bucle del LLM -------------------------------------------
+    llm = await _bucle_llm(
+        conn, cliente_http, filtros, presupuesto_eur=max(0.0, contexto.presupuesto_restante_eur), max_rondas=max_rondas,
+        cliente=cliente, on_ronda=on_ronda, debe_cancelar=debe_cancelar, busqueda_id=busqueda_id,
+        usar_places=usar_places, apify_actores=actores, paso_inicial=len(total.rondas),
+        contexto_previo=_resumen_fase_previa(total.rondas),
+    )
+    total.rondas.extend(llm.rondas)
+    total.coste_gastado_eur += llm.coste_gastado_eur
+    contexto.presupuesto_restante_eur -= llm.coste_gastado_eur
+    total.motivo_fin, total.resumen, total.pregunta, total.error = llm.motivo_fin, llm.resumen, llm.pregunta, llm.error
+    if llm.error or llm.motivo_fin == "cancelada_por_usuario" or busqueda_id is None:
+        return cerrar()
+
+    # --- Fase 3: completar contacto --------------------------------------
+    motivo_llm = total.motivo_fin
+    resultado_contacto = await completar_contacto(
+        conn, cliente_http, filtros, busqueda_id=busqueda_id,
+        max_coste_eur=max(0.0, contexto.presupuesto_restante_eur), apify_actores=actores,
+        telefonos_compartidos=contexto.telefonos_compartidos,
+    )
+    if not await registrar("completar_contacto", {}, resultado_contacto):
+        total.motivo_fin = motivo_llm
+    return cerrar()

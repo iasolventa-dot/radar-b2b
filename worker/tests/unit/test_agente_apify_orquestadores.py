@@ -49,7 +49,7 @@ def test_maps_presupuesto_mensual_agotado(monkeypatch):
     monkeypatch.setattr("radar.agente.descubrir_apify_maps.gasto_mes_apify_usd", lambda conn: 5.0)
     filtros = FiltrosBusqueda(ubicacion=UbicacionFiltro(tipo="municipios", municipios=["Sevilla"]))
     r = asyncio.run(descubrir_apify_maps(None, None, filtros, palabras_clave=["fontanería"], max_coste_eur=1.0))
-    assert r["motivo_parada"] == "presupuesto_mensual_de_apify_agotado"
+    assert r["motivo_parada"] == "presupuesto_insuficiente_para_apify"
 
 
 def test_linkedin_sin_nombres_ni_urls_da_error(monkeypatch):
@@ -68,3 +68,10 @@ def test_google_search_sin_consultas_da_error(monkeypatch):
     _con_token_sin_presupuesto(monkeypatch, "descubrir_google_search")
     r = asyncio.run(descubrir_google_search(None, None, consultas=[], max_coste_eur=1.0))
     assert "requiere" in r["error"]
+
+
+def test_solo_paginas_de_facebook_no_posts_ni_grupos():
+    from radar.agente.descubrir_google_search import es_pagina_facebook
+
+    assert es_pagina_facebook("https://www.facebook.com/aluminiosperez/") is True
+    assert es_pagina_facebook("https://www.facebook.com/groups/tricantinos3.0/posts/3495600063902626/") is False

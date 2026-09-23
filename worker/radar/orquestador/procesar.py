@@ -230,6 +230,13 @@ def procesar_registro(
                 {"tipos_acto": tipos_acto, "id_borme": (registro.campos.extra or {}).get("id_borme")},
                 fuente.id, conn,
             )
+    elif not (registro.campos.razon_social or registro.campos.nombre_comercial or campos_norm.get("nif_valido")):
+        # Sin nombre ni NIF (p. ej. una web cuyo aviso legal no se pudo leer)
+        # no hay empresa que crear: solo sirve para reforzar una existente
+        # (arriba, "vincular"). Antes creaba empresas sin nombre en revisión
+        # (visto en vivo 2026-09-23). El registro bruto queda como evidencia.
+        bd.actualizar_registro_bruto(rb.id, "descartado", None, decision.puntuacion, conn)
+        return ResultadoResolucion("ya_procesado", None, rb.id, decision.puntuacion, len(candidatos))
     else:
         empresa_id = bd.crear_empresa(campos_norm, registro.campos, conn)
         if decision.accion == "crear_y_revisar" and decision.mejor_candidato_id and decision.resultado_comparacion:

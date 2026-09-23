@@ -180,7 +180,7 @@ HERRAMIENTAS: list[Herramienta] = [
             "type": "object",
             "properties": {
                 "provincia_titulo": {"type": "string", "description": "Título de provincia tal como lo usa el BORME, p. ej. 'SEVILLA'."},
-                "dias": {"type": "integer", "default": 30, "description": "Días hacia atrás desde hoy."},
+                "dias": {"type": "integer", "default": 30, "description": "Días hacia atrás desde hoy (máx. 90)."},
             },
             "required": ["provincia_titulo"],
         },
@@ -553,6 +553,40 @@ def construir_where_empresas(
     return " and ".join(condiciones), parametros
 
 
+def provincias_de_zona(filtros: FiltrosBusqueda, conn: psycopg.Connection) -> set[str]:
+    """Códigos de provincia (2 dígitos INE = 2 primeras cifras del código
+    postal) que cubre la zona de la búsqueda. Vacío si no hay zona."""
+    u = filtros.ubicacion
+    if u.municipios:
+        return {c[:2] for c in resolver_codigos_municipio(u.municipios, conn)}
+    with conn.cursor() as cur:
+        if u.provincias:
+            cur.execute(
+                "select distinct cod_provincia from municipios "
+                "where normalizar_texto(provincia) = any(select normalizar_texto(p) from unnest(%s::text[]) as p)",
+                (list(u.provincias),),
+            )
+        elif u.ccaa:
+            cur.execute(
+                "select distinct cod_provincia from municipios "
+                "where normalizar_ccaa(ccaa) = any(select normalizar_ccaa(x) from unnest(%s::text[]) as x)",
+                (list(u.ccaa),),
+            )
+        else:
+            return set()
+        return {f[0] for f in cur.fetchall()}
+
+
+def en_zona(codigo_postal: str | None, provincias: set[str]) -> bool:
+    """Una web encontrada por un buscador pertenece a la búsqueda si su
+    código postal es de una provincia de la zona. Sin CP o sin zona no se
+    puede afirmar que esté fuera, así que se acepta. Visto en vivo
+    2026-09-23: "fontanería San Sebastián de los Reyes" traía empresas de
+    Valencia o Ciudad Real que solo mencionaban el municipio."""
+    cp = (codigo_postal or "").strip()
+    return not provincias or len(cp) != 5 or not cp.isdigit() or cp[:2] in provincias
+
+
 def resolver_codigos_municipio(nombres: list[str], conn: psycopg.Connection) -> list[str]:
     """Traduce nombres de municipio (tal como los escribe el LLM, p. ej.
     "Alcalá de Guadaíra") a códigos INE, usando la misma normalización que
@@ -752,6 +786,12 @@ def _coincide_sector(objeto_social: str | None, razon_social: str | None, palabr
     return any(_sin_tildes(p.lower()) in texto for p in palabras_clave)
 
 
+# Cuánto hacia atrás se lee el BORME como máximo: con 180 días y una provincia
+# grande (Madrid) salen miles de actos y la búsqueda tarda muchos minutos
+# (visto en vivo 2026-09-23: 2.068 candidatos), sin aportar contacto alguno.
+MAX_DIAS_BORME = 90
+
+
 def fuera_de_zona(municipio_ine_del_acto: str | None, codigos_zona: list[str]) -> bool:
     """`True` solo si HAY una zona pedida (municipios concretos), el acto
     trae un municipio reconocido y ese municipio no está en la zona. Si el
@@ -780,25 +820,39 @@ async def descubrir_borme(
     búsqueda en `busqueda_resultados` (antes esto no ocurría en ningún
     caso: nada escribía nunca en esa tabla, así que el panel siempre
     mostraba la lista de resultados vacía)."""
-    palabras = filtros.sector.palabras_clave or (PALABRAS_CONSTRUCCION_OBJETO + PALABRAS_CONSTRUCCION_NOMBRE)
+    # Petición sin sector ("todos los sectores"): no se filtra por sector. Antes
+    # caía al filtro de construcción por defecto sin decirlo.
+    sin_sector = (filtros.sector.sector_interno or "").strip().lower() in {"", "todos", "todos los sectores", "cualquiera"}
+    palabras = filtros.sector.palabras_clave or ([] if sin_sector and not filtros.sector.codigos_cnae else PALABRAS_CONSTRUCCION_OBJETO + PALABRAS_CONSTRUCCION_NOMBRE)
     hasta = datetime.now(UTC).date()
-    desde = hasta - timedelta(days=dias)
+    desde = hasta - timedelta(days=min(dias, MAX_DIAS_BORME))
 
     codigos_zona: list[str] = []
     if filtros.ubicacion.municipios and not filtros.ubicacion.provincias:
         codigos_zona = resolver_codigos_municipio(filtros.ubicacion.municipios, conn)
 
     conector = ConectorBorme(cliente_http)
-    contadores = {"candidatos": 0, "descartados_por_zona": 0, "descartados_por_sector": 0, "vinculado": 0, "nueva_empresa": 0, "en_revision": 0, "ya_procesado": 0, "error": 0}
+    contadores = {
+        "candidatos": 0, "descartados_por_zona": 0, "descartados_municipio_desconocido": 0, "descartados_por_sector": 0,
+        "vinculado": 0, "nueva_empresa": 0, "en_revision": 0, "ya_procesado": 0, "error": 0,
+    }
 
     async for registro in conector.descubrir({"provincia_titulo": provincia_titulo, "desde": desde, "hasta": hasta}, max_coste_eur=0.0):
         objeto_social = registro.campos.extra.get("objeto_social")
-        if not _coincide_sector(objeto_social, registro.campos.razon_social, palabras):
+        if palabras and not _coincide_sector(objeto_social, registro.campos.razon_social, palabras):
             contadores["descartados_por_sector"] += 1
             continue
-        if codigos_zona and registro.campos.municipio:
+        if codigos_zona:
+            # Búsqueda por municipio: el BORME solo da el domicilio en los actos
+            # de constitución. Un acto sin municipio NO se puede afirmar que
+            # esté en la zona pedida, así que no entra en esta búsqueda --
+            # confirmado en vivo 2026-09-23: "San Sebastián de los Reyes"
+            # devolvía 1.405 empresas de toda la provincia de Madrid.
+            if not registro.campos.municipio:
+                contadores["descartados_municipio_desconocido"] += 1
+                continue
             ine_acto = bd.buscar_municipio_ine(registro.campos.municipio, registro.campos.provincia or provincia_titulo, conn)
-            if fuera_de_zona(ine_acto, codigos_zona):
+            if ine_acto is None or fuera_de_zona(ine_acto, codigos_zona):
                 contadores["descartados_por_zona"] += 1
                 continue
         contadores["candidatos"] += 1
@@ -914,6 +968,7 @@ async def buscar_web(
     max_coste_eur: float,
     telefonos_compartidos: set[str] | None = None,
     busqueda_id: str | None = None,
+    provincias_zona: set[str] | None = None,
 ) -> dict[str, Any]:
     """Mismo patrón que `scripts/buscar_web.py --enriquecer --guardar`, en
     bucle sobre varias consultas y con presupuesto (doc 04 §5: los
@@ -924,6 +979,7 @@ async def buscar_web(
     `busqueda_resultados`."""
     contadores = {
         "consultas_ejecutadas": 0, "urls_encontradas": 0, "urls_no_legibles": 0, "urls_descartadas_no_web_propia": 0,
+        "fuera_de_zona": 0,
         "vinculado": 0, "nueva_empresa": 0, "en_revision": 0, "ya_procesado": 0, "error_busqueda": 0, "error_procesado": 0,
     }
     coste_acumulado = 0.0
@@ -946,6 +1002,9 @@ async def buscar_web(
             registro = await enriquecer_desde_web(cliente_http, r.url)
             if registro is None:
                 contadores["urls_no_legibles"] += 1
+                continue
+            if not en_zona(registro.campos.codigo_postal, provincias_zona or set()):
+                contadores["fuera_de_zona"] += 1
                 continue
             try:
                 resolucion = procesar_registro(
@@ -1056,6 +1115,7 @@ async def ejecutar_herramienta(nombre: str, argumentos: dict[str, Any], contexto
             consultas=list(consultas), max_resultados_por_consulta=argumentos.get("max_resultados_por_consulta", 5),
             max_coste_eur=min(float(max_coste_eur), contexto.presupuesto_restante_eur),
             telefonos_compartidos=contexto.telefonos_compartidos, busqueda_id=contexto.busqueda_id,
+            provincias_zona=provincias_de_zona(contexto.filtros, contexto.conn),
         )
 
     if nombre == "descubrir_osm":
@@ -1111,6 +1171,7 @@ async def ejecutar_herramienta(nombre: str, argumentos: dict[str, Any], contexto
             max_paginas_por_consulta=int(argumentos.get("max_paginas_por_consulta", 1)),
             max_coste_eur=min(float(argumentos["max_coste_eur"]), contexto.presupuesto_restante_eur),
             telefonos_compartidos=contexto.telefonos_compartidos, busqueda_id=contexto.busqueda_id,
+            provincias_zona=provincias_de_zona(contexto.filtros, contexto.conn),
         )
 
     if nombre == "descubrir_apify_maps":

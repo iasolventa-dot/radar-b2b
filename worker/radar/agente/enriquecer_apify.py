@@ -76,13 +76,16 @@ async def enriquecer_con_apify(
     if tope <= 0:
         return {"motivo_parada": "presupuesto_mensual_de_apify_agotado", "coste_eur": 0.0}
 
+    paginas = PAGINAS_POR_WEB * len(validas)
     entrada = {
         "startUrls": [{"url": u} for u in validas],
-        "maxCrawlPages": PAGINAS_POR_WEB * len(validas),
+        "maxCrawlPages": paginas,
         "maxCrawlDepth": 1,
         "crawlerType": "cheerio",
     }
-    res = await ejecutar_actor(cliente_http, token, ACTOR_RASTREADOR, entrada, max_coste_usd=tope, timeout_s=120)
+    res = await ejecutar_actor(
+        cliente_http, token, ACTOR_RASTREADOR, entrada, max_coste_usd=tope, max_items=paginas, timeout_s=120
+    )
 
     bd.registrar_uso_apify(ACTOR_RASTREADOR, res.run_id, res.estado, res.coste_usd, {"urls": validas}, conn)
     conn.commit()
@@ -92,6 +95,9 @@ async def enriquecer_con_apify(
     for dominio, g in grupos.items():
         try:
             registro = registro_desde_texto(g["texto"], g["urls"], g["portada"], dominio)
+            if registro is None:
+                contadores["error_procesado"] += 1
+                continue
             r = procesar_registro(registro, conn, busqueda_id=busqueda_id, telefonos_compartidos=telefonos_compartidos)
             if busqueda_id and r.empresa_id:
                 bd.registrar_resultado_busqueda(busqueda_id, r.empresa_id, f"apify+web: {r.accion}", r.puntuacion_match, conn)

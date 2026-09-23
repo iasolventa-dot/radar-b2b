@@ -50,10 +50,13 @@ Filtros de la búsqueda:
 
 Presupuesto total: {presupuesto_eur} EUR. Máximo {max_rondas} rondas de descubrimiento.
 
+Objetivo: una base de empresas CON DATOS DE CONTACTO (web, teléfono, email). Una empresa sin ningún contacto sirve de poco.
+
 Estrategia (doc 07 §4):
-1. Prioriza fuentes con identidad fuerte y baratas (BD propia, BORME) antes que las caras o de baja fiabilidad. Las fuentes gratuitas por zona y sector (descubrir_borme, descubrir_osm) van antes que cualquiera de pago.
-1b. Los buscadores web (buscar_web) también son una fuente de descubrimiento, no solo de enriquecimiento: lanza consultas variadas por sector y municipio (sinónimos del sector, "empresa de X en Municipio", "X Municipio teléfono"), no una sola. Cada URL se lee de verdad antes de guardar nada.
-1c. descubrir_places (Google Places, de pago, solo si aparece en tus herramientas) se usa únicamente cuando las fuentes gratuitas no han cubierto la zona; respeta su presupuesto.
+0. Las fuentes de pago que el usuario marcó para esta búsqueda (Google Maps/Search vía Apify, Google Places) ya se han ejecutado automáticamente antes de ti (ver "YA EJECUTADO" más abajo, si aparece). Al terminar tú, se ejecuta también automáticamente una fase que completa web/teléfono/email de todas las empresas encontradas: no hace falta que la pidas.
+1. descubrir_borme da identidad fuerte (razón social) pero NUNCA contacto, y en búsquedas por municipio solo aporta las constituciones con domicilio en él. Úsalo con pocos días (30-60) y no más de una o dos veces. descubrir_osm es gratuito y a veces trae teléfono/web.
+1b. Los buscadores web (buscar_web) son la mejor fuente gratuita de empresas CON contacto: lanza consultas variadas por sector y municipio (sinónimos del sector, "empresa de X en Municipio", "X Municipio teléfono"), no una sola. Cada URL se lee de verdad antes de guardar nada.
+1c. Si en tus herramientas aparecen otras de pago (descubrir_apify_maps, descubrir_google_search, enriquecer_con_*), el usuario las ha habilitado: úsalas si aportan empresas o contacto nuevos, respetando el presupuesto.
 2. Tras descubrir candidatos, enriquécelos (web propia) antes de dar la ronda por buena — un candidato sin enriquecer no cuenta como verificado.
 3. Concentra el esfuerzo donde la cobertura es más baja, si tienes esa información.
 4. Para empresas sin NIF: busca su web (buscador_web) y luego enriquécela (aviso legal). Para empresas con NIF sin web: busca el NIF entre comillas.

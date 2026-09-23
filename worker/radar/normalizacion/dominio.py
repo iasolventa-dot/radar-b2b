@@ -30,6 +30,15 @@ DOMINIOS_PLATAFORMA = {
     "paginasamarillas.es", "einforma.com", "infoempresa.com", "axesor.es", "empresia.es", "habitissimo.es",
     "cronoshare.com", "yelp.es", "tripadvisor.es", "milanuncios.com", "infocif.es", "iberinform.es",
     "librebor.me", "datoscif.es", "guiaempresa.universia.es", "cylex.es", "hotfrog.es", "wa.me", "whatsapp.com",
+    # Añadidos 2026-09-23 tras una búsqueda real (fontanería, San Sebastián de los Reyes): directorios,
+    # marketplaces y alojamientos compartidos que se estaban guardando como si fueran "la empresa".
+    "google.es", "maps.google.com", "houzz.es", "houzz.com", "prontopro.es", "trustlocal.es", "starofservice.es",
+    "eleconomista.es", "empresite.eleconomista.es", "informa.es", "localo.site", "top-rated.online", "doctoralia.es",
+    "fontaneros.es", "instaladoresdemadrid.com", "certicalia.com", "zaask.es", "tuugo.es", "infoisinfo.es",
+    "misterwhat.es", "vulka.es", "infobel.com", "10best.es", "homify.es", "manomano.es", "leroymerlin.es",
+    "amazon.es", "wallapop.com", "idealista.com", "fotocasa.es", "indeed.com", "infojobs.net", "glassdoor.es",
+    "wikipedia.org", "boe.es", "gob.es", "scribd.com", "issuu.com", "slideshare.net", "pinterest.com",
+    "pinterest.es", "tricantinos.com", "todoestaentrescantos.com",
 }
 _SEGUNDO_NIVEL = {
     "com.es", "org.es", "nom.es", "gob.es", "edu.es", "co.uk", "com.ar", "com.mx", "com.co", "com.pe",

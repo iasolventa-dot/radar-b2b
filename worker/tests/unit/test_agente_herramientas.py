@@ -351,3 +351,12 @@ def test_fuera_de_zona():
     assert fuera_de_zona("41004", ["41004"]) is False
     assert fuera_de_zona(None, ["41004"]) is False  # municipio desconocido: no se afirma que esté fuera
     assert fuera_de_zona("41091", []) is False  # sin zona pedida no se filtra
+
+
+def test_en_zona_por_codigo_postal():
+    from radar.agente.herramientas import en_zona
+
+    assert en_zona("28703", {"28"}) is True
+    assert en_zona("46001", {"28"}) is False
+    assert en_zona(None, {"28"}) is True  # sin CP no se puede afirmar que esté fuera
+    assert en_zona("46001", set()) is True  # sin zona no se filtra

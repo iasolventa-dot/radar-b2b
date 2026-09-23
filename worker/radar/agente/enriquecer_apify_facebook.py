@@ -21,6 +21,7 @@ from radar.secretos import gasto_mes_apify_usd, obtener_token_apify, presupuesto
 
 ACTOR_FACEBOOK = "apify/facebook-pages-scraper"
 MAX_PAGINAS_POR_LLAMADA = 10
+COSTE_POR_PAGINA_USD = 0.012  # tarifa real del plan FREE (pricingInfo del Actor, 2026-09-23)
 _DOMINIOS_FACEBOOK = {"facebook.com", "m.facebook.com", "fb.com"}
 
 
@@ -48,11 +49,14 @@ async def enriquecer_con_facebook(
 
     restante_mes = presupuesto_mensual_apify_usd(conn) - gasto_mes_apify_usd(conn)
     tope = min(max_coste_eur, restante_mes)
-    if tope <= 0:
-        return {"motivo_parada": "presupuesto_mensual_de_apify_agotado", "coste_eur": 0.0}
+    validas = validas[: int(tope / COSTE_POR_PAGINA_USD)]
+    if not validas:
+        return {"motivo_parada": "presupuesto_insuficiente_para_apify", "coste_eur": 0.0}
 
     entrada = {"startUrls": [{"url": u} for u in validas]}
-    res = await ejecutar_actor(cliente_http, token, ACTOR_FACEBOOK, entrada, max_coste_usd=tope, timeout_s=120)
+    res = await ejecutar_actor(
+        cliente_http, token, ACTOR_FACEBOOK, entrada, max_coste_usd=tope, max_items=len(validas), timeout_s=120
+    )
 
     bd.registrar_uso_apify(ACTOR_FACEBOOK, res.run_id, res.estado, res.coste_usd, {"urls": validas}, conn)
     conn.commit()

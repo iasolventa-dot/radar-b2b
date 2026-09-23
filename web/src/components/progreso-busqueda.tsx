@@ -42,6 +42,11 @@ interface EmpresaResultado {
   contacto: string | null;
 }
 
+const HERRAMIENTAS_DESCUBRIMIENTO = new Set([
+  "descubrir_borme", "buscar_web", "descubrir_osm", "descubrir_places", "descubrir_apify_maps",
+  "descubrir_google_search", "enriquecer_con_apify", "enriquecer_con_linkedin", "enriquecer_con_facebook",
+]);
+
 function resumenRonda(ronda: RondaEstadistica): string {
   const r = ronda.resultado as Record<string, unknown>;
   if (ronda.herramienta === "consultar_bd") return `${r.total ?? 0} empresas en la BD que cumplen los filtros`;
@@ -50,8 +55,27 @@ function resumenRonda(ronda: RondaEstadistica): string {
     const pct = r.pct_cobertura != null ? `${r.pct_cobertura}%` : "sin estimación";
     return `${r.empresas_propias ?? 0} de ~${r.estimado_dirce ?? "?"} según el INE (${pct} de cobertura, ${r.anyo_dirce ?? "?"})`;
   }
-  if (ronda.herramienta === "descubrir_borme" || ronda.herramienta === "buscar_web") {
+  if (ronda.herramienta === "completar_contacto") {
+    const antes = (r.antes ?? {}) as Record<string, number>;
+    const despues = (r.despues ?? {}) as Record<string, number>;
+    const d = (k: string) => `${antes[k] ?? 0}→${despues[k] ?? 0}`;
+    const coste = typeof r.coste_eur === "number" ? ` · ${r.coste_eur.toFixed(3)} €` : "";
+    return `${despues.empresas ?? 0} empresas · web ${d("con_web")} · teléfono ${d("con_telefono")} · email ${d("con_email")} (${r.webs_leidas ?? 0} webs leídas)${coste}`;
+  }
+  if (HERRAMIENTAS_DESCUBRIMIENTO.has(ronda.herramienta)) {
     const partes: string[] = [];
+    if (typeof r.error === "string" && r.error) partes.push(`error: ${r.error}`);
+    if (typeof r.motivo === "string" && r.soportado === false) partes.push(r.motivo);
+    if (typeof r.motivo_parada === "string") partes.push(`parada: ${r.motivo_parada.replaceAll("_", " ")}`);
+    if (typeof r.lugares_encontrados === "number") partes.push(`${r.lugares_encontrados} negocios en Maps`);
+    if (typeof r.con_telefono === "number" && r.con_telefono) partes.push(`${r.con_telefono} con teléfono`);
+    if (typeof r.con_web === "number" && r.con_web) partes.push(`${r.con_web} con web`);
+    if (typeof r.webs_leidas === "number" && r.webs_leidas) partes.push(`${r.webs_leidas} webs leídas`);
+    if (typeof r.urls_encontradas === "number" && r.urls_encontradas) partes.push(`${r.urls_encontradas} resultados`);
+    if (typeof r.descartados_municipio_desconocido === "number" && r.descartados_municipio_desconocido)
+      partes.push(`${r.descartados_municipio_desconocido} sin municipio conocido`);
+    if (typeof r.descartados_por_zona === "number" && r.descartados_por_zona)
+      partes.push(`${r.descartados_por_zona} fuera de la zona`);
     if (typeof r.nueva_empresa === "number" && r.nueva_empresa) partes.push(`${r.nueva_empresa} nuevas`);
     if (typeof r.vinculado === "number" && r.vinculado) partes.push(`${r.vinculado} vinculadas`);
     if (typeof r.en_revision === "number" && r.en_revision) partes.push(`${r.en_revision} en revisión`);

@@ -49,10 +49,23 @@ def test_nombres_genericos_no_fusionan():
     assert comparar(a, b)["decision"] == "distinta"
 
 
-def test_mismo_dominio_minimo_revision():
+def test_mismo_dominio_marca_y_sociedad_es_la_misma():
+    # Antes "revision"; desde 2026-09-23 (R8) marca + razón social bajo la misma web propia = misma empresa.
     a = reg(razon_social="Construcciones Pérez SL", web="https://www.perezobras.es")
     b = reg(nombre_comercial="Pérez Obras", web="perezobras.es")
-    assert comparar(a, b)["decision"] == "revision"
+    assert comparar(a, b)["decision"] == "misma"
+
+
+def test_mismo_dominio_dos_marcas_sin_razon_social_es_la_misma():
+    a = reg(nombre_comercial="Pérez Obras", web="https://www.perezobras.es")
+    b = reg(nombre_comercial="Obras y Reformas Pérez", web="perezobras.es")
+    assert comparar(a, b)["decision"] == "misma"
+
+
+def test_web_sin_nombre_y_negocio_con_la_misma_web_son_la_misma():
+    a = reg(nombre_comercial="Persianas AyOl", web="persianasayol.com", telefono="625793044")
+    b = reg(web="https://persianasayol.com/")
+    assert comparar(a, b)["regla"] == "R8_marca_y_sociedad_misma_web"
 
 
 def test_forma_juridica_distinta_no_fusiona_automaticamente():
@@ -121,12 +134,12 @@ def test_nombre_parcial_a_kilometros_no_se_relaciona():
     assert comparar(a, b)["decision"] == "distinta"
 
 
-def test_mismo_dominio_con_nombres_distintos_llega_a_revision():
-    """Caso B del cruce entre fuentes: mismo dominio propio, nombre comercial vs razón social."""
+def test_mismo_dominio_con_nombres_distintos_marca_y_sociedad_es_la_misma():
+    """Caso B del cruce entre fuentes: mismo dominio propio, nombre comercial vs razón social (R8, 2026-09-23)."""
     a = reg(nombre_comercial="Meta360", web="https://meta360.es/")
     b = reg(razon_social="TECNOLOGIAS Y SERVICIOS DIGITALES SL", web="meta360.es")
     r = comparar(a, b)
-    assert r["decision"] == "revision"
+    assert r["decision"] == "misma"
 
 
 def test_mismo_nombre_y_mismo_punto_es_la_misma_empresa():
@@ -187,3 +200,25 @@ def test_numeros_distintos_pero_mismo_dominio_no_se_descarta():
     a = reg(razon_social="ARENA GREEN POWER REN 410 SL", web="arena.es")
     b = reg(razon_social="ARENA GREEN POWER REN 414 SL", web="arena.es")
     assert comparar(a, b)["regla"] != "R7_numeros_distintos"
+
+
+# ---------- marca + sociedad bajo la misma web (2026-09-23) ----------
+
+
+def test_marca_de_maps_y_sociedad_del_aviso_legal_con_la_misma_web_son_la_misma():
+    marca = reg(nombre_comercial="Ardigral", web="https://piscinas-jardines-algete.com", telefonos=["916239303"])
+    sociedad = reg(razon_social="ARTE Y DISEÑO INTEGRALES, S.L", nif="B84628635", web="piscinas-jardines-algete.com")
+    r = comparar(marca, sociedad)
+    assert r["decision"] == "misma" and r["regla"] == "R8_marca_y_sociedad_misma_web"
+
+
+def test_dos_sociedades_con_la_misma_web_no_se_fusionan_por_r8():
+    a = reg(razon_social="CONSTRUCCIONES ALFA SL", web="grupoalfa.es")
+    b = reg(razon_social="PROMOCIONES BETA SL", web="grupoalfa.es")
+    assert comparar(a, b)["regla"] != "R8_marca_y_sociedad_misma_web"
+
+
+def test_r8_no_aplica_con_webs_distintas():
+    a = reg(nombre_comercial="Ardigral", web="ardigral.es")
+    b = reg(razon_social="ARTE Y DISEÑO INTEGRALES, S.L", web="otra.es")
+    assert comparar(a, b)["regla"] != "R8_marca_y_sociedad_misma_web"
