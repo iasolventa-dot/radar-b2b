@@ -222,3 +222,9 @@ def test_r8_no_aplica_con_webs_distintas():
     a = reg(nombre_comercial="Ardigral", web="ardigral.es")
     b = reg(razon_social="ARTE Y DISEÑO INTEGRALES, S.L", web="otra.es")
     assert comparar(a, b)["regla"] != "R8_marca_y_sociedad_misma_web"
+
+
+def test_mismo_telefono_y_palabra_distintiva_como_minimo_une_con_duda():
+    a = reg(nombre_comercial="Zultrax Obras", telefono="911000772")
+    b = reg(razon_social="ZULTRAX INSTALACIONES SL", telefono="911000772")
+    assert comparar(a, b)["decision"] in ("revision", "misma")

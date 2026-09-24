@@ -48,10 +48,12 @@ Reglas:
 - Copia los datos tal como aparecen; NO los completes ni corrijas. Si un dato no aparece, null.
 - Si aparecen datos de varias empresas (agencia que hizo la web, empresa del grupo, clientes), identifica cuál es la titular y explica por qué.
 - Un NIF solo es de la titular si el texto lo asocia claramente a ella.
+- "personas": gerentes, directores, fundadores, responsables o personas de contacto DE LA TITULAR que aparezcan con su nombre en el texto, con su puesto tal como lo dice el texto (si solo figura como contacto, cargo "Contacto"). No incluyas clientes, testimonios, autores de reseñas, el responsable del tratamiento de datos si es una empresa, ni personal de la agencia web. No inventes nombres ni cargos.
 
 Responde SOLO con JSON:
 {{"titular": {{"razon_social": null, "nombre_comercial": null, "nif": null, "domicilio": null, "codigo_postal": null, "municipio": null,
              "registro_mercantil": null, "telefonos": [], "emails": []}},
+ "personas": [{{"nombre": "", "cargo": ""}}],
  "otras_empresas_mencionadas": [{{"nombre": "", "nif": null, "relacion": "agencia_web|grupo|cliente|otra"}}],
  "confianza": 0.0, "notas": ""}}"""
 
@@ -70,6 +72,13 @@ class TitularExtraidoLLM(BaseModel):
     emails: list[str] = []
 
 
+class PersonaLLM(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    nombre: str
+    cargo: str | None = None
+
+
 class OtraEmpresaMencionadaLLM(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -82,6 +91,7 @@ class RespuestaExtraccionLLM(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     titular: TitularExtraidoLLM
+    personas: list[PersonaLLM] = []
     otras_empresas_mencionadas: list[OtraEmpresaMencionadaLLM] = []
     confianza: float = 0.0
     notas: str = ""

@@ -22,6 +22,11 @@ def lugar_a_registro(item: dict[str, Any]) -> RegistroBruto | None:
     nombre = (item.get("title") or "").strip()
     if not nombre or item.get("permanentlyClosed"):
         return None
+    # Sin teléfono ni web no aporta nada a una base de contactos y a menudo ni
+    # es una empresa (visto en vivo 2026-09-24: "Fuente de agua potable",
+    # categoría "Zona de senderismo", al buscar "instalaciones de agua").
+    if not (item.get("phone") or item.get("website")):
+        return None
 
     ubicacion = item.get("location") or {}
     lat, lon = ubicacion.get("lat"), ubicacion.get("lng")

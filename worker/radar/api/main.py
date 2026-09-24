@@ -79,6 +79,8 @@ from radar.api.esquemas import (
     ProbarPlacesOut,
     ProfundizarIn,
     ProfundizarOut,
+    ResolverConflictoIn,
+    ResolverConflictoOut,
 )
 from radar.api.estado import EstadoBusqueda, estado_final_de
 from radar.config import get_settings
@@ -451,3 +453,21 @@ async def probar_apify() -> ProbarPlacesOut:
     async with httpx.AsyncClient() as cliente_http:
         ok, mensaje = await probar_token_apify(cliente_http, token)
     return ProbarPlacesOut(ok=ok, mensaje=mensaje)
+
+
+# --- Contradicciones entre fuentes (Datos sin contrastar / Cola de revisión) --
+
+
+@app.post("/conflictos/{conflicto_id}/resolver", response_model=ResolverConflictoOut)
+async def resolver_conflicto_endpoint(conflicto_id: int, entrada: ResolverConflictoIn) -> ResolverConflictoOut:
+    from radar.orquestador.conflictos_acciones import ConflictoNoValido, resolver_conflicto
+
+    with psycopg.connect(_requerir_db_url()) as conn:
+        try:
+            r = await asyncio.to_thread(
+                resolver_conflicto, conn, conflicto_id, entrada.accion,
+                valor=entrada.valor, usuario=f"usuario:{entrada.usuario}" if entrada.usuario else "usuario:desconocido",
+            )
+        except ConflictoNoValido as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return ResolverConflictoOut(id=r["id"], estado=r["estado"], empresa_separada_id=r["empresa_separada_id"])

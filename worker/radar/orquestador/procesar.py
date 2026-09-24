@@ -12,9 +12,10 @@ falla a mitad).
 Simplificaciones conocidas de esta primera versión (documentadas también
 en `bd.py` y `senales_borme.py` donde aplica), a revisar en tareas
 posteriores:
-- El arbitraje LLM de la zona de revisión (doc 05 §2.5) no está conectado
-  todavía (tarea #21, el agente); mientras tanto, "revisión" crea una
-  empresa nueva y dejar un `candidatos_duplicado` pendiente.
+- Zona de revisión (doc 05 §2.5): desde 2026-09-24 el registro se UNE a la
+  empresa más probable y la duda queda en `conflictos_datos` (campo
+  '_identidad', pantalla «Datos sin contrastar», con opción de separarlo).
+  Antes creaba una empresa nueva + `candidatos_duplicado`.
 - Las señales de estado (doc 05 §4) solo se calculan a partir del propio
   `RegistroBruto` que se está procesando (hoy, solo BORME aporta señales);
   no se re-derivan a partir de todo el historial de observaciones en cada
@@ -39,6 +40,7 @@ from radar.normalizacion.dominio import normalizar_email
 from radar.normalizacion.registro import normalizar_registro
 from radar.orquestador import bd
 from radar.orquestador.logica import (
+    DecisionResolucion,
     campos_a_dict_normalizacion,
     combinar_dimension_contacto,
     combinar_dimension_identidad,
@@ -49,6 +51,7 @@ from radar.orquestador.senales_borme import mapear_senales_borme
 from radar.resolucion.blocking import buscar_candidatos
 from radar.resolucion.blocking import telefonos_compartidos as cargar_telefonos_compartidos
 from radar.verificacion.confianza import consolidar_campo
+from radar.verificacion.conflictos import clasificar_conflicto
 from radar.verificacion.estado import SenalesEstado, determinar_estado
 from radar.verificacion.global_ import calcular_confianza_global
 
@@ -79,7 +82,8 @@ def _calcular_senales_estado(registro: RegistroBruto, fuente: bd.FuenteInfo) -> 
 
 
 def _consolidar_y_actualizar_empresa(
-    empresa_id: str, campos_norm: dict, senales: SenalesEstado, fuente_id: int, conn: psycopg.Connection
+    empresa_id: str, campos_norm: dict, senales: SenalesEstado, fuente_id: int, conn: psycopg.Connection,
+    busqueda_id: str | None = None,
 ) -> None:
     obs_nif = bd.cargar_observaciones_vigentes(empresa_id, "nif", conn)
     obs_rs = bd.cargar_observaciones_vigentes(empresa_id, "razon_social", conn)
@@ -95,6 +99,19 @@ def _consolidar_y_actualizar_empresa(
     res_tel = consolidar_campo("telefono", obs_tel, ahora) if obs_tel else None
     res_email = consolidar_campo("email", obs_email, ahora) if obs_email else None
     res_web = consolidar_campo("web", obs_web, ahora) if obs_web else None
+
+    # Contradicciones entre fuentes (2026-09-24): el valor que se guarda en
+    # `empresas` es siempre el más probable (`ganador`); si otra fuente da un
+    # valor distinto con peso real, se deja constancia en `conflictos_datos`
+    # («Cola de revisión» si hay evidencia fuerte, «Datos sin contrastar» si no).
+    for res, obs in ((res_nif, obs_nif), (res_rs, obs_rs), (res_web, obs_web)):
+        if res is None:
+            continue
+        conflicto = clasificar_conflicto(res, obs)
+        if conflicto:
+            bd.registrar_conflicto(empresa_id, conflicto, busqueda_id, conn)
+        else:
+            bd.cerrar_conflicto_si_ya_no_existe(empresa_id, res.campo, conn)
 
     actual = bd.cargar_empresa_actual(empresa_id, conn)
 
@@ -192,6 +209,7 @@ def procesar_registro(
     *,
     busqueda_id: str | None = None,
     telefonos_compartidos: set[str] | None = None,
+    forzar_nueva: bool = False,
 ) -> ResultadoResolucion:
     """Procesa UN `RegistroBruto` de principio a fin (pasos 6-8 de doc 02
     §2). Idempotente por `(fuente, hash_contenido)`: reprocesar el mismo
@@ -214,8 +232,23 @@ def procesar_registro(
     )
     candidatos = reunir_candidatos(registro.campos, campos_norm, compartidos, conn)
     decision = decidir_resolucion(campos_norm, candidatos, compartidos)
+    if forzar_nueva:
+        # «Separar» desde «Datos sin contrastar»: una persona ha decidido que
+        # este registro NO es de la empresa a la que se unió.
+        decision = DecisionResolucion("crear", None, None, None, None)
 
-    if decision.accion == "vincular":
+    if decision.accion == "crear_y_revisar" and decision.mejor_candidato_id:
+        # Franja de duda (2026-09-24, decisión del usuario): en vez de crear
+        # una fila nueva + «posible duplicado», el registro se UNE a la empresa
+        # más probable (rellena sus campos; la consolidación se queda con el
+        # valor más probable de cada uno) y la duda queda en «Datos sin
+        # contrastar» con opción de separarlo si no era la misma.
+        empresa_id = decision.mejor_candidato_id
+        bd.registrar_conflicto_identidad(
+            empresa_id, rb.id, bd.nombre_fuente(fuente.id, conn), registro.campos.razon_social or registro.campos.nombre_comercial,
+            decision.puntuacion, list((decision.resultado_comparacion or {}).get("senales") or []), busqueda_id, conn,
+        )
+    elif decision.accion == "vincular":
         assert decision.empresa_id is not None
         empresa_id = decision.empresa_id
         if fuente.codigo == "borme":
@@ -239,8 +272,6 @@ def procesar_registro(
         return ResultadoResolucion("ya_procesado", None, rb.id, decision.puntuacion, len(candidatos))
     else:
         empresa_id = bd.crear_empresa(campos_norm, registro.campos, conn)
-        if decision.accion == "crear_y_revisar" and decision.mejor_candidato_id and decision.resultado_comparacion:
-            bd.insertar_candidato_duplicado(empresa_id, decision.mejor_candidato_id, decision.resultado_comparacion, conn)
 
     bd.insertar_observaciones(
         empresa_id, rb.id, fuente, campos_norm, registro.campos, registro.url, registro.capturado_en, conn
@@ -285,7 +316,7 @@ def procesar_registro(
         )
 
     senales = _calcular_senales_estado(registro, fuente)
-    _consolidar_y_actualizar_empresa(empresa_id, campos_norm, senales, fuente.id, conn)
+    _consolidar_y_actualizar_empresa(empresa_id, campos_norm, senales, fuente.id, conn, busqueda_id)
     bd.upsert_identificadores(empresa_id, campos_norm, registro.campos, fuente, conn)
     bd.upsert_administradores(empresa_id, registro.campos, fuente, rb.id, registro.url, conn)
 
@@ -295,3 +326,11 @@ def procesar_registro(
     bd.actualizar_registro_bruto(rb.id, _ACCION_A_ESTADO_REGISTRO[accion_final], empresa_id, decision.puntuacion, conn)
 
     return ResultadoResolucion(accion_final, empresa_id, rb.id, decision.puntuacion, len(candidatos))
+
+
+def reconsolidar_empresa(empresa_id: str, conn: psycopg.Connection) -> None:
+    """Vuelve a calcular los valores de la empresa a partir de sus
+    observaciones vigentes (tras una decisión manual o tras separar un
+    registro), sin señales de estado nuevas."""
+    fuente_manual = bd.obtener_fuente("manual", conn)
+    _consolidar_y_actualizar_empresa(empresa_id, {}, SenalesEstado(), fuente_manual.id, conn)

@@ -1,4 +1,5 @@
 import { AlertTriangle, Ban, GitMerge } from "lucide-react";
+import { ListaConflictos } from "@/components/lista-conflictos";
 import { crearClienteServidor } from "@/lib/supabase/server";
 import { confirmarFusion, descartarDuplicado } from "./acciones";
 
@@ -54,17 +55,24 @@ export default async function PaginaDuplicados() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Posibles duplicados</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Datos sin contrastar</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Empresas que el resolutor de entidades no pudo distinguir con seguridad de otra ya existente
-          — {count ?? 0} pendientes de revisar.
+          Datos que el sistema no ha podido contrastar automáticamente: fuentes que dan valores distintos para
+          el mismo campo sin evidencia suficiente para saber cuál es el correcto, o datos unidos a una empresa por
+          una coincidencia parcial. En la ficha ya se muestra el valor más probable; aquí decides.
         </p>
       </div>
 
-      {(candidatos ?? []).length === 0 && (
-        <div className="card flex flex-col items-center gap-2 p-14 text-center text-slate-400">
-          <GitMerge className="h-8 w-8" strokeWidth={1.5} />
-          <p className="text-sm">No hay ningún candidato pendiente de revisar.</p>
+      <ListaConflictos tipo="sin_contrastar" vacio="No hay datos pendientes de contrastar." />
+
+      {(candidatos ?? []).length > 0 && (
+        <div className="pt-4">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+            <GitMerge className="h-4 w-4 text-slate-400" /> Posibles duplicados anteriores ({count ?? 0})
+          </h2>
+          <p className="mt-1 text-xs text-slate-500">
+            Parejas de empresas creadas antes del 24/09/2026, cuando una duda de identidad creaba una fila nueva.
+          </p>
         </div>
       )}
 

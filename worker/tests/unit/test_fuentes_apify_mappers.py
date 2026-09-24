@@ -73,3 +73,7 @@ def test_facebook_pagina_completa():
 
 def test_facebook_sin_nombre_no_se_guarda():
     assert pagina_a_registro({"address": "algo"}) is None
+
+
+def test_maps_sin_telefono_ni_web_no_se_guarda():
+    assert lugar_a_registro({"title": "Fuente de agua potable", "categoryName": "Zona de senderismo", "placeId": "x"}) is None

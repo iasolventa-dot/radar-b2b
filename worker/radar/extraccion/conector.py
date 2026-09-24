@@ -14,6 +14,7 @@ NIF: buscar la web → aviso legal").
 from __future__ import annotations
 
 import dataclasses
+import re
 
 import httpx
 
@@ -23,7 +24,7 @@ from radar.extraccion.llm import RespuestaExtraccionLLM, extraer_con_llm
 from radar.fuentes.base import CamposExtraidos, RegistroBruto
 from radar.normalizacion.dominio import extraer_dominio
 
-MAX_PAGINAS_LEGALES = 3
+MAX_PAGINAS_LEGALES = 4
 
 
 async def _texto_relevante(cliente: httpx.AsyncClient, url_portada: str) -> tuple[str, list[str]]:
@@ -61,6 +62,7 @@ def campos_desde_reglas(r: reglas.DatosLegalesExtraidos, dominio: str | None) ->
             "hoja_registral": r.registro_mercantil.hoja if r.registro_mercantil else None,
             "registro_mercantil": dataclasses.asdict(r.registro_mercantil) if r.registro_mercantil else None,
             "avisos": r.avisos,
+            "personas_contacto": list(r.personas),
             "fuente_dato": "reglas",
         },
     )
@@ -77,6 +79,13 @@ def campos_desde_llm(base: CamposExtraidos, llm_resp: RespuestaExtraccionLLM) ->
     aparece, null" — nunca inventa), se conserva lo que ya tenía `base`.
     """
     t = llm_resp.titular
+    personas = list(base.extra.get("personas_contacto") or [])
+    vistos = {p["nombre"].lower() for p in personas}
+    for p in llm_resp.personas:
+        nombre = (p.nombre or "").strip()
+        if len(nombre.split()) >= 2 and nombre.lower() not in vistos and len(personas) < MAX_PERSONAS_POR_WEB:
+            vistos.add(nombre.lower())
+            personas.append({"nombre": nombre, "cargo": (p.cargo or "Contacto").strip()[:MAX_LONGITUD_CARGO]})
     return CamposExtraidos(
         razon_social=reglas.limpiar_razon_social(t.razon_social) or base.razon_social,
         nombre_comercial=t.nombre_comercial or base.nombre_comercial,
@@ -89,6 +98,7 @@ def campos_desde_llm(base: CamposExtraidos, llm_resp: RespuestaExtraccionLLM) ->
         web=base.web,
         extra={
             **base.extra,
+            "personas_contacto": personas,
             "fuente_dato": "llm",
             "confianza_llm": llm_resp.confianza,
             "notas_llm": llm_resp.notas,
@@ -120,6 +130,22 @@ MAX_TELEFONOS_WEB_EMPRESA = 8
 MAX_EMAILS_WEB_EMPRESA = 8
 
 
+# Organismos públicos (ayuntamientos, juntas...) no son empresas objetivo:
+# visto en vivo 2026-09-24, la web de un ayuntamiento entró como "empresa" con
+# 15 concejales como personas de contacto.
+_RX_ORGANISMO_PUBLICO = re.compile(
+    r"^\s*(?:excmo\.?\s+|ilmo\.?\s+)?(?:ayuntamiento|junta\s+de|diputaci[oó]n|consejer[ií]a|gobierno\s+de|"
+    r"comunidad\s+de\s+madrid|generalitat|xunta|cabildo|mancomunidad|universidad|ministerio|delegaci[oó]n\s+del\s+gobierno)\b",
+    re.IGNORECASE,
+)
+MAX_PERSONAS_POR_WEB = 5
+MAX_LONGITUD_CARGO = 60
+
+
+def es_organismo_publico(nombre: str | None) -> bool:
+    return bool(nombre and _RX_ORGANISMO_PUBLICO.search(nombre))
+
+
 def parece_directorio(r: reglas.DatosLegalesExtraidos) -> bool:
     return len(set(r.telefonos)) > MAX_TELEFONOS_WEB_EMPRESA or len({e.email for e in r.emails}) > MAX_EMAILS_WEB_EMPRESA
 
@@ -141,6 +167,9 @@ def registro_desde_texto(texto: str, urls: list[str], url_portada: str, dominio:
         if resultado.respuesta:
             campos = campos_desde_llm(campos, resultado.respuesta)
             resultado_llm_dict = resultado.respuesta.model_dump()
+
+    if es_organismo_publico(campos.razon_social) or es_organismo_publico(campos.nombre_comercial):
+        return None
 
     return RegistroBruto(
         fuente="web_empresa",

@@ -108,6 +108,11 @@ class DatosLegalesExtraidos:
     emails: list[EmailEncontrado] = field(default_factory=list)
     codigos_postales: list[str] = field(default_factory=list)
     avisos: list[str] = field(default_factory=list)
+    # Personas nombradas con su puesto ("Gerente: Juan Pérez"), 2026-09-24.
+    personas: list[dict[str, str]] = field(default_factory=list)
+    # La web menciona cargos (gerente, director, fundador...) aunque las
+    # reglas no hayan podido emparejarlos con un nombre -> pedir al LLM.
+    menciona_cargos: bool = False
 
     @property
     def nif_titular(self) -> str | None:
@@ -128,6 +133,7 @@ class DatosLegalesExtraidos:
             or not self.razones_sociales
             or not self.codigos_postales
             or len(self.nifs) > 1
+            or (self.menciona_cargos and not self.personas)
         )
 
 
@@ -149,6 +155,7 @@ def limpiar_razon_social(c: str | None) -> str | None:
     if not c:
         return None
     c = re.sub(r"^(?:la\s+empresa|la\s+sociedad|el\s+titular|esta\s+web\s+es\s+propiedad\s+de|propiedad\s+de)\s+", "", c, flags=re.IGNORECASE)
+    c = re.sub(r"^(?:titular|raz[oó]n\s+social|denominaci[oó]n(?:\s+social)?|empresa)\s*:\s*", "", c.strip(), flags=re.IGNORECASE)
     c = _RX_NIF_DELANTE.sub("", c.strip())
     c = re.sub(r"\s+", " ", c).strip(" ,:;-").lstrip(".")
     if not (3 <= len(c) <= 100) or len(c.split()) > 12 or _RX_NO_ES_NOMBRE.search(c):
@@ -239,4 +246,62 @@ def extraer(texto: str, dominio: str | None = None) -> DatosLegalesExtraidos:
     res.codigos_postales = sorted(set(RX_CP.findall(texto)))[:5]
     if dominio and emails and not any(e.del_dominio for e in emails):
         res.avisos.append(f"ningún email pertenece al dominio {dominio}")
+    # --- Personas de contacto con su puesto (2026-09-24) ---
+    res.personas = extraer_personas(texto)
+    res.menciona_cargos = bool(RX_MENCION_CARGO.search(texto))
     return res
+
+
+# --- Personas de contacto -------------------------------------------------
+# Solo patrones inequívocos "Cargo: Nombre Apellido" / "Nombre Apellido - Cargo"
+# / "Nombre Apellido (Cargo)". Lo que no encaje aquí lo intenta el LLM
+# (`necesita_llm` si `menciona_cargos` y no hay personas).
+_CARGO = (
+    r"(?i:gerente|director(?:a)?(?:\s+(?:general|gerente|comercial|t[eé]cnic[oa]|de\s+obra|de\s+proyectos|financier[oa]))?"
+    r"|ceo|co-?fundador(?:a)?|fundador(?:a)?|propietari[oa]|administrador(?:a)?(?:\s+[uú]nic[oa])?|soci[oa](?:\s+fundador(?:a)?)?"
+    r"|responsable\s+(?:comercial|t[eé]cnic[oa]|de\s+(?:obra|proyectos|ventas|administraci[oó]n))|jef[ea]\s+de\s+obra"
+    r"|encargad[oa]|president[ea]|t[eé]cnico\s+comercial|persona\s+de\s+contacto)"
+)
+_NOMBRE = r"([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+(?:de\s+(?:la\s+|los\s+)?|del\s+)?[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+){1,3})"
+_RX_PERSONAS = [
+    re.compile(rf"\b({_CARGO})\s*[:\-–—]\s*{_NOMBRE}"),
+    re.compile(rf"{_NOMBRE}\s*[,\-–—|]\s*({_CARGO})\b"),
+    re.compile(rf"{_NOMBRE}\s*\(\s*({_CARGO})\s*\)"),
+]
+RX_MENCION_CARGO = re.compile(
+    r"\b(?:gerente|director(?:a)?\s+(?:general|comercial|t[eé]cnic[oa])|fundador(?:a)?|ceo|propietari[oa]|jef[ea]\s+de\s+obra"
+    r"|encargad[oa]|persona\s+de\s+contacto|nuestro\s+equipo)\b",
+    re.IGNORECASE,
+)
+_NO_ES_NOMBRE_PERSONA = {
+    "aviso", "legal", "politica", "política", "privacidad", "cookies", "nuestro", "nuestra", "equipo", "empresa",
+    "servicios", "contacto", "inicio", "reformas", "construcciones", "sociedad", "limitada", "calle", "avenida",
+    "madrid", "sevilla", "españa", "espana", "telefono", "teléfono", "email", "correo", "web", "general", "comercial",
+}
+
+
+def _normalizar_cargo(cargo: str) -> str:
+    c = re.sub(r"\s+", " ", cargo.strip()).lower()
+    return c[:1].upper() + c[1:]
+
+
+def extraer_personas(texto: str, maximo: int = 5) -> list[dict[str, str]]:
+    """[{"nombre": "Juan Pérez García", "cargo": "Gerente"}], sin duplicados."""
+    encontradas: list[dict[str, str]] = []
+    vistos: set[str] = set()
+    for i, rx in enumerate(_RX_PERSONAS):
+        for m in rx.finditer(texto):
+            cargo, nombre = (m.group(1), m.group(2)) if i == 0 else (m.group(2), m.group(1))
+            palabras = nombre.split()
+            if len([p for p in palabras if p.lower() not in {"de", "la", "los", "del"}]) < 2:
+                continue
+            if any(p.lower() in _NO_ES_NOMBRE_PERSONA for p in palabras):
+                continue
+            clave = nombre.lower()
+            if clave in vistos:
+                continue
+            vistos.add(clave)
+            encontradas.append({"nombre": nombre, "cargo": _normalizar_cargo(cargo)})
+            if len(encontradas) >= maximo:
+                return encontradas
+    return encontradas

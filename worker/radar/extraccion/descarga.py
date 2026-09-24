@@ -32,7 +32,8 @@ CABECERAS = {"User-Agent": "RadarB2B/1.0 (+uso interno Solventa IA; contacto: ia
 # Enlaces de portada hacia las páginas donde suele estar el aviso legal
 # (doc 04 §3, paso 1).
 PATRON_ENLACES_LEGALES = re.compile(
-    r"aviso.?legal|legal|privacidad|condiciones|t[eé]rminos|contacto|qui[eé]nes.?somos|sobre.?nosotros|^nosotros$",
+    r"aviso.?legal|legal|privacidad|condiciones|t[eé]rminos|contacto|qui[eé]nes.?somos|sobre.?nosotros|^nosotros$"
+    r"|equipo|la.?empresa|^empresa$|about|team",
     re.IGNORECASE,
 )
 

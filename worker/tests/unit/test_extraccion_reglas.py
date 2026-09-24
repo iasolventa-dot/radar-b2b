@@ -92,3 +92,45 @@ def test_limpiar_razon_social_descarta_texto_legal_y_quita_nif_delante():
     assert limpiar_razon_social("propietario de todos los derechos de propiedad intelectual e industrial de su página web") is None
     assert limpiar_razon_social("A80192727. INFORMA D&B S.A.U") == "INFORMA D&B S.A.U"
     assert limpiar_razon_social("Construcciones Pérez, S.L.") == "Construcciones Pérez, S.L."
+
+
+def test_extrae_personas_con_su_puesto():
+    from radar.extraccion.reglas import extraer, extraer_personas
+
+    texto = (
+        "Quiénes somos. Gerente: Juan Pérez García. Nuestro equipo: María López Ruiz – Directora comercial. "
+        "Antonio de la Fuente (Jefe de obra). Responsable del tratamiento: Construcciones Pérez SL."
+    )
+    personas = extraer_personas(texto)
+    assert {"nombre": "Juan Pérez García", "cargo": "Gerente"} in personas
+    assert {"nombre": "María López Ruiz", "cargo": "Directora comercial"} in personas
+    assert {"nombre": "Antonio de la Fuente", "cargo": "Jefe de obra"} in personas
+    assert all("Construcciones" not in p["nombre"] for p in personas)
+    assert extraer(texto).personas == personas
+
+
+def test_menciona_cargos_sin_nombre_pide_llm():
+    from radar.extraccion.reglas import extraer
+
+    r = extraer("Somos una empresa familiar. Nuestro gerente atiende personalmente. NIF B12345674")
+    assert r.menciona_cargos and not r.personas and r.necesita_llm
+
+
+def test_politica_de_privacidad_no_cuenta_como_mencion_de_cargo():
+    from radar.extraccion.reglas import RX_MENCION_CARGO
+
+    assert not RX_MENCION_CARGO.search("Responsable del tratamiento: Reformas Pérez SL")
+
+
+def test_limpiar_razon_social_quita_prefijo_titular():
+    from radar.extraccion.reglas import limpiar_razon_social
+
+    assert limpiar_razon_social("Titular: ConstruIA App") == "ConstruIA App"
+
+
+def test_organismo_publico_no_es_empresa():
+    from radar.extraccion.conector import es_organismo_publico
+
+    assert es_organismo_publico("Ayuntamiento de Colmenar Viejo")
+    assert es_organismo_publico("Excmo. Ayuntamiento de Sevilla")
+    assert not es_organismo_publico("Instalaciones Junta SL")

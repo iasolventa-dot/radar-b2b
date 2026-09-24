@@ -40,6 +40,9 @@ interface EmpresaResultado {
   telefono: string | null;
   email: string | null;
   contacto: string | null;
+  // conflictos_datos pendientes de la empresa (migración 202609241000)
+  sin_contrastar: number;
+  en_revision: number;
 }
 
 const HERRAMIENTAS_DESCUBRIMIENTO = new Set([
@@ -149,7 +152,18 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
             .select("empresa_id, cargo, personas(nombre)")
             .in("empresa_id", empresaIds)
         : { data: [] as { empresa_id: string; cargo: string; personas: { nombre: string } | { nombre: string }[] | null }[] };
+      const { data: conflictos } = empresaIds.length
+        ? await supabase.from("conflictos_datos").select("empresa_id, tipo").eq("estado", "pendiente").in("empresa_id", empresaIds)
+        : { data: [] as { empresa_id: string; tipo: string }[] };
       if (cancelado) return;
+
+      const conflictosPorEmpresa = new Map<string, { sin_contrastar: number; en_revision: number }>();
+      for (const c of conflictos ?? []) {
+        const actual = conflictosPorEmpresa.get(c.empresa_id) ?? { sin_contrastar: 0, en_revision: 0 };
+        if (c.tipo === "sin_contrastar") actual.sin_contrastar += 1;
+        else actual.en_revision += 1;
+        conflictosPorEmpresa.set(c.empresa_id, actual);
+      }
 
       const canalesPorEmpresa = new Map<string, { tipo: string; valor: string; estado: string }[]>();
       for (const c of canales ?? []) {
@@ -202,6 +216,8 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
             telefono: telefono?.valor ?? null,
             email: email?.valor ?? null,
             contacto,
+            sin_contrastar: conflictosPorEmpresa.get(empresaId)?.sin_contrastar ?? 0,
+            en_revision: conflictosPorEmpresa.get(empresaId)?.en_revision ?? 0,
           };
         })
       );
@@ -444,6 +460,16 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
                       <Link href={`/empresas/${r.empresa_id}?desde=${id}`} className="hover:text-brand-600 hover:underline">
                         {r.razon_social}
                       </Link>
+                      {r.sin_contrastar > 0 && (
+                        <Link href="/duplicados" className="ml-2 badge bg-amber-100 text-amber-800 hover:underline">
+                          {r.sin_contrastar} sin contrastar
+                        </Link>
+                      )}
+                      {r.en_revision > 0 && (
+                        <Link href="/cola-revision" className="ml-2 badge bg-sky-100 text-sky-800 hover:underline">
+                          {r.en_revision} en revisión
+                        </Link>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       {r.nif ? (

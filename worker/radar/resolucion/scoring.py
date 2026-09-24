@@ -187,6 +187,12 @@ def comparar(a: dict, b: dict, telefonos_compartidos: set | None = None) -> dict
             senales.append("provincias distintas")
     if dominio_comun:
         p = max(p, PESOS["dominio_minimo"])
+    # Mismo teléfono propio (no compartido) + alguna palabra distintiva del
+    # nombre en común: como mínimo, unir con duda (2026-09-24). Antes
+    # "Zultrax Obras" (OSM) con el teléfono de "Zultrax" quedaba en 0,50 y se
+    # creaba como empresa aparte.
+    if tel_comunes and distintivas:
+        p = max(p, UMBRAL_REVISION)
 
     # --- Series numeradas (2026-09-21) ---
     # «ARENA GREEN POWER REN 410 SL» y «... REN 414 SL» son sociedades

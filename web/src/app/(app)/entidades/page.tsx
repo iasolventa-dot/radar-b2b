@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Clock3, ShieldCheck, type LucideIcon } from "lucide-react";
 import { crearClienteServidor } from "@/lib/supabase/server";
 import { ETIQUETA_CASO, OBJETIVO_POR_CASO } from "@/lib/tipos";
@@ -36,7 +37,10 @@ export default async function PaginaEntidades() {
           Golden set — Radar B2B
         </h1>
         <p className="mt-1 text-sm text-slate-500">
-          Construcción, provincia de Sevilla (D-11). Uso estrictamente interno de Solventa IA.
+          Construcción, provincia de Sevilla (D-11). Uso estrictamente interno de Solventa IA.{" "}
+          <Link href="/revision" className="font-medium text-brand-600 hover:underline">
+            Revisar candidatos del golden set →
+          </Link>
         </p>
       </div>
 

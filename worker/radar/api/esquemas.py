@@ -104,3 +104,15 @@ class BusquedaOut(BaseModel):
     coste_eur: float
     creado_en: datetime
     finalizado_en: datetime | None
+
+
+class ResolverConflictoIn(BaseModel):
+    accion: Literal["confirmar", "elegir", "separar"]
+    valor: str | None = Field(default=None, description="Solo para 'elegir': el valor correcto (uno de los que están en juego)")
+    usuario: str | None = Field(default=None, max_length=200)
+
+
+class ResolverConflictoOut(BaseModel):
+    id: int
+    estado: str
+    empresa_separada_id: str | None = None

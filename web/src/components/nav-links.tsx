@@ -7,8 +7,8 @@ import { Copy, History, ListChecks, Search, Settings, ShieldCheck, type LucideIc
 const ENLACES: { href: string; etiqueta: string; icono: LucideIcon }[] = [
   { href: "/", etiqueta: "Nueva búsqueda", icono: Search },
   { href: "/busquedas", etiqueta: "Búsquedas", icono: History },
-  { href: "/duplicados", etiqueta: "Posibles duplicados", icono: Copy },
-  { href: "/revision", etiqueta: "Cola de revisión", icono: ListChecks },
+  { href: "/duplicados", etiqueta: "Datos sin contrastar", icono: Copy },
+  { href: "/cola-revision", etiqueta: "Cola de revisión", icono: ListChecks },
   { href: "/entidades", etiqueta: "Golden set", icono: ShieldCheck },
   { href: "/ajustes", etiqueta: "Ajustes", icono: Settings },
 ];

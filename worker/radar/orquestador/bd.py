@@ -25,6 +25,7 @@ import psycopg
 
 from radar.fuentes.base import CamposExtraidos, RegistroBruto
 from radar.normalizacion.nombre import normalizar_texto
+from radar.verificacion.conflictos import ConflictoDetectado
 
 EstadoRegistroBruto = Literal["pendiente", "vinculado", "nueva_empresa", "en_revision", "descartado", "error"]
 
@@ -495,7 +496,7 @@ def cargar_observaciones_vigentes(empresa_id: str, campo: str, conn: psycopg.Con
         cur.execute(
             """
             select o.valor_original, o.valor_norm, o.confianza_fuente, f.grupo_independencia,
-                   o.observado_en, (f.tipo = 'registro_oficial') as es_registro_oficial
+                   o.observado_en, (f.tipo = 'registro_oficial') as es_registro_oficial, f.nombre, o.url_evidencia
             from observaciones o
             join fuentes f on f.id = o.fuente_id
             where o.empresa_id = %s and o.campo = %s and o.vigente
@@ -511,6 +512,8 @@ def cargar_observaciones_vigentes(empresa_id: str, campo: str, conn: psycopg.Con
             "grupo_independencia": f[3],
             "observado_en": f[4],
             "es_registro_oficial": bool(f[5]),
+            "fuente_nombre": f[6],
+            "url_evidencia": f[7],
         }
         for f in filas
     ]
@@ -832,7 +835,11 @@ def upsert_administradores(
     la anterior. Solo se ignora si es EXACTAMENTE la misma combinación ya
     vista (p. ej. un acto que reconfirma al mismo administrador único).
     """
-    administradores = (campos.extra or {}).get("administradores") or []
+    extra = campos.extra or {}
+    # 2026-09-24: también las personas de contacto que nombra la web de la
+    # empresa (gerente, director comercial...), extraídas por
+    # `radar.extraccion` -- mismo almacenamiento, con su fuente y URL.
+    administradores = list(extra.get("administradores") or []) + list(extra.get("personas_contacto") or [])
     if not administradores:
         return
     with conn.cursor() as cur:
@@ -1062,3 +1069,75 @@ def registrar_resultado_busqueda(
             """,
             (busqueda_id, empresa_id, relevancia, motivo),
         )
+
+
+# --- Contradicciones entre fuentes (migración 202609241000) ---------------
+
+
+def registrar_conflicto(
+    empresa_id: str, conflicto: ConflictoDetectado, busqueda_id: str | None, conn: psycopg.Connection
+) -> None:
+    """Crea o actualiza la contradicción PENDIENTE de (empresa, campo). Si una
+    persona ya resolvió exactamente la misma contradicción (mismos valores en
+    juego), no la vuelve a abrir."""
+    c = conflicto
+    valores = sorted(a["valor_norm"] for a in c.alternativas)
+    with conn.cursor() as cur:
+        cur.execute(
+            "select alternativas from conflictos_datos where empresa_id = %s and campo = %s "
+            "and estado in ('confirmado', 'corregido') order by resuelto_en desc nulls last limit 1",
+            (empresa_id, c.campo),
+        )
+        previo = cur.fetchone()
+        if previo and sorted(a.get("valor_norm") for a in previo[0]) == valores:
+            return
+        cur.execute(
+            """
+            insert into conflictos_datos (empresa_id, campo, tipo, valor_elegido, alternativas, motivo, busqueda_id)
+            values (%s, %s, %s, %s, %s::jsonb, %s, %s)
+            on conflict (empresa_id, campo) where estado = 'pendiente' and campo <> '_identidad'
+            do update set tipo = excluded.tipo, valor_elegido = excluded.valor_elegido,
+                          alternativas = excluded.alternativas, motivo = excluded.motivo, actualizado_en = now()
+            """,
+            (
+                empresa_id, c.campo, c.tipo, c.valor_elegido,
+                json.dumps(c.alternativas, default=str), c.motivo, busqueda_id,
+            ),
+        )
+
+
+def cerrar_conflicto_si_ya_no_existe(empresa_id: str, campo: str, conn: psycopg.Connection) -> None:
+    """Si la contradicción pendiente de este campo ya no existe (p. ej. el dato
+    nuevo coincide con el que ganaba), se cierra sola."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "update conflictos_datos set estado = 'resuelto_automaticamente', resuelto_por = 'automatico', "
+            "resuelto_en = now(), actualizado_en = now() "
+            "where empresa_id = %s and campo = %s and estado = 'pendiente'",
+            (empresa_id, campo),
+        )
+
+
+def registrar_conflicto_identidad(
+    empresa_id: str, registro_bruto_id: str, fuente_nombre: str, nombre_registro: str | None,
+    puntuacion: float | None, senales: list[str], busqueda_id: str | None, conn: psycopg.Connection,
+) -> None:
+    """Un registro se ha unido a esta empresa sin evidencia suficiente para
+    asegurar que es la misma (franja de revisión de la resolución)."""
+    motivo = "Unido por coincidencia parcial, sin evidencia suficiente: " + ("; ".join(senales) or "sin señales")
+    alternativas = [{"valor": nombre_registro or "(sin nombre)", "fuentes": [fuente_nombre]}]
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            insert into conflictos_datos (empresa_id, campo, tipo, valor_elegido, alternativas, motivo,
+                                          registro_bruto_id, puntuacion, busqueda_id)
+            values (%s, '_identidad', 'sin_contrastar', %s, %s::jsonb, %s, %s, %s, %s)
+            on conflict (empresa_id, registro_bruto_id) where campo = '_identidad' do nothing
+            """,
+            (empresa_id, nombre_registro, json.dumps(alternativas), motivo, registro_bruto_id, puntuacion, busqueda_id),
+        )
+
+
+def nombre_fuente(fuente_id: int, conn: psycopg.Connection) -> str:
+    fila = conn.execute("select nombre from fuentes where id = %s", (fuente_id,)).fetchone()
+    return str(fila[0]) if fila else str(fuente_id)
