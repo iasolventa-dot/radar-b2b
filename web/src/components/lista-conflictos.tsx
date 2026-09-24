@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Check, CheckCircle2, ExternalLink, Scissors, ShieldAlert } from "lucide-react";
+import { Check, CheckCircle2, ExternalLink, Scissors, ShieldAlert, Sparkles } from "lucide-react";
 import { crearClienteServidor } from "@/lib/supabase/server";
 import { resolverConflicto } from "@/lib/acciones-conflictos";
 
@@ -31,6 +31,8 @@ interface Conflicto {
   puntuacion: number | null;
   creado_en: string;
   actualizado_en: string;
+  // radar/agente/resolver_dudas.py: sugerencia de la IA cuando no pudo resolverlo sola
+  sugerencia: { valor?: string | null; decision?: string; confianza?: number; motivo?: string } | null;
 }
 
 const ETIQUETA_CAMPO: Record<string, string> = {
@@ -51,7 +53,7 @@ export async function ListaConflictos({ tipo, vacio }: { tipo: "sin_contrastar" 
   const supabase = await crearClienteServidor();
   const { data } = await supabase
     .from("conflictos_datos")
-    .select("id, empresa_id, campo, valor_elegido, alternativas, motivo, puntuacion, creado_en, actualizado_en")
+    .select("id, empresa_id, campo, valor_elegido, alternativas, motivo, puntuacion, creado_en, actualizado_en, sugerencia")
     .eq("tipo", tipo)
     .eq("estado", "pendiente")
     .order("actualizado_en", { ascending: false })
@@ -97,6 +99,19 @@ export async function ListaConflictos({ tipo, vacio }: { tipo: "sin_contrastar" 
 
             <p className="mb-3 text-sm text-slate-600">{c.motivo}</p>
 
+            {c.sugerencia && (
+              <p className="mb-3 rounded-lg bg-violet-50 p-3 text-sm text-violet-900">
+                <Sparkles className="mr-1 inline h-4 w-4" />
+                <strong>Sugerencia de la IA</strong>
+                {c.sugerencia.decision && (
+                  <> ({c.sugerencia.decision === "misma" ? "es la misma empresa" : c.sugerencia.decision === "distinta" ? "son empresas distintas: sepáralo" : "no lo tiene claro"})</>
+                )}
+                {c.sugerencia.valor && <>: usar «{c.sugerencia.valor}»</>}
+                {c.sugerencia.confianza != null && <span className="text-violet-700"> · confianza {c.sugerencia.confianza.toFixed(2)}</span>}
+                {c.sugerencia.motivo && <span className="block text-violet-800">{c.sugerencia.motivo}</span>}
+              </p>
+            )}
+
             {esIdentidad ? (
               <>
                 <p className="text-sm text-slate-700">
@@ -140,6 +155,9 @@ export async function ListaConflictos({ tipo, vacio }: { tipo: "sin_contrastar" 
                           <td className={`py-2 pr-4 ${elegido ? "font-semibold text-slate-900" : "text-slate-600"}`}>
                             {a.valor}
                             {elegido && <span className="ml-2 badge bg-emerald-100 text-emerald-700">en uso</span>}
+                            {c.sugerencia?.valor && c.sugerencia.valor === a.valor && !elegido && (
+                              <span className="ml-2 badge bg-violet-100 text-violet-800">sugerido por IA</span>
+                            )}
                             {a.evidencias?.[0] && (
                               <a href={a.evidencias[0]} target="_blank" rel="noreferrer" className="ml-2 inline-flex text-slate-400 hover:text-brand-600">
                                 <ExternalLink className="h-3 w-3" />

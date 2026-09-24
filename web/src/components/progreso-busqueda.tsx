@@ -43,6 +43,9 @@ interface EmpresaResultado {
   // conflictos_datos pendientes de la empresa (migración 202609241000)
   sin_contrastar: number;
   en_revision: number;
+  // busqueda_resultados.relevancia (migración 202609251000, radar/agente/relevancia.py)
+  relevancia: string | null;
+  motivo_relevancia: string | null;
 }
 
 const HERRAMIENTAS_DESCUBRIMIENTO = new Set([
@@ -64,6 +67,13 @@ function resumenRonda(ronda: RondaEstadistica): string {
     const d = (k: string) => `${antes[k] ?? 0}→${despues[k] ?? 0}`;
     const coste = typeof r.coste_eur === "number" ? ` · ${r.coste_eur.toFixed(3)} €` : "";
     return `${despues.empresas ?? 0} empresas · web ${d("con_web")} · teléfono ${d("con_telefono")} · email ${d("con_email")} (${r.webs_leidas ?? 0} webs leídas)${coste}`;
+  }
+  if (ronda.herramienta === "evaluar_relevancia") {
+    if (typeof r.error === "string" && r.error) return `error: ${r.error}`;
+    return `${r.evaluadas ?? 0} revisadas: ${r.relevante ?? 0} del sector, ${r.dudoso ?? 0} dudosas, ${r.descartado ?? 0} descartadas`;
+  }
+  if (ronda.herramienta === "resolver_dudas") {
+    return `${r.revisadas ?? 0} dudas: ${r.resueltas_con_evidencia_web ?? 0} resueltas con su web, ${r.resueltas_por_ia ?? 0} por IA, ${r.con_sugerencia ?? 0} con sugerencia`;
   }
   if (HERRAMIENTAS_DESCUBRIMIENTO.has(ronda.herramienta)) {
     const partes: string[] = [];
@@ -111,6 +121,9 @@ function resumenRonda(ronda: RondaEstadistica): string {
 export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: BusquedaFila }) {
   const [busqueda, setBusqueda] = useState<BusquedaFila>(inicial);
   const [resultados, setResultados] = useState<EmpresaResultado[]>([]);
+  // Descartadas por el filtro de relevancia (IA) o por una persona: no se
+  // muestran ni se exportan; se pueden recuperar en la Cola de revisión.
+  const [descartadas, setDescartadas] = useState(0);
   const [confirmando, setConfirmando] = useState(false);
   const [errorConfirmar, setErrorConfirmar] = useState<string | null>(null);
   const [cancelando, setCancelando] = useState(false);
@@ -131,7 +144,7 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
 
       const { data: filas } = await supabase
         .from("busqueda_resultados")
-        .select("empresa_id, motivo, empresas(razon_social, nombre_comercial, nif, estado, confianza_global, dominio_web)")
+        .select("empresa_id, motivo, clasificacion, motivo_relevancia, empresas(razon_social, nombre_comercial, nif, estado, confianza_global, dominio_web)")
         .eq("busqueda_id", id)
         .limit(200);
       if (cancelado || !filas) return;
@@ -182,7 +195,7 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
         cargosPorEmpresa.set(c.empresa_id, lista);
       }
 
-      setResultados(
+      const filasTodas: EmpresaResultado[] = (
         filas.map((f: Record<string, unknown>) => {
           type Empresa = {
             razon_social: string | null; nombre_comercial: string | null; nif: string | null; estado: string | null;
@@ -218,9 +231,14 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
             contacto,
             sin_contrastar: conflictosPorEmpresa.get(empresaId)?.sin_contrastar ?? 0,
             en_revision: conflictosPorEmpresa.get(empresaId)?.en_revision ?? 0,
+            relevancia: (f.clasificacion as string | null) ?? null,
+            motivo_relevancia: (f.motivo_relevancia as string | null) ?? null,
           };
         })
       );
+      const ocultas = new Set(["descartado", "rechazado"]);
+      setResultados(filasTodas.filter((r) => !ocultas.has(r.relevancia ?? "")));
+      setDescartadas(filasTodas.filter((r) => ocultas.has(r.relevancia ?? "")).length);
     }
 
     sondear();
@@ -425,7 +443,14 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
 
       <div>
         <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-slate-700">Empresas encontradas</h2>
+          <h2 className="text-sm font-semibold text-slate-700">
+            Empresas encontradas
+            {descartadas > 0 && (
+              <Link href="/cola-revision" className="ml-2 text-xs font-normal text-slate-500 hover:text-brand-600 hover:underline">
+                · {descartadas} descartadas por no ser del sector (ver en la Cola de revisión)
+              </Link>
+            )}
+          </h2>
           {resultados.length > 0 && (
             <button
               type="button"
@@ -460,6 +485,11 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
                       <Link href={`/empresas/${r.empresa_id}?desde=${id}`} className="hover:text-brand-600 hover:underline">
                         {r.razon_social}
                       </Link>
+                      {r.relevancia === "dudoso" && (
+                        <span className="ml-2 badge bg-slate-100 text-slate-600" title={r.motivo_relevancia ?? ""}>
+                          ¿del sector?
+                        </span>
+                      )}
                       {r.sin_contrastar > 0 && (
                         <Link href="/duplicados" className="ml-2 badge bg-amber-100 text-amber-800 hover:underline">
                           {r.sin_contrastar} sin contrastar

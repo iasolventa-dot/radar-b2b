@@ -27,13 +27,41 @@ from radar.normalizacion.dominio import extraer_dominio
 MAX_PAGINAS_LEGALES = 4
 
 
-async def _texto_relevante(cliente: httpx.AsyncClient, url_portada: str) -> tuple[str, list[str]]:
+_RX_TITULO = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
+_RX_DESCRIPCION = re.compile(
+    r"<meta[^>]+(?:name|property)=[\"'](?:description|og:description)[\"'][^>]*content=[\"']([^\"']*)", re.IGNORECASE
+)
+
+
+def _limpiar_meta(texto: str | None) -> str | None:
+    return re.sub(r"\s+", " ", texto).strip()[:300] or None if texto else None
+
+
+def metadatos_portada(html: str) -> dict[str, str | None]:
+    """Título y meta-descripción: lo que la empresa dice de sí misma en una
+    frase. Lo usa el filtro de relevancia (`radar.agente.relevancia`)."""
+    titulo = _RX_TITULO.search(html)
+    descripcion = _RX_DESCRIPCION.search(html)
+    return {
+        "titulo_web": _limpiar_meta(titulo.group(1)) if titulo else None,
+        "descripcion_web": _limpiar_meta(descripcion.group(1)) if descripcion else None,
+    }
+
+
+async def leer_texto_web(cliente: httpx.AsyncClient, url_portada: str) -> str:
+    """Solo el texto (portada + aviso legal/contacto/equipo): para comprobar si
+    un dato concreto aparece en la web de una empresa (`resolver_dudas`)."""
+    texto, _, _ = await _texto_relevante(cliente, url_portada)
+    return texto
+
+
+async def _texto_relevante(cliente: httpx.AsyncClient, url_portada: str) -> tuple[str, list[str], dict[str, str | None]]:
     """Descarga la portada y hasta `MAX_PAGINAS_LEGALES` páginas legales
-    enlazadas desde ella; devuelve el texto visible concatenado y las URLs
-    que sí se pudieron leer (para guardarlas como evidencia, doc 04 §3)."""
+    enlazadas desde ella; devuelve el texto visible concatenado, las URLs que
+    sí se pudieron leer (evidencia, doc 04 §3) y los metadatos de la portada."""
     portada = await descargar(url_portada, cliente)
     if portada is None:
-        return "", []
+        return "", [], {}
     textos = [reglas.html_a_texto(portada.html)]
     urls = [url_portada]
     for enlace in encontrar_enlaces_legales(portada.html, url_portada)[:MAX_PAGINAS_LEGALES]:
@@ -41,7 +69,7 @@ async def _texto_relevante(cliente: httpx.AsyncClient, url_portada: str) -> tupl
         if pagina:
             textos.append(reglas.html_a_texto(pagina.html))
             urls.append(enlace)
-    return "\n\n".join(textos), urls
+    return "\n\n".join(textos), urls, metadatos_portada(portada.html)
 
 
 def campos_desde_reglas(r: reglas.DatosLegalesExtraidos, dominio: str | None) -> CamposExtraidos:
@@ -115,10 +143,13 @@ async def enriquecer_desde_web(
     la empresa sin enriquecer).
     """
     dominio = dominio or extraer_dominio(url_portada)
-    texto, urls = await _texto_relevante(cliente, url_portada)
+    texto, urls, meta = await _texto_relevante(cliente, url_portada)
     if not texto:
         return None
-    return registro_desde_texto(texto, urls, url_portada, dominio)
+    registro = registro_desde_texto(texto, urls, url_portada, dominio)
+    if registro is not None:
+        registro.campos.extra.update({k: v for k, v in meta.items() if v})
+    return registro
 
 
 # Una web de empresa tiene unos pocos teléfonos/emails; un directorio o

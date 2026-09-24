@@ -1,5 +1,6 @@
-import { AlertTriangle, Ban, GitMerge } from "lucide-react";
+import { AlertTriangle, Ban, GitMerge, Sparkles } from "lucide-react";
 import { ListaConflictos } from "@/components/lista-conflictos";
+import { resolverAutomaticamente } from "@/lib/acciones-conflictos";
 import { crearClienteServidor } from "@/lib/supabase/server";
 import { confirmarFusion, descartarDuplicado } from "./acciones";
 
@@ -61,6 +62,16 @@ export default async function PaginaDuplicados() {
           el mismo campo sin evidencia suficiente para saber cuál es el correcto, o datos unidos a una empresa por
           una coincidencia parcial. En la ficha ya se muestra el valor más probable; aquí decides.
         </p>
+        <p className="mt-1 text-xs text-slate-500">
+          Al terminar cada búsqueda el sistema ya intenta resolverlos solo: busca el dato en la web de la empresa y,
+          si no lo encuentra, pide una sugerencia a la IA. Lo que resuelve pasa a la Cola de revisión; aquí queda lo
+          que no pudo decidir (con la sugerencia de la IA si la hay).
+        </p>
+        <form action={resolverAutomaticamente} className="mt-3">
+          <button type="submit" className="btn-secondary">
+            <Sparkles className="h-4 w-4" /> Intentar resolver automáticamente
+          </button>
+        </form>
       </div>
 
       <ListaConflictos tipo="sin_contrastar" vacio="No hay datos pendientes de contrastar." />

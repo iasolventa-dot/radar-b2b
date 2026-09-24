@@ -57,3 +57,11 @@ def test_valor_decidido_por_una_persona_no_reabre_la_contradiccion():
     assert clasificar("razon_social", [
         obs("ALFA SL", 0.85, "web_a"), obs("BETA SL", 0.85, "web_b"), obs("BETA SL", 0.98, "manual", fuente="Verificación manual"),
     ]) is None
+
+
+def test_decision_automatica_va_a_la_cola_de_revision():
+    c = clasificar("razon_social", [
+        obs("ALFA SL", 0.85, "web_a"), obs("BETA SL", 0.85, "web_b"),
+        obs("BETA SL", 0.90, "verificacion_automatica", fuente="Verificación automática"),
+    ])
+    assert c is not None and c.tipo == "resuelto_con_evidencia" and c.valor_elegido == "BETA SL"

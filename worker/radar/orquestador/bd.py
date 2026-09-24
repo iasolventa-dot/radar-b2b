@@ -25,7 +25,7 @@ import psycopg
 
 from radar.fuentes.base import CamposExtraidos, RegistroBruto
 from radar.normalizacion.nombre import normalizar_texto
-from radar.verificacion.conflictos import ConflictoDetectado
+from radar.verificacion.conflictos import MOTIVO_DECISION_AUTOMATICA, ConflictoDetectado
 
 EstadoRegistroBruto = Literal["pendiente", "vinculado", "nueva_empresa", "en_revision", "descartado", "error"]
 
@@ -1097,11 +1097,13 @@ def registrar_conflicto(
             values (%s, %s, %s, %s, %s::jsonb, %s, %s)
             on conflict (empresa_id, campo) where estado = 'pendiente' and campo <> '_identidad'
             do update set tipo = excluded.tipo, valor_elegido = excluded.valor_elegido,
-                          alternativas = excluded.alternativas, motivo = excluded.motivo, actualizado_en = now()
+                          alternativas = excluded.alternativas,
+                          motivo = case when excluded.motivo = %s then conflictos_datos.motivo else excluded.motivo end,
+                          actualizado_en = now()
             """,
             (
                 empresa_id, c.campo, c.tipo, c.valor_elegido,
-                json.dumps(c.alternativas, default=str), c.motivo, busqueda_id,
+                json.dumps(c.alternativas, default=str), c.motivo, busqueda_id, MOTIVO_DECISION_AUTOMATICA,
             ),
         )
 

@@ -36,3 +36,31 @@ export async function resolverConflicto(formData: FormData) {
   revalidatePath("/duplicados");
   revalidatePath("/cola-revision");
 }
+
+// Botón «Intentar resolver automáticamente» de Datos sin contrastar
+// (worker: POST /conflictos/resolver-automaticamente).
+export async function resolverAutomaticamente() {
+  const base = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL no está configurada");
+  const respuesta = await fetch(`${base}/conflictos/resolver-automaticamente?max_coste_eur=0.1`, { method: "POST" });
+  if (!respuesta.ok) throw new Error(`No se pudo lanzar la resolución automática: ${respuesta.statusText}`);
+  revalidatePath("/duplicados");
+  revalidatePath("/cola-revision");
+}
+
+// Cola de revisión: una persona confirma o corrige lo que decidió el filtro
+// de relevancia. `relevancia_revisada` impide que la IA lo vuelva a tocar.
+export async function marcarRelevancia(formData: FormData) {
+  const busquedaId = String(formData.get("busqueda_id"));
+  const empresaId = String(formData.get("empresa_id"));
+  const decision = String(formData.get("decision"));
+  if (decision !== "aceptado" && decision !== "rechazado") throw new Error("decisión no válida");
+  const supabase = await crearClienteServidor();
+  const { error } = await supabase
+    .from("busqueda_resultados")
+    .update({ clasificacion: decision, relevancia_revisada: true })
+    .eq("busqueda_id", busquedaId)
+    .eq("empresa_id", empresaId);
+  if (error) throw new Error(`No se pudo guardar: ${error.message}`);
+  revalidatePath("/cola-revision");
+}

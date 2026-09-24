@@ -65,6 +65,7 @@ trata como error, nunca se ignora en silencio.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -97,7 +98,7 @@ PLANIFICADOR_LLM = "planificador_llm"
 HERRAMIENTAS_QUE_CONSUMEN_PRESUPUESTO = {
     "buscar_web", "descubrir_borme", "descubrir_places", "enriquecer_con_apify",
     "descubrir_google_search", "descubrir_apify_maps", "enriquecer_con_linkedin", "enriquecer_con_facebook",
-    "completar_contacto", PLANIFICADOR_LLM,
+    "completar_contacto", "resolver_dudas", "evaluar_relevancia", PLANIFICADOR_LLM,
 }
 
 OnRonda = Callable[["RondaPlanificador"], Awaitable[None]]
@@ -520,6 +521,13 @@ async def planificar(
     -- se aplican igual a las rondas de las fases 1 y 3."""
     from radar.agente.completar_contacto import completar_contacto
     from radar.agente.fases import ejecutar_con_tope, planes_fuentes_marcadas
+    from radar.agente.relevancia import evaluar_relevancia
+    from radar.agente.resolver_dudas import resolver_dudas
+
+    # Parte del presupuesto reservada para los pasos finales (completar
+    # contacto, relevancia con IA, resolver dudas): sin ella, el bucle LLM se
+    # lo gastaba todo y la búsqueda acababa con datos sin limpiar ni resolver.
+    reserva_final = min(0.03, presupuesto_eur * 0.25)
 
     actores = frozenset(apify_actores)
     contexto = ContextoHerramientas(
@@ -573,7 +581,7 @@ async def planificar(
 
     # --- Fase 2: bucle del LLM -------------------------------------------
     llm = await _bucle_llm(
-        conn, cliente_http, filtros, presupuesto_eur=max(0.0, contexto.presupuesto_restante_eur), max_rondas=max_rondas,
+        conn, cliente_http, filtros, presupuesto_eur=max(0.0, contexto.presupuesto_restante_eur - reserva_final), max_rondas=max_rondas,
         cliente=cliente, on_ronda=on_ronda, debe_cancelar=debe_cancelar, busqueda_id=busqueda_id,
         usar_places=usar_places, apify_actores=actores, paso_inicial=len(total.rondas),
         contexto_previo=_resumen_fase_previa(total.rondas),
@@ -587,11 +595,25 @@ async def planificar(
 
     # --- Fase 3: completar contacto --------------------------------------
     motivo_llm = total.motivo_fin
+    reserva_ia = reserva_final / 2
     resultado_contacto = await completar_contacto(
         conn, cliente_http, filtros, busqueda_id=busqueda_id,
-        max_coste_eur=max(0.0, contexto.presupuesto_restante_eur), apify_actores=actores,
+        max_coste_eur=max(0.0, contexto.presupuesto_restante_eur - reserva_ia), apify_actores=actores,
         telefonos_compartidos=contexto.telefonos_compartidos,
     )
-    if not await registrar("completar_contacto", {}, resultado_contacto):
+    if await registrar("completar_contacto", {}, resultado_contacto):
+        return cerrar()
+
+    # --- Fase 4: relevancia (IA) y resolución de dudas ---------------------
+    # Primero relevancia: no se gasta en resolver dudas de empresas descartadas.
+    resultado_relevancia = await asyncio.to_thread(
+        evaluar_relevancia, conn, filtros, busqueda_id, max_coste_eur=max(0.005, contexto.presupuesto_restante_eur / 2)
+    )
+    if await registrar("evaluar_relevancia", {}, resultado_relevancia):
+        return cerrar()
+    resultado_dudas = await resolver_dudas(
+        conn, cliente_http, busqueda_id=busqueda_id, max_coste_eur=max(0.0, contexto.presupuesto_restante_eur)
+    )
+    if not await registrar("resolver_dudas", {}, resultado_dudas):
         total.motivo_fin = motivo_llm
     return cerrar()

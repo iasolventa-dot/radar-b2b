@@ -694,6 +694,27 @@ def consultar_bd(
                 )
         conn.commit()
 
+    # Lo que ya lleva ESTA búsqueda (2026-09-25): `total` solo cuenta empresas
+    # que cumplen la confianza mínima, y las recién encontradas casi nunca la
+    # alcanzan todavía -- el planificador veía "0" ronda tras ronda aunque la
+    # búsqueda llevara 20 empresas con teléfono, y seguía gastando por eso.
+    if busqueda_id:
+        fila_b = conn.execute(
+            """
+            select count(*),
+                   count(*) filter (where exists (select 1 from canales_contacto c where c.empresa_id = br.empresa_id and c.tipo = 'telefono')),
+                   count(*) filter (where exists (select 1 from canales_contacto c where c.empresa_id = br.empresa_id and c.tipo = 'email')),
+                   count(*) filter (where e.dominio_web is not null)
+            from busqueda_resultados br join empresas e on e.id = br.empresa_id
+            where br.busqueda_id = %s and e.fusionada_en is null
+            """,
+            (busqueda_id,),
+        ).fetchone()
+        if fila_b:
+            resultado["en_esta_busqueda"] = {
+                "empresas": fila_b[0], "con_telefono": fila_b[1], "con_email": fila_b[2], "con_web": fila_b[3],
+            }
+
     return resultado
 
 

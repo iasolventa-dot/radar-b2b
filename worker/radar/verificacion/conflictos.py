@@ -37,6 +37,10 @@ MARGEN_CONFIANZA_CLARO = 0.30
 
 TipoConflicto = Literal["sin_contrastar", "resuelto_con_evidencia"]
 
+# Motivo genérico de una decisión automática; `bd.registrar_conflicto` conserva
+# el motivo detallado que guardó `radar.agente.resolver_dudas` en vez de pisarlo.
+MOTIVO_DECISION_AUTOMATICA = "Resuelto automáticamente."
+
 ETIQUETA_CAMPO = {"nif": "NIF", "razon_social": "razón social", "web": "web"}
 
 
@@ -96,6 +100,13 @@ def clasificar_conflicto(resultado: ResultadoConsolidacion | None, observaciones
     alternativas = [v for v in resultado.valores[1:] if v.valor != ganador.valor and v.confianza_efectiva >= UMBRAL_ALTERNATIVA]
     if not alternativas:
         return None
+    # El propio sistema ya decidió (verificación dirigida o IA): sigue siendo
+    # una contradicción, pero resuelta -> «Cola de revisión», no «sin contrastar».
+    if any(o.get("grupo_independencia") == "verificacion_automatica" and o.get("valor_norm") == ganador.valor for o in observaciones):
+        return ConflictoDetectado(
+            campo=resultado.campo, tipo="resuelto_con_evidencia", valor_elegido=_detalle(ganador, observaciones)["valor"],
+            motivo=MOTIVO_DECISION_AUTOMATICA, alternativas=[_detalle(v, observaciones) for v in [ganador, *alternativas]],
+        )
 
     motivos = [_motivo_evidencia_fuerte(ganador, alt) for alt in alternativas]
     etiqueta = ETIQUETA_CAMPO.get(resultado.campo, resultado.campo)

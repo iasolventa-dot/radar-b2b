@@ -21,7 +21,7 @@ import html as html_lib
 import re
 from dataclasses import dataclass, field
 
-from radar.normalizacion.dominio import normalizar_email
+from radar.normalizacion.dominio import DOMINIOS_PLATAFORMA, normalizar_email
 from radar.normalizacion.nif import validar_nif
 from radar.normalizacion.telefono import normalizar_telefono
 
@@ -234,6 +234,11 @@ def extraer(texto: str, dominio: str | None = None) -> DatosLegalesExtraidos:
     vistos_email: set[str] = set()
     for m in RX_EMAIL.finditer(texto):
         e = normalizar_email(m.group(0))
+        # Emails de plataformas (google.com, wix.com...) no son de la empresa:
+        # vienen de widgets incrustados (visto en vivo: account-withdrawal@google.com).
+        # Gmail/Hotmail sí son válidos: muchas pymes usan uno.
+        if e["valido"] and e["dominio"] in DOMINIOS_PLATAFORMA:
+            continue
         if e["valido"] and e["email"] not in vistos_email:
             vistos_email.add(e["email"])
             emails.append(

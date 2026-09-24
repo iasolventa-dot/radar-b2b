@@ -134,3 +134,12 @@ def test_organismo_publico_no_es_empresa():
     assert es_organismo_publico("Ayuntamiento de Colmenar Viejo")
     assert es_organismo_publico("Excmo. Ayuntamiento de Sevilla")
     assert not es_organismo_publico("Instalaciones Junta SL")
+
+
+def test_emails_de_plataformas_no_son_de_la_empresa():
+    from radar.extraccion.reglas import extraer
+
+    r = extraer("Contacto: info@reformasx.es · account-withdrawal@google.com · reformasx@gmail.com")
+    emails = {e.email for e in r.emails}
+    assert "account-withdrawal@google.com" not in emails
+    assert {"info@reformasx.es", "reformasx@gmail.com"} <= emails

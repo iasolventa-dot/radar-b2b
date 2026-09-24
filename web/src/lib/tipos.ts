@@ -256,6 +256,8 @@ export const ETIQUETA_HERRAMIENTA: Record<string, string> = {
   enriquecer_con_linkedin: "Enriquecer con LinkedIn (Apify)",
   enriquecer_con_facebook: "Enriquecer con Facebook (Apify)",
   completar_contacto: "Completar contacto (web, teléfono, email)",
+  evaluar_relevancia: "Filtrar resultados que no son del sector (IA)",
+  resolver_dudas: "Resolver datos sin contrastar",
   preguntar_usuario: "Pregunta al usuario",
   finalizar_busqueda: "Finalizar búsqueda",
   // No es una herramienta real (el LLM nunca la "llama") -- la genera el

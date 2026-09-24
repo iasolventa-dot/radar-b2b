@@ -471,3 +471,15 @@ async def resolver_conflicto_endpoint(conflicto_id: int, entrada: ResolverConfli
         except ConflictoNoValido as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
     return ResolverConflictoOut(id=r["id"], estado=r["estado"], empresa_separada_id=r["empresa_separada_id"])
+
+
+@app.post("/conflictos/resolver-automaticamente")
+async def resolver_conflictos_automaticamente(max_coste_eur: float = 0.10) -> dict:
+    """Aplica `radar.agente.resolver_dudas` a TODAS las dudas pendientes de
+    «Datos sin contrastar» (botón del panel): evidencia en la web de la empresa
+    y, si no la hay, sugerencia de IA. Lo resuelto pasa a la «Cola de revisión»."""
+    from radar.agente.resolver_dudas import resolver_dudas
+
+    with psycopg.connect(_requerir_db_url()) as conn:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as cliente_http:
+            return await resolver_dudas(conn, cliente_http, max_coste_eur=min(max(max_coste_eur, 0.0), 1.0))
