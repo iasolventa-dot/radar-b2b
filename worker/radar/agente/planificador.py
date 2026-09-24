@@ -496,7 +496,8 @@ def _resumen_fase_previa(rondas: list[RondaPlanificador]) -> str:
     ]
     return (
         "YA EJECUTADO AUTOMÁTICAMENTE antes de ti (fuentes de pago que el usuario marcó; no las repitas con los mismos "
-        "argumentos):\n" + "\n".join(lineas)
+        "argumentos). Su coste YA está descontado del presupuesto que se te indica, que es lo que te queda a ti:\n"
+        + "\n".join(lineas)
     )
 
 
@@ -520,6 +521,7 @@ async def planificar(
     todo lo encontrado. `on_ronda`/`debe_cancelar`: ver docstring del módulo
     -- se aplican igual a las rondas de las fases 1 y 3."""
     from radar.agente.completar_contacto import completar_contacto
+    from radar.agente.enriquecer_borme import enriquecer_con_borme
     from radar.agente.fases import ejecutar_con_tope, planes_fuentes_marcadas
     from radar.agente.relevancia import evaluar_relevancia
     from radar.agente.resolver_dudas import resolver_dudas
@@ -602,6 +604,13 @@ async def planificar(
         telefonos_compartidos=contexto.telefonos_compartidos,
     )
     if await registrar("completar_contacto", {}, resultado_contacto):
+        return cerrar()
+
+    # --- Fase 3b: identidad y directivos desde el índice del BORME (gratis) ---
+    resultado_borme = await asyncio.to_thread(
+        enriquecer_con_borme, conn, busqueda_id, telefonos_compartidos=contexto.telefonos_compartidos
+    )
+    if await registrar("enriquecer_borme", {}, resultado_borme):
         return cerrar()
 
     # --- Fase 4: relevancia (IA) y resolución de dudas ---------------------

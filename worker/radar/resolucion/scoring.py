@@ -125,6 +125,22 @@ def comparar(a: dict, b: dict, telefonos_compartidos: set | None = None) -> dict
         senales.append(f"marca y razón social bajo la misma web propia ({a['dominio']})")
         return resultado(UMBRAL_FUSION_AUTO, "R8_marca_y_sociedad_misma_web")
 
+    # Denominación social idéntica (2026-09-25): el Registro Mercantil Central
+    # no admite dos sociedades con la misma denominación, así que misma razón
+    # social + misma forma jurídica = misma sociedad, salvo que la ubicación
+    # lo contradiga (otra provincia o a más de 50 km: podría ser un error de
+    # datos, se deja a las reglas normales). Sin esto, enriquecer una empresa
+    # con su acto del BORME quedaba siempre "en duda".
+    d_r9 = distancia_m(a.get("lat"), a.get("lon"), b.get("lat"), b.get("lon"))
+    if (
+        a.get("nombre_norm") and b.get("nombre_norm") and sim >= 0.98 and distintivas
+        and a.get("forma_juridica") and a.get("forma_juridica") == b.get("forma_juridica")
+        and not (a.get("cod_provincia") and b.get("cod_provincia") and a["cod_provincia"] != b["cod_provincia"])
+        and not (d_r9 is not None and d_r9 > 50_000)
+    ):
+        senales.append("denominación social idéntica con la misma forma jurídica")
+        return resultado(UMBRAL_FUSION_AUTO, "R9_denominacion_social_identica")
+
     p = 0.0
     # --- Nombre ---
     if (a.get("nombre_norm") or a.get("comercial_norm")) and (b.get("nombre_norm") or b.get("comercial_norm")):

@@ -68,6 +68,9 @@ function resumenRonda(ronda: RondaEstadistica): string {
     const coste = typeof r.coste_eur === "number" ? ` · ${r.coste_eur.toFixed(3)} €` : "";
     return `${despues.empresas ?? 0} empresas · web ${d("con_web")} · teléfono ${d("con_telefono")} · email ${d("con_email")} (${r.webs_leidas ?? 0} webs leídas)${coste}`;
   }
+  if (ronda.herramienta === "enriquecer_borme") {
+    return `${r.empresas_revisadas ?? 0} sociedades buscadas en el BORME: ${r.encontradas_en_borme ?? 0} encontradas, ${r.unidas ?? 0} actos añadidos (administradores, hoja registral)`;
+  }
   if (ronda.herramienta === "evaluar_relevancia") {
     if (typeof r.error === "string" && r.error) return `error: ${r.error}`;
     return `${r.evaluadas ?? 0} revisadas: ${r.relevante ?? 0} del sector, ${r.dudoso ?? 0} dudosas, ${r.descartado ?? 0} descartadas`;

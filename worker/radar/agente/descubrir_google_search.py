@@ -22,7 +22,7 @@ import httpx
 import psycopg
 
 from radar.agente.herramientas import _url_no_apta_para_enriquecer, en_zona
-from radar.extraccion import enriquecer_desde_web
+from radar.extraccion import enriquecer_varias
 from radar.fuentes.apify import ejecutar_actor
 from radar.normalizacion.dominio import extraer_dominio
 from radar.orquestador import bd, procesar_registro
@@ -86,6 +86,7 @@ async def descubrir_google_search(
     candidatos_facebook: list[str] = []
     candidatos_linkedin: list[str] = []
 
+    urls_web: list[str] = []
     for item in res.items:
         for organico in item.get("organicResults") or []:
             url = organico.get("url")
@@ -104,22 +105,27 @@ async def descubrir_google_search(
             if _url_no_apta_para_enriquecer(url):
                 contadores["urls_descartadas"] += 1
                 continue
-            registro = await enriquecer_desde_web(cliente_http, url)
-            if registro is None:
-                contadores["urls_no_legibles"] += 1
-                continue
-            if not en_zona(registro.campos.codigo_postal, provincias_zona or set()):
-                contadores["fuera_de_zona"] += 1
-                continue
-            try:
-                r = procesar_registro(registro, conn, busqueda_id=busqueda_id, telefonos_compartidos=telefonos_compartidos)
-                if busqueda_id and r.empresa_id:
-                    bd.registrar_resultado_busqueda(busqueda_id, r.empresa_id, f"apify_google_search: {r.accion}", r.puntuacion_match, conn)
-                conn.commit()
-                contadores[r.accion] += 1
-            except Exception:  # noqa: BLE001
-                conn.rollback()
-                contadores["error_procesado"] += 1
+            urls_web.append(url)
+
+    # Todas las webs a la vez; el procesado (BD) sigue siendo en serie.
+    webs = await enriquecer_varias(cliente_http, urls_web)
+    for url in dict.fromkeys(urls_web):
+        registro = webs.get(url)
+        if registro is None:
+            contadores["urls_no_legibles"] += 1
+            continue
+        if not en_zona(registro.campos.codigo_postal, provincias_zona or set()):
+            contadores["fuera_de_zona"] += 1
+            continue
+        try:
+            r = procesar_registro(registro, conn, busqueda_id=busqueda_id, telefonos_compartidos=telefonos_compartidos)
+            if busqueda_id and r.empresa_id:
+                bd.registrar_resultado_busqueda(busqueda_id, r.empresa_id, f"apify_google_search: {r.accion}", r.puntuacion_match, conn)
+            conn.commit()
+            contadores[r.accion] += 1
+        except Exception:  # noqa: BLE001
+            conn.rollback()
+            contadores["error_procesado"] += 1
 
     return {
         **contadores, "candidatos_facebook": candidatos_facebook, "candidatos_linkedin": candidatos_linkedin,

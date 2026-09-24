@@ -80,18 +80,32 @@ def test_telefono_compartido_no_puntua():
     assert comparar(a, b, telefonos_compartidos={"+34954999999"})["decision"] == "distinta"
 
 
-def test_nombre_identico_sin_ubicacion_va_a_revision():
+def test_nombre_identico_sin_ubicacion_es_la_misma_sociedad():
     """Caso real encontrado corriendo BORME (2026-09-18, Sevilla, 30 días):
     'VIMOINSA VIVIENDAS PREFABRICADAS SL' se registró 3 veces como empresa
     nueva porque el BORME no da NIF ni domicilio en la mayoría de actos --
     sin esta regla, el nombre solo (0.45) nunca llega a UMBRAL_REVISION
     (0.55) y el duplicado desaparece sin dejar rastro en
     candidatos_duplicado."""
+    # Desde 2026-09-25 (R9): misma denominación + misma forma jurídica = misma
+    # sociedad (el Registro Mercantil no admite dos iguales).
     a = reg(razon_social="VIMOINSA VIVIENDAS PREFABRICADAS SL")
     b = reg(razon_social="VIMOINSA VIVIENDAS PREFABRICADAS SOCIEDAD LIMITADA")
     resultado = comparar(a, b)
-    assert resultado["decision"] == "revision"
-    assert resultado["regla"] == "R4_nombre_identico_sin_senal_ubicacion"
+    assert resultado["decision"] == "misma"
+    assert resultado["regla"] == "R9_denominacion_social_identica"
+
+
+def test_nombre_identico_sin_forma_juridica_sigue_en_revision():
+    a = reg(nombre_comercial="Vimoinsa Viviendas Prefabricadas")
+    b = reg(razon_social="VIMOINSA VIVIENDAS PREFABRICADAS")
+    assert comparar(a, b)["decision"] == "revision"
+
+
+def test_misma_denominacion_con_distinta_forma_juridica_no_es_r9():
+    a = reg(razon_social="VIMOINSA VIVIENDAS PREFABRICADAS SL")
+    b = reg(razon_social="VIMOINSA VIVIENDAS PREFABRICADAS SA")
+    assert comparar(a, b)["regla"] != "R9_denominacion_social_identica"
 
 
 def test_nombre_identico_con_ubicacion_distinta_sigue_sin_fusionar():

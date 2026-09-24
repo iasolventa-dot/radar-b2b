@@ -14,7 +14,7 @@ import re
 
 from radar.normalizacion.direccion import codigo_provincia, validar_cp
 from radar.normalizacion.dominio import es_dominio_plataforma, extraer_dominio, normalizar_email
-from radar.normalizacion.nif import forma_compatible_con_nif, validar_nif
+from radar.normalizacion.nif import dni_en_sociedad, forma_compatible_con_nif, validar_nif
 from radar.normalizacion.nombre import PALABRAS_VACIAS, extraer_forma_juridica
 from radar.normalizacion.telefono import normalizar_telefono
 
@@ -58,12 +58,16 @@ def normalizar_registro(reg: dict) -> dict:
         if reg.get("forma_juridica") and str(reg.get("forma_juridica")) != "nan"
         else None
     ) or forma_rs
+    if dni_en_sociedad(forma, nif["nif"]):
+        # No es el NIF de la sociedad: nunca puede ser su clave maestra.
+        nif = {"nif": "", "valido": False, "tipo": None, "persona_fisica": None,
+               "descartado": True, "aviso": f"DNI/NIE {nif['nif']} en una sociedad {forma}: descartado"}
     cp = validar_cp(reg.get("cp"), reg.get("provincia"))
     return {
         "nif": nif["nif"] or None,
         "nif_valido": nif["valido"] if nif["nif"] else None,
         "nif_tipo": nif["tipo"],
-        "nif_aviso": nif["aviso"] if nif["nif"] else None,
+        "nif_aviso": nif["aviso"] if nif["nif"] or nif.get("descartado") else None,
         "persona_fisica": nif["persona_fisica"],
         "razon_social": reg.get("razon_social"),
         "nombre_comercial": reg.get("nombre_comercial"),

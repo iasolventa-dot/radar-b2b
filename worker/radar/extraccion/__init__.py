@@ -13,7 +13,7 @@ aviso legal/contacto; `radar.extraccion.conector` junta todo en un
 `radar.orquestador.procesar_registro`.
 """
 
-from radar.extraccion.conector import enriquecer_desde_web, registro_desde_texto
+from radar.extraccion.conector import enriquecer_desde_web, enriquecer_varias, registro_desde_texto
 from radar.extraccion.reglas import DatosLegalesExtraidos, extraer
 
-__all__ = ["DatosLegalesExtraidos", "enriquecer_desde_web", "extraer", "registro_desde_texto"]
+__all__ = ["DatosLegalesExtraidos", "enriquecer_desde_web", "enriquecer_varias", "extraer", "registro_desde_texto"]

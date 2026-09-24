@@ -88,6 +88,17 @@ def validar_nif(nif: object) -> dict:
     return r
 
 
+FORMAS_SOCIETARIAS = set().union(*FORMA_POR_LETRA.values()) - {"CB"}
+
+
+def dni_en_sociedad(forma: str | None, nif: str | None) -> bool:
+    """Una sociedad (SL, SA, cooperativa...) nunca tiene DNI/NIE: si aparece
+    uno, es el de una persona (administrador, titular de la web), no el suyo.
+    Visto en vivo 2026-09-24: "ELING S.L.U." con NIF 08369853S. Una comunidad
+    de bienes (CB) sí puede figurar con el NIF de un comunero."""
+    return bool(forma in FORMAS_SOCIETARIAS and nif and validar_nif(nif)["persona_fisica"])
+
+
 def forma_compatible_con_nif(forma: str | None, nif: str) -> bool | None:
     """None si no se puede juzgar; False si la letra del NIF contradice la forma jurídica."""
     if not forma or not nif or not nif[0].isalpha() or nif[0] in "XYZKLM":

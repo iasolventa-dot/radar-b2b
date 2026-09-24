@@ -39,6 +39,8 @@ DOMINIOS_PLATAFORMA = {
     "amazon.es", "wallapop.com", "idealista.com", "fotocasa.es", "indeed.com", "infojobs.net", "glassdoor.es",
     "wikipedia.org", "boe.es", "gob.es", "scribd.com", "issuu.com", "slideshare.net", "pinterest.com",
     "pinterest.es", "tricantinos.com", "todoestaentrescantos.com",
+    # 2026-09-24 (reformas, Alcobendas): directorio de contratistas cuya ficha se tomó por la web de la empresa.
+    "profymarket.com",
 }
 _SEGUNDO_NIVEL = {
     "com.es", "org.es", "nom.es", "gob.es", "edu.es", "co.uk", "com.ar", "com.mx", "com.co", "com.pe",
@@ -65,6 +67,19 @@ def extraer_dominio(url_o_email: object) -> str | None:
     if ".".join(partes[-2:]) in _SEGUNDO_NIVEL and len(partes) >= 3:
         return ".".join(partes[-3:])
     return ".".join(partes[-2:])
+
+
+# Rutas típicas de la ficha de una empresa dentro de un directorio o
+# marketplace ("/contratistas/la-encina-sl", "/ficha/123"). No se incluye
+# "/empresa/": muchas webs propias la usan para "quiénes somos".
+_RX_RUTA_FICHA = re.compile(
+    r"/(?:contratistas|directorio|ficha|fichas|listing|listings|companies|company-profile|proveedores|profesionales)/[^/?#]+",
+    re.IGNORECASE,
+)
+
+
+def parece_ficha_de_directorio(url: str | None) -> bool:
+    return bool(url and _RX_RUTA_FICHA.search(url))
 
 
 def es_dominio_plataforma(dominio: str | None, host_completo: str | None = None) -> bool:

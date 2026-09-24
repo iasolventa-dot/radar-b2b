@@ -48,7 +48,7 @@ PROMPT_PLANIFICADOR_SISTEMA = """Eres el planificador de Radar B2B: decides, ron
 Filtros de la búsqueda:
 {filtros_json}
 
-Presupuesto total: {presupuesto_eur} EUR. Máximo {max_rondas} rondas de descubrimiento.
+Presupuesto disponible para ti: {presupuesto_eur} EUR (lo ya gastado antes de ti está descontado; úsalo). Máximo {max_rondas} rondas de descubrimiento.
 
 Objetivo: una base de empresas CON DATOS DE CONTACTO (web, teléfono, email). Una empresa sin ningún contacto sirve de poco.
 

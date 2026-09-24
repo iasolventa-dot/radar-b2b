@@ -13,6 +13,7 @@ NIF: buscar la web → aviso legal").
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import re
 
@@ -146,7 +147,9 @@ async def enriquecer_desde_web(
     texto, urls, meta = await _texto_relevante(cliente, url_portada)
     if not texto:
         return None
-    registro = registro_desde_texto(texto, urls, url_portada, dominio)
+    # En un hilo: puede llamar al LLM (síncrono) y no debe bloquear las otras
+    # webs que se están leyendo en paralelo (`enriquecer_varias`).
+    registro = await asyncio.to_thread(registro_desde_texto, texto, urls, url_portada, dominio)
     if registro is not None:
         registro.campos.extra.update({k: v for k, v in meta.items() if v})
     return registro
@@ -209,3 +212,21 @@ def registro_desde_texto(texto: str, urls: list[str], url_portada: str, dominio:
         payload={"urls_consultadas": urls, "reglas": dataclasses.asdict(resultado_reglas), "llm": resultado_llm_dict},
         campos=campos,
     )
+
+
+async def enriquecer_varias(
+    cliente: httpx.AsyncClient, urls: list[str], concurrencia: int = 5
+) -> dict[str, RegistroBruto | None]:
+    """Lee varias webs a la vez (hasta `concurrencia`): cada web tarda de 1 a
+    9 s y una búsqueda lee 15-20 -- en serie eran minutos. Solo descarga y
+    extrae; procesar los registros (BD) lo hace después quien llama, en serie."""
+    semaforo = asyncio.Semaphore(concurrencia)
+
+    async def una(url: str) -> tuple[str, RegistroBruto | None]:
+        async with semaforo:
+            try:
+                return url, await enriquecer_desde_web(cliente, url)
+            except Exception:  # noqa: BLE001 -- una web rota no debe parar las demás
+                return url, None
+
+    return dict(await asyncio.gather(*(una(u) for u in dict.fromkeys(urls))))

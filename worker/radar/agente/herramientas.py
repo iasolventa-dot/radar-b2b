@@ -71,15 +71,20 @@ import psycopg
 
 from radar.agente.consultas import generar_consultas
 from radar.agente.interpretacion import FiltrosBusqueda
-from radar.extraccion import enriquecer_desde_web
+from radar.extraccion import enriquecer_varias
 from radar.fuentes.borme import (
     PALABRAS_CONSTRUCCION_NOMBRE,
     PALABRAS_CONSTRUCCION_OBJETO,
-    ConectorBorme,
+    acto_a_registro_bruto,
 )
+from radar.fuentes.borme_indice import actos_en_rango, cargar_dias
 from radar.fuentes.buscador_web import COSTE_POR_BUSQUEDA_EUR, buscar
 from radar.fuentes.osm import ConectorOSM, OverpassError
-from radar.normalizacion.dominio import es_dominio_plataforma, extraer_dominio
+from radar.normalizacion.dominio import (
+    es_dominio_plataforma,
+    extraer_dominio,
+    parece_ficha_de_directorio,
+)
 from radar.orquestador import bd, procesar_registro
 
 # Dominios que `buscar_web` puede devolver como resultado pero que NO son "la
@@ -107,7 +112,7 @@ def _url_no_apta_para_enriquecer(url: str) -> bool:
     solo se usa como resultado de búsqueda -- nunca se descarga ni se
     scrapea (tampoco LinkedIn)."""
     dominio = extraer_dominio(url)
-    return dominio in _DOMINIOS_NO_APTOS_PARA_ENRIQUECER or es_dominio_plataforma(dominio)
+    return dominio in _DOMINIOS_NO_APTOS_PARA_ENRIQUECER or es_dominio_plataforma(dominio) or parece_ficha_de_directorio(url)
 
 _TABLA_TILDES = str.maketrans("áéíóúÁÉÍÓÚñÑ", "aeiouAEIOUnN")
 
@@ -852,13 +857,17 @@ async def descubrir_borme(
     if filtros.ubicacion.municipios and not filtros.ubicacion.provincias:
         codigos_zona = resolver_codigos_municipio(filtros.ubicacion.municipios, conn)
 
-    conector = ConectorBorme(cliente_http)
     contadores = {
         "candidatos": 0, "descartados_por_zona": 0, "descartados_municipio_desconocido": 0, "descartados_por_sector": 0,
         "vinculado": 0, "nueva_empresa": 0, "en_revision": 0, "ya_procesado": 0, "error": 0,
     }
 
-    async for registro in conector.descubrir({"provincia_titulo": provincia_titulo, "desde": desde, "hasta": hasta}, max_coste_eur=0.0):
+    # Índice local (2026-09-25): solo se descargan los días que falten; el
+    # resto se lee de `borme_actos` en vez de volver a parsear miles de actos.
+    carga = await cargar_dias(conn, cliente_http, provincia_titulo, desde, hasta)
+    contadores["dias_descargados"] = carga["dias_descargados"]
+    for acto in actos_en_rango(conn, provincia_titulo, desde, hasta):
+        registro = acto_a_registro_bruto(acto, provincia_titulo)
         objeto_social = registro.campos.extra.get("objeto_social")
         if palabras and not _coincide_sector(objeto_social, registro.campos.razon_social, palabras):
             contadores["descartados_por_sector"] += 1
@@ -1015,12 +1024,16 @@ async def buscar_web(
             contadores["error_busqueda"] += 1
             continue
 
+        urls: list[str] = []
         for r in resultado.resultados:
             contadores["urls_encontradas"] += 1
             if _url_no_apta_para_enriquecer(r.url):
                 contadores["urls_descartadas_no_web_propia"] += 1
                 continue
-            registro = await enriquecer_desde_web(cliente_http, r.url)
+            urls.append(r.url)
+        webs = await enriquecer_varias(cliente_http, urls)  # en paralelo; la BD, en serie
+        for url in dict.fromkeys(urls):
+            registro = webs.get(url)
             if registro is None:
                 contadores["urls_no_legibles"] += 1
                 continue

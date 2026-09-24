@@ -84,3 +84,14 @@ def test_telefono_de_relleno_no_es_valido():
 
     assert normalizar_telefono("+34 600 000 000")["valido"] is False
     assert normalizar_telefono("954 11 22 33")["valido"] is True
+
+
+def test_dni_en_una_sociedad_no_es_su_nif() -> None:
+    r = normalizar_registro({"razon_social": "ELING S.L.U.", "nif": "08369853S"})
+    assert r["nif"] is None and r["nif_valido"] is None
+    assert "descartado" in (r["nif_aviso"] or "")
+
+
+def test_dni_en_comunidad_de_bienes_o_autonomo_se_conserva() -> None:
+    assert normalizar_registro({"razon_social": "HERMANOS PEREZ CB", "nif": "08369853S"})["nif"] == "08369853S"
+    assert normalizar_registro({"razon_social": "Candido Mendez", "nif": "08369853S"})["nif"] == "08369853S"

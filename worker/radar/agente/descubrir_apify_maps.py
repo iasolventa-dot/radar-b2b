@@ -30,7 +30,7 @@ import psycopg
 
 from radar.agente.consultas import zona_texto
 from radar.agente.interpretacion import FiltrosBusqueda
-from radar.extraccion import enriquecer_desde_web
+from radar.extraccion import enriquecer_varias
 from radar.fuentes.apify import ejecutar_actor
 from radar.fuentes.apify_maps import lugar_a_registro
 from radar.normalizacion.dominio import es_dominio_plataforma, extraer_dominio
@@ -68,8 +68,12 @@ async def procesar_items_maps(
         "lugares_encontrados": len(items), "sin_nombre_o_cerrados": 0, "con_telefono": 0, "con_web": 0,
         "webs_leidas": 0, "vinculado": 0, "nueva_empresa": 0, "en_revision": 0, "ya_procesado": 0, "error_procesado": 0,
     }
-    for item in items:
-        registro = lugar_a_registro(item)
+    registros = [lugar_a_registro(item) for item in items]
+    # Todas las webs a la vez (antes, una tras otra: minutos por búsqueda).
+    webs = await enriquecer_varias(
+        cliente_http, [r.campos.web for r in registros if r is not None and r.campos.web and _web_propia(r.campos.web)]
+    )
+    for registro in registros:
         if registro is None:
             contadores["sin_nombre_o_cerrados"] += 1
             continue
@@ -88,7 +92,7 @@ async def procesar_items_maps(
 
         if not _web_propia(registro.campos.web):
             continue
-        registro_web = await enriquecer_desde_web(cliente_http, registro.campos.web or "")
+        registro_web = webs.get(registro.campos.web or "")
         if registro_web is None:
             continue
         contadores["webs_leidas"] += 1

@@ -292,13 +292,15 @@ def parsear_listado_provincia(xml_bytes: bytes, url_xml: str) -> list[ActoBorme]
     return actos
 
 
-def acto_a_registro_bruto(acto: ActoBorme) -> RegistroBruto:
+def acto_a_registro_bruto(acto: ActoBorme, provincia: str | None = None) -> RegistroBruto:
+    """`provincia`: la del listado del BORME ("MADRID" -> "Madrid"). Hasta
+    2026-09-25 estaba fija a "Sevilla" para cualquier provincia."""
     campos = CamposExtraidos(
         razon_social=acto.razon_social,
         domicilio=acto.domicilio,
         codigo_postal=acto.codigo_postal,
         municipio=acto.municipio,
-        provincia="Sevilla",
+        provincia=provincia.title() if provincia else None,
         estado="disuelta" if "extincion" in acto.tipos or "disolucion" in acto.tipos else None,
         objeto_social=acto.objeto_social,
         extra={
@@ -400,5 +402,5 @@ class ConectorBorme(Conector):
                 dia += timedelta(days=1)
                 continue
             for acto in await self._actos_de_provincia(dia, provincia_titulo):
-                yield acto_a_registro_bruto(acto)
+                yield acto_a_registro_bruto(acto, provincia_titulo)
             dia += timedelta(days=1)

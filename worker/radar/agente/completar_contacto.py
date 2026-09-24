@@ -24,7 +24,9 @@ acuerde de pedirlo) y usa, por orden de coste:
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+import re
+import unicodedata
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
@@ -45,7 +47,11 @@ from radar.fuentes.apify import ejecutar_actor
 from radar.fuentes.apify_maps import lugar_a_registro
 from radar.fuentes.base import RegistroBruto
 from radar.fuentes.buscador_web import COSTE_POR_BUSQUEDA_EUR, buscar
-from radar.normalizacion.dominio import es_dominio_plataforma, extraer_dominio
+from radar.normalizacion.dominio import (
+    es_dominio_plataforma,
+    extraer_dominio,
+    parece_ficha_de_directorio,
+)
 from radar.normalizacion.nombre import (
     extraer_forma_juridica,
     normalizar_nombre,
@@ -63,7 +69,8 @@ _SQL_EMPRESAS = """
 select e.id::text, coalesce(e.razon_social, e.nombre_comercial), e.nif, e.dominio_web,
   (select s.municipio_nombre from sedes s where s.empresa_id = e.id and s.municipio_nombre is not null limit 1),
   exists(select 1 from canales_contacto c where c.empresa_id = e.id and c.tipo = 'telefono' and c.estado <> 'invalido'),
-  exists(select 1 from canales_contacto c where c.empresa_id = e.id and c.tipo = 'email' and c.estado <> 'invalido')
+  exists(select 1 from canales_contacto c where c.empresa_id = e.id and c.tipo = 'email' and c.estado <> 'invalido'),
+  coalesce((select array_agg(c.valor) from canales_contacto c where c.empresa_id = e.id and c.tipo = 'telefono'), '{}')
 from busqueda_resultados br
 join empresas e on e.id = br.empresa_id
 where br.busqueda_id = %s and e.fusionada_en is null and (e.estado is null or e.estado not in ('extinguida', 'disuelta'))
@@ -79,6 +86,7 @@ class EmpresaSinContacto:
     municipio: str | None
     tiene_telefono: bool
     tiene_email: bool
+    telefonos: list[str] = field(default_factory=list)
 
     @property
     def completa(self) -> bool:
@@ -117,16 +125,49 @@ def coincide(nombre_objetivo: str, nombre_candidato: str | None) -> bool:
     return similitud_nombres(a, b) >= UMBRAL_SIMILITUD or bool(tokens_distintivos(a) & tokens_distintivos(b))
 
 
+def _digitos(t: str) -> str:
+    return "".join(ch for ch in t if ch.isdigit())[-9:]
+
+
 def registro_coincide(empresa: EmpresaSinContacto, registro: RegistroBruto) -> bool:
     c = registro.campos
     if empresa.nif and c.nif and empresa.nif.upper() == c.nif.upper():
+        return True
+    # Mismo teléfono: la web es de este negocio aunque el nombre no case (la
+    # marca de Maps "Electricista Majadahonda" frente a la razón social del
+    # aviso legal).
+    propios = {_digitos(t) for t in empresa.telefonos if len(_digitos(t)) == 9}
+    if propios & {_digitos(t) for t in c.telefonos}:
         return True
     return coincide(empresa.nombre, c.razon_social) or coincide(empresa.nombre, c.nombre_comercial)
 
 
 def _web_propia(url: str | None) -> bool:
     dominio = extraer_dominio(url) if url else None
-    return bool(dominio) and not es_dominio_plataforma(dominio) and dominio not in _NO_WEB_PROPIA
+    return (
+        bool(dominio) and not es_dominio_plataforma(dominio) and dominio not in _NO_WEB_PROPIA
+        and not parece_ficha_de_directorio(url)
+    )
+
+
+def _compacto(texto: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", unicodedata.normalize("NFKD", texto.lower()).encode("ascii", "ignore").decode())
+
+
+def es_ficha_de_tercero(nombre_empresa: str, url: str) -> bool:
+    """La ruta de la URL nombra a la empresa pero el dominio no se le parece:
+    es su ficha en un portal ajeno (visto en vivo 2026-09-24:
+    profymarket.com/contratistas/la-encina-gran-capitan-sl se tomó por la web
+    de LA ENCINA y le puso el nombre y el email del portal)."""
+    distintivos = [t for t in tokens_distintivos(normalizar_nombre(nombre_empresa) or "") if len(t) >= 4]
+    if not distintivos:
+        return False
+    host = _compacto((extraer_dominio(url) or "").rsplit(".", 1)[0])
+    resto = url.split("://", 1)[-1]
+    ruta = _compacto(resto[resto.find("/"):] if "/" in resto else "")
+    en_ruta = any(t in ruta for t in distintivos)
+    en_host = any(t in host for t in distintivos)
+    return en_ruta and not en_host
 
 
 def _procesar(
@@ -148,6 +189,9 @@ async def _leer_web(
     conn: psycopg.Connection, cliente_http: httpx.AsyncClient, empresa: EmpresaSinContacto, url: str,
     busqueda_id: str, compartidos: set[str] | None, contadores: dict[str, int], *, exigir_coincidencia: bool,
 ) -> bool:
+    if es_ficha_de_tercero(empresa.nombre, url):
+        contadores["fichas_de_terceros"] = contadores.get("fichas_de_terceros", 0) + 1
+        return False
     registro = await enriquecer_desde_web(cliente_http, url)
     if registro is None:
         contadores["webs_no_legibles"] += 1
@@ -215,8 +259,9 @@ async def _buscar_con_google_apify(
     bd.registrar_uso_apify(ACTOR_GOOGLE_SEARCH, res.run_id, res.estado, res.coste_usd, {"fase": "completar_contacto", "consultas": consultas}, conn)
     conn.commit()
     por_consulta = {(it.get("searchQuery") or {}).get("term"): it for it in res.items}
-    for empresa, consulta in zip(empresas, consultas, strict=True):
-        item = por_consulta.get(consulta) or {}
+    for i, (empresa, consulta) in enumerate(zip(empresas, consultas, strict=True)):
+        # Por término; si Apify lo devuelve con otro formato, por orden.
+        item = por_consulta.get(consulta) or (res.items[i] if i < len(res.items) else {})
         urls = [o.get("url") for o in item.get("organicResults") or [] if _web_propia(o.get("url"))][:3]
         for url in urls:
             if await _leer_web(conn, cliente_http, empresa, url, busqueda_id, compartidos, contadores, exigir_coincidencia=True):
@@ -272,21 +317,31 @@ async def completar_contacto(
     for e in [e for e in pendientes if e.dominio_web]:
         await _leer_web(conn, cliente_http, e, f"https://{e.dominio_web}", busqueda_id, telefonos_compartidos, contadores, exigir_coincidencia=False)
 
-    # 2. Sin web (ni teléfono): buscarla por nombre con la fuente disponible.
-    sin_web = [e for e in pendientes if not e.dominio_web and not e.tiene_telefono]
+    # 2. Sin web: buscarla. Las que no tienen NADA de contacto, primero en
+    #    Maps (da teléfono y web); las que ya tienen teléfono (típico de Maps
+    #    sin web) en Google, porque es su web la que da email, NIF y personas.
     hay_token = bool(obtener_token_apify(conn))
     tope_apify = min(max_coste_eur, presupuesto_mensual_apify_usd(conn) - gasto_mes_apify_usd(conn)) if hay_token else 0.0
-    fuente = "ninguna"
-    if sin_web and max_coste_eur > 0:
-        if hay_token and "google_maps" in apify_actores and tope_apify > 0:
-            fuente = "apify_google_maps"
-            coste_eur += await _buscar_con_maps(conn, cliente_http, sin_web, zona, tope_apify, busqueda_id, telefonos_compartidos, contadores)
-        elif hay_token and "google_search" in apify_actores and tope_apify > 0:
-            fuente = "apify_google_search"
-            coste_eur += await _buscar_con_google_apify(conn, cliente_http, sin_web, zona, tope_apify, busqueda_id, telefonos_compartidos, contadores)
+    sin_nada = [e for e in pendientes if not e.dominio_web and not e.tiene_telefono]
+    solo_telefono = [e for e in pendientes if not e.dominio_web and e.tiene_telefono]
+    fuentes_usadas: list[str] = []
+    if sin_nada and hay_token and "google_maps" in apify_actores and tope_apify > 0:
+        fuentes_usadas.append("apify_google_maps")
+        gastado = await _buscar_con_maps(conn, cliente_http, sin_nada, zona, tope_apify / 2, busqueda_id, telefonos_compartidos, contadores)
+        coste_eur += gastado
+        tope_apify -= gastado
+        sin_nada = []
+    buscar_en_google = sin_nada + solo_telefono
+    if buscar_en_google and max_coste_eur - coste_eur > 0:
+        if hay_token and "google_search" in apify_actores and tope_apify > 0:
+            fuentes_usadas.append("apify_google_search")
+            coste_eur += await _buscar_con_google_apify(conn, cliente_http, buscar_en_google, zona, tope_apify, busqueda_id, telefonos_compartidos, contadores)
         else:
-            fuente = "buscador_web"
-            coste_eur += await _buscar_con_llm(conn, cliente_http, cliente_llm, sin_web, zona, max_coste_eur, busqueda_id, telefonos_compartidos, contadores)
+            fuentes_usadas.append("buscador_web")
+            coste_eur += await _buscar_con_llm(
+                conn, cliente_http, cliente_llm, buscar_en_google, zona, max_coste_eur - coste_eur, busqueda_id, telefonos_compartidos, contadores
+            )
+    fuente = ", ".join(fuentes_usadas) or "ninguna"
 
     despues = estado_contacto(conn, busqueda_id)
     return {

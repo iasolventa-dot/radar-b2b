@@ -45,7 +45,7 @@ Empresas (lo que sabemos de cada una):
 Para cada empresa decide:
 - "relevante": su actividad principal es la del sector buscado o una muy cercana que lo incluye (p. ej. "instalaciones" de fontanería y calefacción, o una empresa de reformas que hace fontanería, para "fontanería"). La categoría de Google Maps es una buena señal.
 - "descartado": solo si claramente NO es del sector: otra actividad (tienda o distribuidor de material, ferretería, persianas, aseguradora, agencia de marketing...), un organismo público, un directorio o portal de empresas, un medio de comunicación, una app o software, un marketplace, o un lugar que no es una empresa. También si consta que está en OTRA PROVINCIA.
-- "dudoso": no hay información suficiente sobre su actividad, o es del sector pero consta en otro municipio de la misma provincia (dilo en el motivo; no la descartes por eso).
+- "dudoso": no hay información suficiente sobre su actividad, o es del sector pero consta en otro municipio de la misma provincia (dilo en el motivo; no la descartes por eso). También si parece una web de captación de clientes: dominio genérico de "servicio + ciudad" (p. ej. reformasintegralesmadrid.com) cuyo titular es una agencia de marketing, publicidad o captación de leads en vez de una empresa del sector.
 No inventes: decide solo con los datos dados. "motivo": una frase corta en español.
 
 Responde SOLO con JSON: {{"clasificaciones": [{{"id": "...", "relevancia": "relevante|dudoso|descartado", "motivo": "..."}}]}}"""
