@@ -1,5 +1,7 @@
 import { crearClienteServidor } from "@/lib/supabase/server";
+import { Search } from "lucide-react";
 import { FormularioNuevaBusqueda } from "@/components/formulario-nueva-busqueda";
+import { EncabezadoPagina } from "@/components/encabezado-pagina";
 
 export const dynamic = "force-dynamic";
 
@@ -21,14 +23,13 @@ export default async function PaginaNuevaBusqueda({
   const { peticion, contexto } = await searchParams;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Nueva búsqueda</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Describe qué empresas buscas en lenguaje natural. El agente interpreta la petición,
-          te enseña cómo la ha entendido y, si confirmas, sale a buscar (doc 02 §2).
+    <div className="entrada space-y-8">
+      <EncabezadoPagina icono={Search} antetitulo="Agente de búsqueda" titulo={<>¿Qué empresas <span className="texto-marca">buscamos hoy</span>?</>}>
+        <p>
+          Descríbelo como se lo dirías a una persona. El agente interpreta la petición, te enseña cómo la ha
+          entendido y, cuando confirmas, sale a buscar, contrasta fuentes y rellena los datos de contacto.
         </p>
-      </div>
+      </EncabezadoPagina>
       <FormularioNuevaBusqueda usuarioId={user?.id ?? null} peticionInicial={peticion} contextoInicial={contexto} />
     </div>
   );

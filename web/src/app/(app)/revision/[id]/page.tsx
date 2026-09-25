@@ -50,10 +50,10 @@ export default async function PaginaDetalleCandidato({
   const casoSugerido = CASO_SUGERIDO[candidato.categoria_candidato] ?? "";
 
   return (
-    <div className="space-y-6">
+    <div className="entrada space-y-6">
       <div>
-        <p className="text-xs font-medium text-slate-400">{candidato.id_fila}</p>
-        <h1 className="mt-0.5 text-2xl font-semibold tracking-tight text-slate-900">
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-brand-600">{candidato.id_fila}</p>
+        <h1 className="mt-1 font-display text-3xl font-extrabold tracking-tight text-slate-900">
           {candidato.razon_social}
         </h1>
         <p className="mt-1 text-sm text-slate-500">
@@ -63,7 +63,7 @@ export default async function PaginaDetalleCandidato({
       </div>
 
       {candidato.categoria_candidato === "revisar_objeto_generico" && (
-        <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        <div className="aviso-atencion">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <p>
             Este candidato solo coincidió por una palabra suelta en un objeto social genérico —
@@ -74,7 +74,7 @@ export default async function PaginaDetalleCandidato({
       )}
 
       <section className="card p-5">
-        <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-700">
+        <h2 className="titulo-seccion mb-4">
           <FileSearch className="h-4 w-4 text-slate-400" />
           Evidencia del BORME
         </h2>
@@ -114,7 +114,7 @@ export default async function PaginaDetalleCandidato({
       </section>
 
       <section className="card p-5">
-        <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-700">
+        <h2 className="titulo-seccion mb-4">
           <ShieldCheck className="h-4 w-4 text-emerald-500" />
           Promover a entidad verificada
         </h2>

@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { Check, CheckCircle2, X } from "lucide-react";
+import { Check, CheckCircle2, Search, X } from "lucide-react";
+import { EstadoVacio } from "@/components/encabezado-pagina";
 import { crearClienteServidor } from "@/lib/supabase/server";
 import { marcarRelevancia } from "@/lib/acciones-conflictos";
 
@@ -27,9 +28,8 @@ export async function ListaRelevancia() {
 
   if (filas.length === 0) {
     return (
-      <div className="card flex flex-col items-center gap-2 p-10 text-center text-slate-400">
-        <CheckCircle2 className="h-8 w-8" strokeWidth={1.5} />
-        <p className="text-sm">No hay resultados dudosos ni descartados pendientes de revisar.</p>
+      <div className="card">
+        <EstadoVacio icono={CheckCircle2}>No hay resultados dudosos ni descartados pendientes de revisar.</EstadoVacio>
       </div>
     );
   }
@@ -50,35 +50,50 @@ export async function ListaRelevancia() {
           .filter((f) => f.busqueda_id === b.id)
           .sort((x, y) => (x.clasificacion === y.clasificacion ? 0 : x.clasificacion === "dudoso" ? -1 : 1));
         return (
-          <div key={b.id} className="card p-5">
-            <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-              <Link href={`/busquedas/${b.id}`} className="font-medium text-slate-800 hover:text-brand-600">
+          <div key={b.id} className="card overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white px-6 py-4">
+              <Link
+                href={`/busquedas/${b.id}`}
+                className="flex items-center gap-2 font-display text-base font-bold text-slate-900 hover:text-brand-700"
+              >
+                <Search className="h-4 w-4 text-brand-500" />
                 {b.peticion}
               </Link>
-              <span className="text-xs text-slate-400">{new Date(b.creado_en).toLocaleString("es-ES")}</span>
+              <span className="text-sm text-slate-400">{new Date(b.creado_en).toLocaleString("es-ES")}</span>
             </div>
-            <ul className="divide-y divide-slate-100">
+            <ul className="divide-y divide-slate-100 px-2">
               {deEsta.map((f) => {
                 const e = empresaPorId.get(f.empresa_id);
                 return (
-                  <li key={f.empresa_id} className="flex flex-wrap items-center justify-between gap-3 py-2 text-sm">
-                    <div className="min-w-0">
-                      <span
-                        className={`badge mr-2 ${f.clasificacion === "dudoso" ? "bg-amber-100 text-amber-800" : "bg-rose-100 text-rose-800"}`}
-                      >
-                        {f.clasificacion === "dudoso" ? "dudosa" : "descartada"}
-                      </span>
-                      <Link href={`/empresas/${f.empresa_id}`} className="font-medium text-slate-800 hover:text-brand-600">
-                        {e?.razon_social ?? e?.nombre_comercial ?? "(sin nombre)"}
-                      </Link>
-                      {e?.dominio_web && <span className="ml-2 text-xs text-slate-400">{e.dominio_web}</span>}
-                      {f.motivo_relevancia && <p className="text-xs text-slate-500">{f.motivo_relevancia}</p>}
+                  <li
+                    key={f.empresa_id}
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-xl px-4 py-3.5 transition hover:bg-slate-50"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={`badge ${f.clasificacion === "dudoso" ? "bg-amber-50 text-amber-700" : "bg-rose-50 text-rose-700"}`}
+                        >
+                          <span className="punto" />
+                          {f.clasificacion === "dudoso" ? "dudosa" : "descartada"}
+                        </span>
+                        <Link href={`/empresas/${f.empresa_id}`} className="font-semibold text-slate-900 hover:text-brand-700">
+                          {e?.razon_social ?? e?.nombre_comercial ?? "(sin nombre)"}
+                        </Link>
+                        {e?.dominio_web && <span className="text-sm text-slate-400">{e.dominio_web}</span>}
+                      </div>
+                      {f.motivo_relevancia && <p className="mt-1 text-sm text-slate-600">{f.motivo_relevancia}</p>}
                     </div>
                     <div className="flex gap-2">
-                      <FormularioRelevancia busquedaId={f.busqueda_id} empresaId={f.empresa_id} decision="aceptado" clase="btn-secondary">
+                      <FormularioRelevancia
+                        busquedaId={f.busqueda_id}
+                        empresaId={f.empresa_id}
+                        decision="aceptado"
+                        clase="btn-secondary hover:!border-emerald-300 hover:!bg-emerald-50 hover:!text-emerald-700"
+                      >
                         <Check className="h-4 w-4" /> Sí es del sector
                       </FormularioRelevancia>
-                      <FormularioRelevancia busquedaId={f.busqueda_id} empresaId={f.empresa_id} decision="rechazado" clase="btn-secondary">
+                      <FormularioRelevancia busquedaId={f.busqueda_id} empresaId={f.empresa_id} decision="rechazado" clase="btn-danger">
                         <X className="h-4 w-4" /> No lo es
                       </FormularioRelevancia>
                     </div>

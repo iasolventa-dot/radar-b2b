@@ -234,13 +234,13 @@ export const ETIQUETA_ESTADO_BUSQUEDA: Record<string, string> = {
 };
 
 export const COLOR_ESTADO_BUSQUEDA: Record<string, string> = {
-  interpretada: "bg-slate-100 text-slate-600",
+  interpretada: "bg-slate-100 text-slate-700",
   en_curso: "bg-brand-50 text-brand-700",
-  esperando_respuesta: "bg-amber-100 text-amber-800",
-  completada: "bg-emerald-100 text-emerald-700",
-  error: "bg-rose-100 text-rose-700",
-  pendiente: "bg-slate-100 text-slate-600",
-  cancelada: "bg-slate-100 text-slate-600",
+  esperando_respuesta: "bg-amber-50 text-amber-700",
+  completada: "bg-emerald-50 text-emerald-700",
+  error: "bg-rose-50 text-rose-700",
+  pendiente: "bg-slate-100 text-slate-700",
+  cancelada: "bg-slate-100 text-slate-500",
 };
 
 export const ETIQUETA_HERRAMIENTA: Record<string, string> = {

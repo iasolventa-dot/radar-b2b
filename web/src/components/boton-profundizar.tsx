@@ -12,7 +12,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Loader2, Search } from "lucide-react";
+import { AlertTriangle, Loader2, Search, Telescope } from "lucide-react";
 import { profundizarEmpresa } from "@/lib/api";
 import type { ProfundizarOut } from "@/lib/tipos";
 
@@ -42,17 +42,22 @@ export function BotonProfundizar({ empresaId }: { empresaId: string }) {
   const r = resultado?.resultado as Record<string, unknown> | undefined;
 
   return (
-    <div className="card space-y-3 p-5">
+    <div className="card relative space-y-4 overflow-hidden p-6">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-slate-700">Búsqueda en profundidad</h2>
-          <p className="mt-0.5 text-xs text-slate-500">
+          <h2 className="titulo-seccion">
+            <span className="icono-seccion">
+              <Telescope className="h-4 w-4" />
+            </span>
+            Búsqueda en profundidad
+          </h2>
+          <p className="mt-1.5 max-w-3xl text-sm leading-relaxed text-slate-600">
             Lanza 1-4 búsquedas web dirigidas solo a esta empresa (nombre + NIF/municipio ya conocidos),
             hasta {PRESUPUESTO_POR_DEFECTO_EUR.toFixed(2)} €. Útil cuando faltan datos o hay dudas de si un
             duplicado es la misma empresa.
           </p>
         </div>
-        <button type="button" onClick={ejecutar} disabled={cargando} className="btn-secondary shrink-0">
+        <button type="button" onClick={ejecutar} disabled={cargando} className="btn-primary shrink-0">
           {cargando ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin" /> Buscando…
@@ -66,18 +71,18 @@ export function BotonProfundizar({ empresaId }: { empresaId: string }) {
       </div>
 
       {error && (
-        <div className="flex items-start gap-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-800">
+        <div className="aviso-error">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <p>{error}</p>
         </div>
       )}
 
       {resultado && !error && (
-        <div className="space-y-2 rounded-lg bg-slate-50 p-3 text-sm">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Consultas ejecutadas</p>
+        <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-50/70 p-4 text-sm">
+          <p className="text-xs font-bold uppercase tracking-wider text-brand-600">Consultas ejecutadas</p>
           <ul className="space-y-0.5 text-slate-600">
             {resultado.consultas.map((c, i) => (
-              <li key={i} className="font-mono text-xs">
+              <li key={i} className="font-mono text-sm">
                 {c}
               </li>
             ))}

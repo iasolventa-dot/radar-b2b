@@ -71,37 +71,40 @@ export function AjustesApify() {
       : 0;
 
   return (
-    <div className="card space-y-5 p-5">
+    <div className="card space-y-5 p-6">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-            <KeyRound className="h-4 w-4 text-slate-400" /> Apify (de pago)
+          <h2 className="titulo-seccion">
+            <span className="icono-seccion">
+              <KeyRound className="h-4 w-4" />
+            </span>
+            Apify (de pago)
           </h2>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-600">
             Un único token para varios Actors de Apify: rastreo de webs propias, búsqueda en Google, Google Maps,
             LinkedIn y Facebook. En «Nueva búsqueda» marcas, uno a uno, cuáles quieres usar en cada búsqueda. Apify
             es un servicio aparte, con cuenta y facturación propias.
           </p>
         </div>
         <span
-          className={`badge shrink-0 ${estado?.configurado ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"}`}
+          className={`badge shrink-0 ${estado?.configurado ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}
         >
           {estado === null ? "…" : estado.configurado ? "Configurado" : "Sin token"}
         </span>
       </div>
 
       {estado?.configurado && (
-        <div className="rounded-lg bg-slate-50 p-3 text-sm text-slate-700">
+        <div className="rounded-xl border border-slate-100 bg-gradient-to-br from-slate-50 to-white p-4 text-sm text-slate-700">
           <p>
             Token actual: <span className="font-mono">{estado.token_enmascarado}</span>
           </p>
           <div className="mt-2">
-            <div className="flex justify-between text-xs text-slate-500">
+            <div className="flex justify-between text-sm text-slate-500">
               <span>Gasto este mes: {estado.gasto_mes_usd.toFixed(2)} $</span>
               <span>Tope mensual: {estado.presupuesto_mensual_usd.toFixed(2)} $</span>
             </div>
-            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-200">
-              <div className="h-full bg-brand-600" style={{ width: `${gastoPct}%` }} />
+            <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-slate-200">
+              <div className="h-full rounded-full bg-gradient-to-r from-senal-400 via-brand-500 to-violet-600" style={{ width: `${gastoPct}%` }} />
             </div>
           </div>
         </div>
@@ -142,7 +145,7 @@ export function AjustesApify() {
 
       {mensaje && (
         <div
-          className={`flex items-start gap-3 rounded-lg p-3 text-sm ${mensaje.ok ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-800"}`}
+          className={mensaje.ok ? "aviso-ok" : "aviso-error"}
         >
           {mensaje.ok ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}
           <p>{mensaje.texto}</p>
@@ -163,7 +166,7 @@ export function AjustesApify() {
         )}
       </div>
 
-      <p className="text-xs text-slate-400">
+      <p className="text-sm text-slate-400">
         Crea el token en Apify Console → Settings → API &amp; Integrations. Se guarda en la base de datos y solo lo
         lee el worker local; nunca se muestra entero.
       </p>

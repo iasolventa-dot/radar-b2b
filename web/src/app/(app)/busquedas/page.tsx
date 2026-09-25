@@ -1,11 +1,13 @@
 import Link from "next/link";
-import { ArrowRight, History, Search } from "lucide-react";
+import { ArrowRight, CheckCircle2, Euro, History, Loader2, Search } from "lucide-react";
 import { crearClienteServidor } from "@/lib/supabase/server";
-import { COLOR_ESTADO_BUSQUEDA, ETIQUETA_ESTADO_BUSQUEDA, type BusquedaFila } from "@/lib/tipos";
+import type { BusquedaFila } from "@/lib/tipos";
+import { EstadoBusqueda } from "@/components/estado-busqueda";
+import { EncabezadoPagina, EstadoVacio, TarjetaCifra } from "@/components/encabezado-pagina";
 
 // Lectura directa contra Supabase (RLS, `busquedas` tiene política de
 // lectura para `authenticated`) — igual que el resto del panel, así el
-// histórico se ve aunque el worker de Railway esté caído. Solo crear/
+// histórico se ve aunque el worker local esté parado. Solo crear/
 // confirmar una búsqueda pasa por `radar.api` (lib/api.ts).
 export const dynamic = "force-dynamic";
 
@@ -22,23 +24,47 @@ export default async function PaginaBusquedas() {
     .limit(POR_PAGINA);
 
   const filas = (busquedas ?? []) as unknown as BusquedaFila[];
+  const gastoTotal = filas.reduce((suma, b) => suma + (b.coste_eur ?? 0), 0);
+  const completadas = filas.filter((b) => b.estado === "completada").length;
+  const enCurso = filas.filter((b) => b.estado === "en_curso").length;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Búsquedas</h1>
-          <p className="mt-1 text-sm text-slate-500">{count ?? 0} búsquedas lanzadas</p>
-        </div>
-        <Link href="/" className="btn-primary">
-          <Search className="h-4 w-4" /> Nueva búsqueda
-        </Link>
+    <div className="entrada space-y-8">
+      <EncabezadoPagina
+        icono={History}
+        antetitulo="Historial"
+        titulo="Búsquedas"
+        acciones={
+          <Link href="/" className="btn-primary">
+            <Search className="h-4 w-4" /> Nueva búsqueda
+          </Link>
+        }
+      >
+        <p>Cada búsqueda lanzada, con su estado, coste y resultados.</p>
+      </EncabezadoPagina>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <TarjetaCifra icono={History} etiqueta="Búsquedas lanzadas" valor={count ?? 0} tono="marca" />
+        <TarjetaCifra
+          icono={enCurso ? Loader2 : CheckCircle2}
+          etiqueta={enCurso ? "En curso ahora" : "Completadas"}
+          valor={enCurso || completadas}
+          detalle={enCurso ? `${completadas} completadas` : undefined}
+          tono="verde"
+        />
+        <TarjetaCifra
+          icono={Euro}
+          etiqueta="Gasto total"
+          valor={`${gastoTotal.toFixed(2)} €`}
+          detalle={filas.length < (count ?? 0) ? `últimas ${filas.length}` : undefined}
+          tono="cian"
+        />
       </div>
 
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50">
+          <table className="tabla-panel">
+            <thead>
               <tr>
                 <th className="th-panel">Petición</th>
                 <th className="th-panel">Estado</th>
@@ -50,39 +76,45 @@ export default async function PaginaBusquedas() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filas.map((b) => (
-                <tr key={b.id} className="transition-colors hover:bg-slate-50/70">
-                  <td className="max-w-xs truncate px-4 py-3 font-medium text-slate-800" title={b.peticion}>
-                    {b.peticion}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`badge ${COLOR_ESTADO_BUSQUEDA[b.estado] ?? "bg-slate-100 text-slate-600"}`}>
-                      {ETIQUETA_ESTADO_BUSQUEDA[b.estado] ?? b.estado}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">
-                    {b.rondas} / {b.estadisticas?.max_rondas ?? "—"}
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">
-                    {b.coste_eur.toFixed(2)} € {b.presupuesto_eur != null && `/ ${Number(b.presupuesto_eur).toFixed(2)} €`}
-                  </td>
-                  <td className="px-4 py-3 text-slate-400">{new Date(b.creado_en).toLocaleString("es-ES")}</td>
-                  <td className="px-4 py-3 text-right">
+                <tr key={b.id} className="group">
+                  <td className="td-panel max-w-md">
                     <Link
                       href={`/busquedas/${b.id}`}
-                      className="inline-flex items-center gap-1 text-sm font-medium text-brand-600 hover:text-brand-700"
+                      className="block truncate text-base font-semibold text-slate-900 group-hover:text-brand-700"
+                      title={b.peticion}
                     >
-                      Ver <ArrowRight className="h-3.5 w-3.5" />
+                      {b.peticion}
+                    </Link>
+                  </td>
+                  <td className="td-panel">
+                    <EstadoBusqueda estado={b.estado} />
+                  </td>
+                  <td className="td-panel tabular-nums text-slate-600">
+                    {b.rondas} / {b.estadisticas?.max_rondas ?? "—"}
+                  </td>
+                  <td className="td-panel whitespace-nowrap tabular-nums">
+                    <span className="font-semibold text-slate-800">{b.coste_eur.toFixed(2)} €</span>
+                    {b.presupuesto_eur != null && (
+                      <span className="text-slate-400"> / {Number(b.presupuesto_eur).toFixed(2)} €</span>
+                    )}
+                  </td>
+                  <td className="td-panel whitespace-nowrap text-slate-500">
+                    {new Date(b.creado_en).toLocaleString("es-ES", { dateStyle: "medium", timeStyle: "short" })}
+                  </td>
+                  <td className="td-panel text-right">
+                    <Link
+                      href={`/busquedas/${b.id}`}
+                      className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold text-brand-600 transition group-hover:bg-brand-50 hover:text-brand-700"
+                    >
+                      Ver <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
                     </Link>
                   </td>
                 </tr>
               ))}
               {filas.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-14">
-                    <div className="flex flex-col items-center gap-2 text-center text-slate-400">
-                      <History className="h-8 w-8" strokeWidth={1.5} />
-                      <p className="text-sm">Todavía no se ha lanzado ninguna búsqueda.</p>
-                    </div>
+                  <td colSpan={6}>
+                    <EstadoVacio icono={History}>Todavía no se ha lanzado ninguna búsqueda.</EstadoVacio>
                   </td>
                 </tr>
               )}

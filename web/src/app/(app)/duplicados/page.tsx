@@ -1,4 +1,5 @@
-import { AlertTriangle, Ban, GitMerge, Sparkles } from "lucide-react";
+import { AlertTriangle, Ban, Bot, Building2, Copy, GitMerge, Sparkles } from "lucide-react";
+import { EncabezadoPagina } from "@/components/encabezado-pagina";
 import { ListaConflictos } from "@/components/lista-conflictos";
 import { resolverAutomaticamente } from "@/lib/acciones-conflictos";
 import { crearClienteServidor } from "@/lib/supabase/server";
@@ -54,34 +55,46 @@ export default async function PaginaDuplicados() {
   const empresaPorId = new Map((empresasFilas ?? []).map((e) => [e.id, e as EmpresaResumen]));
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Datos sin contrastar</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Datos que el sistema no ha podido contrastar automáticamente: fuentes que dan valores distintos para
-          el mismo campo sin evidencia suficiente para saber cuál es el correcto, o datos unidos a una empresa por
-          una coincidencia parcial. En la ficha ya se muestra el valor más probable; aquí decides.
+    <div className="entrada space-y-7">
+      <EncabezadoPagina
+        icono={Copy}
+        antetitulo="Tu decisión"
+        titulo="Datos sin contrastar"
+        acciones={
+          <form action={resolverAutomaticamente}>
+            <button type="submit" className="btn-primary">
+              <Sparkles className="h-4 w-4" /> Intentar resolver automáticamente
+            </button>
+          </form>
+        }
+      >
+        <p>
+          Fuentes que dan valores distintos para el mismo campo sin evidencia suficiente, o datos unidos a una
+          empresa por una coincidencia parcial. En la ficha ya se muestra el valor más probable; aquí decides.
         </p>
-        <p className="mt-1 text-xs text-slate-500">
+      </EncabezadoPagina>
+
+      <div className="aviso-ia">
+        <Bot className="mt-0.5 h-5 w-5 shrink-0 text-violet-600" />
+        <p>
           Al terminar cada búsqueda el sistema ya intenta resolverlos solo: busca el dato en la web de la empresa y,
-          si no lo encuentra, pide una sugerencia a la IA. Lo que resuelve pasa a la Cola de revisión; aquí queda lo
-          que no pudo decidir (con la sugerencia de la IA si la hay).
+          si no lo encuentra, pide una sugerencia a la IA. Lo que resuelve pasa a la <strong>Cola de revisión</strong>;
+          aquí queda lo que no pudo decidir (con la sugerencia de la IA si la hay).
         </p>
-        <form action={resolverAutomaticamente} className="mt-3">
-          <button type="submit" className="btn-secondary">
-            <Sparkles className="h-4 w-4" /> Intentar resolver automáticamente
-          </button>
-        </form>
       </div>
 
       <ListaConflictos tipo="sin_contrastar" vacio="No hay datos pendientes de contrastar." />
 
       {(candidatos ?? []).length > 0 && (
         <div className="pt-4">
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-            <GitMerge className="h-4 w-4 text-slate-400" /> Posibles duplicados anteriores ({count ?? 0})
+          <h2 className="titulo-seccion">
+            <span className="icono-seccion">
+              <GitMerge className="h-4 w-4" />
+            </span>
+            Posibles duplicados anteriores
+            <span className="badge bg-amber-50 text-amber-700">{count ?? 0}</span>
           </h2>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-sm text-slate-500">
             Parejas de empresas creadas antes del 24/09/2026, cuando una duda de identidad creaba una fila nueva.
           </p>
         </div>
@@ -93,13 +106,13 @@ export default async function PaginaDuplicados() {
           const b = empresaPorId.get(c.empresa_b);
           if (!a || !b) return null;
           return (
-            <div key={c.id} className="card p-5">
+            <div key={c.id} className="card-interactiva p-6">
               <div className="mb-3 flex items-center justify-between">
-                <span className="badge bg-amber-100 text-amber-800">
-                  <AlertTriangle className="mr-1 h-3 w-3" />
+                <span className="badge bg-amber-50 text-amber-700">
+                  <AlertTriangle className="h-3.5 w-3.5" />
                   puntuación {c.puntuacion.toFixed(2)}
                 </span>
-                <span className="text-xs text-slate-400">{new Date(c.creado_en).toLocaleDateString("es-ES")}</span>
+                <span className="text-sm text-slate-400">{new Date(c.creado_en).toLocaleDateString("es-ES")}</span>
               </div>
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -108,7 +121,7 @@ export default async function PaginaDuplicados() {
               </div>
 
               {c.senales && Object.keys(c.senales).length > 0 && (
-                <p className="mt-3 text-xs text-slate-400">
+                <p className="mt-3 text-sm text-slate-500">
                   Señales: {Object.entries(c.senales as Record<string, unknown>).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join(" · ")}
                 </p>
               )}
@@ -152,13 +165,14 @@ export default async function PaginaDuplicados() {
 
 function TarjetaEmpresa({ empresa }: { empresa: EmpresaResumen }) {
   return (
-    <div className="rounded-lg border border-slate-200 p-3">
-      <p className="font-medium text-slate-800">{empresa.razon_social ?? empresa.nombre_comercial ?? "(sin nombre)"}</p>
-      <p className="mt-1 text-xs text-slate-500">
+    <div className="rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-4">
+      <p className="flex items-center gap-2 font-semibold text-slate-900">
+        <Building2 className="h-4 w-4 shrink-0 text-brand-500" />{empresa.razon_social ?? empresa.nombre_comercial ?? "(sin nombre)"}</p>
+      <p className="mt-1.5 text-sm text-slate-500">
         {empresa.nif ?? "sin NIF"} · {empresa.forma_juridica ?? "forma jurídica desconocida"} · {empresa.estado ?? "estado desconocido"}
         {empresa.confianza_global != null && ` · confianza ${empresa.confianza_global.toFixed(2)}`}
       </p>
-      {empresa.objeto_social && <p className="mt-2 text-xs text-slate-500">{empresa.objeto_social}</p>}
+      {empresa.objeto_social && <p className="mt-2 text-sm leading-relaxed text-slate-600">{empresa.objeto_social}</p>}
     </div>
   );
 }

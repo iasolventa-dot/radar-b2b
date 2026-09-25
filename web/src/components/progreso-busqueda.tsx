@@ -2,15 +2,44 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowLeft, Ban, CheckCircle2, Clock3, Download, Euro, HelpCircle, Loader2, RotateCw } from "lucide-react";
+import {
+  Activity,
+  AlertTriangle,
+  ArrowLeft,
+  Ban,
+  Brain,
+  Building2,
+  CalendarClock,
+  CheckCircle2,
+  Clock3,
+  Database,
+  Download,
+  Euro,
+  Filter,
+  Flag,
+  Globe,
+  HelpCircle,
+  Landmark,
+  Loader2,
+  Mail,
+  MapPinned,
+  Phone,
+  PieChart,
+  Radar,
+  RotateCw,
+  SlidersHorizontal,
+  Sparkles,
+  UserRound,
+  type LucideIcon,
+} from "lucide-react";
+import { EstadoVacio, TarjetaCifra } from "@/components/encabezado-pagina";
+import { EstadoBusqueda } from "@/components/estado-busqueda";
 import { crearClienteNavegador } from "@/lib/supabase/client";
 import { cancelarBusqueda, confirmarBusqueda } from "@/lib/api";
 import { describirFiltros } from "@/lib/filtros";
 import { exportarResultadosCsv } from "@/lib/exportar-csv";
 import {
-  COLOR_ESTADO_BUSQUEDA,
   ETIQUETA_CARGO,
-  ETIQUETA_ESTADO_BUSQUEDA,
   ETIQUETA_HERRAMIENTA,
   etiquetaFuenteResultado,
   PRIORIDAD_CARGO,
@@ -286,40 +315,78 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
 
   const activa = busqueda.estado === "en_curso";
   const rondas = busqueda.estadisticas?.rondas ?? [];
+  const maxRondas = busqueda.estadisticas?.max_rondas ?? null;
+  const presupuesto = busqueda.presupuesto_eur != null ? Number(busqueda.presupuesto_eur) : null;
+  const pctGasto = presupuesto ? Math.min(100, (busqueda.coste_eur / presupuesto) * 100) : 0;
+  const conTelefono = resultados.filter((r) => r.telefono).length;
+  const conEmail = resultados.filter((r) => r.email).length;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <Link href="/busquedas" className="mb-2 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700">
-          <ArrowLeft className="h-3.5 w-3.5" /> Búsquedas
-        </Link>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight text-slate-900">{busqueda.peticion}</h1>
-            <p className="mt-1 text-sm text-slate-500">
-              Lanzada el {new Date(busqueda.creado_en).toLocaleString("es-ES")}
-              {busqueda.finalizado_en && ` · terminada el ${new Date(busqueda.finalizado_en).toLocaleString("es-ES")}`}
+    <div className="entrada space-y-7">
+      <Link
+        href="/busquedas"
+        className="inline-flex items-center gap-1.5 rounded-full bg-white/70 px-3 py-1.5 text-sm font-semibold text-slate-600 shadow-sm ring-1 ring-slate-200 transition hover:-translate-x-0.5 hover:text-brand-700"
+      >
+        <ArrowLeft className="h-4 w-4" /> Búsquedas
+      </Link>
+
+      {/* Cabecera */}
+      <div className="card relative overflow-hidden p-6 sm:p-7">
+        <div className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full bg-gradient-to-br from-brand-200/50 via-violet-200/40 to-transparent blur-3xl" />
+        <div className="relative flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0 max-w-3xl">
+            <p className="mb-1.5 text-xs font-bold uppercase tracking-[0.16em] text-brand-600">Búsqueda</p>
+            <h1 className="font-display text-3xl font-extrabold tracking-tight text-slate-900">{busqueda.peticion}</h1>
+            <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-500">
+              <span className="inline-flex items-center gap-1.5">
+                <CalendarClock className="h-4 w-4" /> Lanzada el {new Date(busqueda.creado_en).toLocaleString("es-ES")}
+              </span>
+              {busqueda.finalizado_en && (
+                <span className="inline-flex items-center gap-1.5">
+                  <Flag className="h-4 w-4" /> Terminada el {new Date(busqueda.finalizado_en).toLocaleString("es-ES")}
+                </span>
+              )}
             </p>
           </div>
-          <span className={`badge shrink-0 ${COLOR_ESTADO_BUSQUEDA[busqueda.estado] ?? "bg-slate-100 text-slate-600"}`}>
-            {activa && <Loader2 className="mr-1 -ml-0.5 inline h-3 w-3 animate-spin" />}
-            {ETIQUETA_ESTADO_BUSQUEDA[busqueda.estado] ?? busqueda.estado}
-          </span>
-        </div>
-        {ESTADOS_CANCELABLES.has(busqueda.estado) && (
-          <div className="mt-2 flex items-center gap-3">
-            <button type="button" onClick={cancelar} disabled={cancelando} className="btn-secondary">
-              {cancelando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}
-              Cancelar búsqueda
-            </button>
+          <div className="flex flex-col items-end gap-3">
+            <EstadoBusqueda estado={busqueda.estado} />
+            {ESTADOS_CANCELABLES.has(busqueda.estado) && (
+              <button type="button" onClick={cancelar} disabled={cancelando} className="btn-danger">
+                {cancelando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}
+                Cancelar búsqueda
+              </button>
+            )}
             {errorCancelar && <p className="text-sm text-rose-600">{errorCancelar}</p>}
+          </div>
+        </div>
+
+        {activa && (
+          <div className="relative mt-6">
+            <div className="mb-2 flex items-center justify-between text-sm font-semibold text-slate-600">
+              <span className="inline-flex items-center gap-2 text-brand-700">
+                <Loader2 className="h-4 w-4 animate-spin" /> El agente está trabajando…
+              </span>
+              <span className="tabular-nums">
+                Ronda {busqueda.rondas}
+                {maxRondas ? ` de ${maxRondas}` : ""}
+              </span>
+            </div>
+            <div className="relative h-2.5 overflow-hidden rounded-full bg-slate-100">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-brand-500 via-violet-500 to-senal-400 transition-all duration-700"
+                style={{ width: `${Math.max(6, maxRondas ? Math.min(100, (busqueda.rondas / maxRondas) * 100) : 30)}%` }}
+              />
+              <span className="destello" />
+            </div>
           </div>
         )}
       </div>
 
       {busqueda.estado === "interpretada" && (
-        <div className="card flex flex-wrap items-center justify-between gap-3 border-amber-200 bg-amber-50/40 p-4">
-          <p className="text-sm text-amber-800">Esta búsqueda todavía no se ha confirmado.</p>
+        <div className="aviso-atencion flex-wrap items-center justify-between">
+          <p className="flex items-center gap-2 font-semibold">
+            <HelpCircle className="h-5 w-5 text-amber-600" /> Esta búsqueda todavía no se ha confirmado.
+          </p>
           <div className="flex items-center gap-3">
             {errorConfirmar && <p className="text-sm text-rose-600">{errorConfirmar}</p>}
             <button type="button" onClick={confirmar} disabled={confirmando} className="btn-primary">
@@ -330,59 +397,35 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <div className="card flex items-center gap-3 px-4 py-3">
-          <Clock3 className="h-4 w-4 text-slate-400" />
-          <div>
-            <p className="text-xs text-slate-500">Rondas</p>
-            <p className="text-sm font-semibold text-slate-800">
-              {busqueda.rondas} / {busqueda.estadisticas?.max_rondas ?? "—"}
-            </p>
-          </div>
-        </div>
-        <div className="card flex items-center gap-3 px-4 py-3">
-          <Euro className="h-4 w-4 text-slate-400" />
-          <div>
-            <p className="text-xs text-slate-500">Coste</p>
-            <p className="text-sm font-semibold text-slate-800">
-              {busqueda.coste_eur.toFixed(2)} €{" "}
-              {busqueda.presupuesto_eur != null && `/ ${Number(busqueda.presupuesto_eur).toFixed(2)} €`}
-            </p>
-          </div>
-        </div>
-        <div className="card flex items-center gap-3 px-4 py-3">
-          <CheckCircle2 className="h-4 w-4 text-slate-400" />
-          <div>
-            <p className="text-xs text-slate-500">Empresas encontradas</p>
-            <p className="text-sm font-semibold text-slate-800">{resultados.length}</p>
-          </div>
-        </div>
-      </div>
-
-      <div>
-        <h2 className="mb-2 text-sm font-semibold text-slate-700">Filtros</h2>
-        <ul className="card space-y-1.5 p-4 text-sm text-slate-600">
-          {describirFiltros(busqueda.filtros).map((linea, i) => (
-            <li key={i} className="flex gap-2">
-              <span className="text-slate-400">•</span>
-              {linea}
-            </li>
-          ))}
-        </ul>
+      {/* Cifras clave */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <TarjetaCifra icono={Building2} etiqueta="Empresas encontradas" valor={resultados.length} tono="marca"
+          detalle={descartadas > 0 ? `${descartadas} descartadas por no ser del sector` : undefined} />
+        <TarjetaCifra icono={Phone} etiqueta="Con teléfono" valor={conTelefono} tono="verde"
+          detalle={resultados.length ? `${Math.round((conTelefono / resultados.length) * 100)} % · ${conEmail} con email` : undefined} />
+        <TarjetaCifra icono={Euro} etiqueta="Coste" valor={`${busqueda.coste_eur.toFixed(2)} €`} tono="cian"
+          detalle={presupuesto != null ? `de ${presupuesto.toFixed(2)} € de presupuesto` : undefined}>
+          {presupuesto != null && (
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
+              <div className="h-full rounded-full bg-gradient-to-r from-senal-400 to-brand-500" style={{ width: `${pctGasto}%` }} />
+            </div>
+          )}
+        </TarjetaCifra>
+        <TarjetaCifra icono={Clock3} etiqueta="Rondas" valor={`${busqueda.rondas} / ${maxRondas ?? "—"}`} tono="ambar" />
       </div>
 
       {busqueda.estadisticas?.pregunta && (
-        <div className="card flex items-start gap-3 border-amber-200 bg-amber-50/40 p-4 text-sm text-amber-800">
-          <HelpCircle className="mt-0.5 h-4 w-4 shrink-0" />
+        <div className="aviso-atencion">
+          <HelpCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
           <div>
-            <p className="font-medium">El agente tiene una pregunta:</p>
-            <p className="mt-0.5">{busqueda.estadisticas.pregunta.pregunta}</p>
+            <p className="font-semibold">El agente tiene una pregunta:</p>
+            <p className="mt-0.5 text-base">{busqueda.estadisticas.pregunta.pregunta}</p>
             {busqueda.estadisticas.pregunta.opciones.length > 0 && (
-              <p className="mt-1 text-xs text-amber-700">
+              <p className="mt-1 text-sm text-amber-800/80">
                 Opciones: {busqueda.estadisticas.pregunta.opciones.join(" / ")}
               </p>
             )}
-            <p className="mt-2 text-xs text-amber-700">
+            <p className="mt-2 text-sm text-amber-800/80">
               Este primer agente todavía no es interactivo: no puede continuar ESTA búsqueda con tu
               respuesta. Lánzala de nuevo con la respuesta como contexto.
             </p>
@@ -404,56 +447,110 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
       )}
 
       {busqueda.estado === "error" && (
-        <div className="card flex items-start gap-3 border-rose-200 bg-rose-50/40 p-4 text-sm text-rose-800">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+        <div className="aviso-error">
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
           <div>
-            <p className="font-medium">La búsqueda terminó con un error</p>
+            <p className="font-semibold">La búsqueda terminó con un error</p>
             <p className="mt-0.5">{busqueda.estadisticas?.error ?? "sin detalle"}</p>
           </div>
         </div>
       )}
 
       {busqueda.estado === "completada" && busqueda.estadisticas?.resumen && (
-        <div className="card flex items-start gap-3 border-emerald-200 bg-emerald-50/40 p-4 text-sm text-emerald-800">
-          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+        <div className="aviso-ok">
+          <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
           <div>
-            <p className="font-medium">Búsqueda terminada — {busqueda.estadisticas.motivo_fin}</p>
-            <p className="mt-0.5">{busqueda.estadisticas.resumen}</p>
+            <p className="font-semibold">
+              Búsqueda terminada
+              {busqueda.estadisticas.motivo_fin && (
+                <span className="ml-2 badge bg-emerald-100 text-emerald-800">
+                  {busqueda.estadisticas.motivo_fin.replaceAll("_", " ")}
+                </span>
+              )}
+            </p>
+            <p className="mt-1">{busqueda.estadisticas.resumen}</p>
           </div>
         </div>
       )}
 
-      {rondas.length > 0 && (
-        <div>
-          <h2 className="mb-2 text-sm font-semibold text-slate-700">Progreso ronda a ronda</h2>
-          <ol className="card divide-y divide-slate-100">
-            {rondas.map((ronda) => (
-              <li key={ronda.numero} className="flex items-start gap-3 px-4 py-3">
-                <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-500">
-                  {ronda.numero}
-                </span>
-                <div>
-                  <p className="text-sm font-medium text-slate-800">
-                    {ETIQUETA_HERRAMIENTA[ronda.herramienta] ?? ronda.herramienta}
-                  </p>
-                  <p className="mt-0.5 text-sm text-slate-500">{resumenRonda(ronda)}</p>
-                </div>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+        {/* Progreso ronda a ronda */}
+        <section className="card p-6">
+          <h2 className="titulo-seccion mb-5">
+            <span className="icono-seccion">
+              <Activity className="h-4 w-4" />
+            </span>
+            Progreso ronda a ronda
+          </h2>
+          {rondas.length > 0 ? (
+            <ol className="relative space-y-1">
+              <span className="absolute bottom-4 left-[19px] top-4 w-px bg-gradient-to-b from-brand-200 via-violet-200 to-transparent" />
+              {rondas.map((ronda, i) => {
+                const Icono = iconoHerramienta(ronda.herramienta);
+                const ultima = i === rondas.length - 1;
+                return (
+                  <li key={ronda.numero} className="relative flex items-start gap-4 rounded-xl px-1 py-2.5 transition hover:bg-slate-50">
+                    <span
+                      className={`relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ring-4 ring-white ${
+                        ultima && activa
+                          ? "bg-gradient-to-br from-brand-500 to-violet-600 text-white shadow-brillo"
+                          : "bg-gradient-to-br from-slate-50 to-slate-100 text-slate-600 ring-1"
+                      }`}
+                    >
+                      {ultima && activa ? <Loader2 className="h-[18px] w-[18px] animate-spin" /> : <Icono className="h-[18px] w-[18px]" />}
+                    </span>
+                    <div className="min-w-0 pt-0.5">
+                      <p className="flex flex-wrap items-center gap-2 font-semibold text-slate-900">
+                        {ETIQUETA_HERRAMIENTA[ronda.herramienta] ?? ronda.herramienta}
+                        <span className="text-xs font-medium text-slate-400">#{ronda.numero}</span>
+                      </p>
+                      <p className="mt-0.5 text-sm leading-relaxed text-slate-600">{resumenRonda(ronda)}</p>
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
+          ) : (
+            <EstadoVacio icono={Activity}>{activa ? "Preparando la primera ronda…" : "Esta búsqueda no tiene rondas."}</EstadoVacio>
+          )}
+        </section>
+
+        {/* Filtros */}
+        <aside className="card h-fit p-6">
+          <h2 className="titulo-seccion mb-4">
+            <span className="icono-seccion">
+              <SlidersHorizontal className="h-4 w-4" />
+            </span>
+            Filtros
+          </h2>
+          <ul className="space-y-2.5 text-[15px] text-slate-700">
+            {describirFiltros(busqueda.filtros).map((linea, i) => (
+              <li key={i} className="flex gap-2.5">
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" />
+                <span>{linea}</span>
               </li>
             ))}
-          </ol>
-        </div>
-      )}
+          </ul>
+        </aside>
+      </div>
 
-      <div>
-        <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-slate-700">
-            Empresas encontradas
+      {/* Resultados */}
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="titulo-seccion">
+              <span className="icono-seccion">
+                <Building2 className="h-4 w-4" />
+              </span>
+              Empresas encontradas
+              <span className="badge bg-brand-50 text-brand-700">{resultados.length}</span>
+            </h2>
             {descartadas > 0 && (
-              <Link href="/cola-revision" className="ml-2 text-xs font-normal text-slate-500 hover:text-brand-600 hover:underline">
-                · {descartadas} descartadas por no ser del sector (ver en la Cola de revisión)
+              <Link href="/cola-revision" className="mt-1 inline-block text-sm text-slate-500 hover:text-brand-600 hover:underline">
+                {descartadas} descartadas por no ser del sector — ver en la Cola de revisión
               </Link>
             )}
-          </h2>
+          </div>
           {resultados.length > 0 && (
             <button
               type="button"
@@ -467,88 +564,110 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
         </div>
         <div className="card overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50">
+            <table className="tabla-panel">
+              <thead>
                 <tr>
-                  <th className="th-panel">Razón social</th>
-                  <th className="th-panel">NIF</th>
+                  <th className="th-panel">Empresa</th>
                   <th className="th-panel">Contacto</th>
-                  <th className="th-panel">Teléfono</th>
-                  <th className="th-panel">Email</th>
+                  <th className="th-panel">Teléfono y email</th>
                   <th className="th-panel">Web</th>
-                  <th className="th-panel">Estado</th>
-                  <th className="th-panel">Confianza</th>
-                  <th className="th-panel">Fuente</th>
+                  <th className="th-panel">Confianza y fuente</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {resultados.map((r) => (
-                  <tr key={r.empresa_id} className="transition-colors hover:bg-slate-50/70">
-                    <td className="px-4 py-3 font-medium text-slate-800">
-                      <Link href={`/empresas/${r.empresa_id}?desde=${id}`} className="hover:text-brand-600 hover:underline">
+                  <tr key={r.empresa_id} className="group">
+                    <td className="td-panel min-w-[220px]">
+                      <Link
+                        href={`/empresas/${r.empresa_id}?desde=${id}`}
+                        className="font-semibold text-slate-900 transition group-hover:text-brand-700 hover:underline"
+                      >
                         {r.razon_social}
                       </Link>
-                      {r.relevancia === "dudoso" && (
-                        <span className="ml-2 badge bg-slate-100 text-slate-600" title={r.motivo_relevancia ?? ""}>
-                          ¿del sector?
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                        {r.nif ? (
+                          <span className="rounded-md bg-slate-100 px-1.5 py-0.5 font-mono text-xs font-semibold text-slate-700">
+                            {r.nif}
+                          </span>
+                        ) : (
+                          <span className="badge bg-amber-50 text-amber-700">sin NIF</span>
+                        )}
+                        {r.relevancia === "dudoso" && (
+                          <span className="badge bg-slate-100 text-slate-600" title={r.motivo_relevancia ?? ""}>
+                            ¿del sector?
+                          </span>
+                        )}
+                        {r.sin_contrastar > 0 && (
+                          <Link href="/duplicados" className="badge bg-amber-50 text-amber-700 hover:underline">
+                            {r.sin_contrastar} sin contrastar
+                          </Link>
+                        )}
+                        {r.en_revision > 0 && (
+                          <Link href="/cola-revision" className="badge bg-sky-50 text-sky-700 hover:underline">
+                            {r.en_revision} en revisión
+                          </Link>
+                        )}
+                        {r.estado && r.estado !== "desconocida" && r.estado !== "desconocido" && (
+                          <span className="badge bg-emerald-50 text-emerald-700">{r.estado}</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="td-panel min-w-[150px] max-w-[220px]">
+                      {r.contacto ? (
+                        <span className="flex items-start gap-2 text-slate-700">
+                          <UserRound className="mt-0.5 h-4 w-4 shrink-0 text-violet-500" />
+                          {r.contacto}
                         </span>
-                      )}
-                      {r.sin_contrastar > 0 && (
-                        <Link href="/duplicados" className="ml-2 badge bg-amber-100 text-amber-800 hover:underline">
-                          {r.sin_contrastar} sin contrastar
-                        </Link>
-                      )}
-                      {r.en_revision > 0 && (
-                        <Link href="/cola-revision" className="ml-2 badge bg-sky-100 text-sky-800 hover:underline">
-                          {r.en_revision} en revisión
-                        </Link>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      {r.nif ? (
-                        <span className="font-mono text-slate-700">{r.nif}</span>
                       ) : (
-                        <span className="badge bg-amber-100 text-amber-800">sin NIF</span>
+                        <span className="text-slate-300">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-slate-600">{r.contacto ?? "—"}</td>
-                    <td className="px-4 py-3 text-slate-600">
-                      {r.telefono ? <a href={`tel:${r.telefono}`} className="hover:text-brand-600">{r.telefono}</a> : "—"}
+                    <td className="td-panel">
+                      <div className="space-y-1">
+                        {r.telefono ? (
+                          <a href={`tel:${r.telefono}`} className="flex items-center gap-2 whitespace-nowrap font-medium text-slate-800 hover:text-brand-700">
+                            <Phone className="h-4 w-4 text-emerald-500" />
+                            {r.telefono}
+                          </a>
+                        ) : null}
+                        {r.email ? (
+                          <a href={`mailto:${r.email}`} className="flex items-center gap-2 text-slate-600 hover:text-brand-700">
+                            <Mail className="h-4 w-4 text-brand-400" />
+                            <span className="max-w-[200px] truncate">{r.email}</span>
+                          </a>
+                        ) : null}
+                        {!r.telefono && !r.email && <span className="text-slate-300">—</span>}
+                      </div>
                     </td>
-                    <td className="px-4 py-3 text-slate-600">
-                      {r.email ? (
-                        <a href={`mailto:${r.email}`} className="hover:text-brand-600">{r.email}</a>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">
+                    <td className="td-panel">
                       {r.dominio_web ? (
                         <a
                           href={`https://${r.dominio_web}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="hover:text-brand-600"
+                          className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-slate-50 px-2.5 py-1 text-sm font-medium text-slate-700 ring-1 ring-inset ring-slate-200 transition hover:bg-brand-50 hover:text-brand-700 hover:ring-brand-200"
                         >
+                          <Globe className="h-3.5 w-3.5" />
                           {r.dominio_web}
                         </a>
                       ) : (
-                        "—"
+                        <span className="text-slate-300">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-slate-600">{r.estado ?? "—"}</td>
-                    <td className="px-4 py-3 text-slate-600">
-                      {r.confianza_global != null ? r.confianza_global.toFixed(2) : "—"}
+                    <td className="td-panel">
+                      <BarraConfianza valor={r.confianza_global} />
+                      <p className="mt-1 max-w-[180px] text-xs leading-snug text-slate-500">{etiquetaFuenteResultado(r.motivo)}</p>
                     </td>
-                    <td className="px-4 py-3 text-slate-400">{etiquetaFuenteResultado(r.motivo)}</td>
                   </tr>
                 ))}
                 {resultados.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="px-4 py-14 text-center text-sm text-slate-400">
-                      {activa
-                        ? "El agente todavía no ha encontrado empresas."
-                        : "No se encontraron empresas en esta búsqueda."}
+                    <td colSpan={5}>
+                      <EstadoVacio icono={activa ? Radar : Building2}>
+                        {activa
+                          ? "El agente todavía no ha encontrado empresas. Irán apareciendo aquí en cuanto las encuentre."
+                          : "No se encontraron empresas en esta búsqueda."}
+                      </EstadoVacio>
                     </td>
                   </tr>
                 )}
@@ -556,7 +675,37 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
             </table>
           </div>
         </div>
-      </div>
+      </section>
     </div>
   );
+}
+
+// Barra corta de confianza (0–1) con color según el nivel.
+function BarraConfianza({ valor }: { valor: number | null }) {
+  if (valor == null) return <span className="text-slate-300">—</span>;
+  const color = valor >= 0.8 ? "from-emerald-400 to-emerald-500" : valor >= 0.5 ? "from-brand-400 to-violet-500" : "from-amber-400 to-orange-500";
+  return (
+    <div className="flex items-center gap-2">
+      <div className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-100">
+        <div className={`h-full rounded-full bg-gradient-to-r ${color}`} style={{ width: `${Math.round(valor * 100)}%` }} />
+      </div>
+      <span className="text-sm font-semibold tabular-nums text-slate-700">{valor.toFixed(2)}</span>
+    </div>
+  );
+}
+
+// Icono de cada tipo de ronda en la línea de tiempo.
+function iconoHerramienta(herramienta: string): LucideIcon {
+  if (herramienta === "planificador_llm") return Brain;
+  if (herramienta === "consultar_bd") return Database;
+  if (herramienta === "estimar_cobertura") return PieChart;
+  if (herramienta === "completar_contacto") return Phone;
+  if (herramienta === "enriquecer_borme" || herramienta === "descubrir_borme") return Landmark;
+  if (herramienta === "evaluar_relevancia") return Filter;
+  if (herramienta === "resolver_dudas") return Sparkles;
+  if (herramienta === "finalizar_busqueda") return Flag;
+  if (herramienta === "preguntar_usuario") return HelpCircle;
+  if (herramienta === "descubrir_apify_maps" || herramienta === "descubrir_places") return MapPinned;
+  if (HERRAMIENTAS_DESCUBRIMIENTO.has(herramienta)) return Radar;
+  return Activity;
 }

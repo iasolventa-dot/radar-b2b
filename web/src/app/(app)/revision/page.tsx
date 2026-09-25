@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { ExternalLink, Inbox, MapPin } from "lucide-react";
+import { ClipboardCheck, ExternalLink, Inbox, MapPin } from "lucide-react";
+import { EncabezadoPagina } from "@/components/encabezado-pagina";
 import { crearClienteServidor } from "@/lib/supabase/server";
 import { ETIQUETA_CATEGORIA_CANDIDATO } from "@/lib/tipos";
 
@@ -44,11 +45,10 @@ export default async function PaginaCola({
   const totalPaginas = Math.max(1, Math.ceil((count ?? 0) / POR_PAGINA));
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Cola de revisión</h1>
-        <p className="mt-1 text-sm text-slate-500">{count ?? 0} candidatos pendientes</p>
-      </div>
+    <div className="entrada space-y-6">
+      <EncabezadoPagina icono={ClipboardCheck} antetitulo="Golden set" titulo="Revisión de candidatos">
+        <p>{count ?? 0} candidatos pendientes</p>
+      </EncabezadoPagina>
 
       <div className="flex flex-wrap gap-2 text-sm">
         <FiltroCategoria activo={categoria === ""} href="/revision" etiqueta="Todas" />
@@ -64,8 +64,8 @@ export default async function PaginaCola({
 
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50">
+          <table className="tabla-panel">
+            <thead>
               <tr>
                 <th className="th-panel">Razón social</th>
                 <th className="th-panel">Categoría</th>
@@ -77,26 +77,26 @@ export default async function PaginaCola({
             </thead>
             <tbody className="divide-y divide-slate-100">
               {(candidatos ?? []).map((c) => (
-                <tr key={c.id_fila} className="transition-colors hover:bg-slate-50/70">
-                  <td className="px-4 py-3 font-medium text-slate-800">{c.razon_social}</td>
-                  <td className="px-4 py-3 text-slate-600">
+                <tr key={c.id_fila} className="group">
+                  <td className="td-panel font-medium text-slate-800">{c.razon_social}</td>
+                  <td className="td-panel text-slate-600">
                     {ETIQUETA_CATEGORIA_CANDIDATO[c.categoria_candidato] ?? c.categoria_candidato}
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="td-panel">
                     <BadgeConfianza confianza={c.confianza_sector} />
                   </td>
-                  <td className="px-4 py-3 text-slate-600">
+                  <td className="td-panel text-slate-600">
                     <div className="flex items-center gap-1.5">
                       <MapPin className="h-3.5 w-3.5 shrink-0 text-slate-400" />
                       {c.municipio}
                       {c.es_municipio_principal && (
-                        <span className="badge bg-amber-100 text-amber-800">
+                        <span className="badge bg-amber-50 text-amber-700">
                           Alcalá de Guadaíra
                         </span>
                       )}
                     </div>
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="td-panel">
                     {c.url_evidencia && (
                       <a
                         href={c.url_evidencia}
@@ -108,7 +108,7 @@ export default async function PaginaCola({
                       </a>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="td-panel text-right">
                     <Link href={`/revision/${encodeURIComponent(c.id_fila)}`} className="btn-primary px-3 py-1.5 text-xs">
                       Revisar
                     </Link>
@@ -188,7 +188,7 @@ function BadgeConfianza({ confianza }: { confianza: string | null }) {
   if (!confianza) return <span className="text-slate-300">—</span>;
   const colores: Record<string, string> = {
     alta: "bg-emerald-100 text-emerald-800",
-    media: "bg-amber-100 text-amber-800",
+    media: "bg-amber-50 text-amber-700",
     baja: "bg-slate-100 text-slate-600",
   };
   return <span className={`badge ${colores[confianza] ?? colores.baja}`}>{confianza}</span>;

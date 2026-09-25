@@ -145,35 +145,66 @@ export default async function PaginaDetalleEmpresa({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="entrada space-y-6">
       {desde && (
-        <Link href={`/busquedas/${desde}`} className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700">
+        <Link
+          href={`/busquedas/${desde}`}
+          className="inline-flex items-center gap-1.5 rounded-full bg-white/70 px-3 py-1.5 text-sm font-semibold text-slate-600 shadow-sm ring-1 ring-slate-200 transition hover:-translate-x-0.5 hover:text-brand-700"
+        >
           <ArrowLeft className="h-4 w-4" /> Volver a los resultados de la búsqueda
         </Link>
       )}
 
-      <div>
-        <div className="flex items-center gap-2">
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{empresa.razon_social ?? empresa.nombre_comercial ?? "(sin nombre)"}</h1>
-          {empresa.nif ? (
-            <span className="badge bg-slate-100 font-mono text-slate-700">{empresa.nif}</span>
-          ) : (
-            <span className="badge bg-amber-100 text-amber-800">sin NIF</span>
-          )}
+      <div className="card relative overflow-hidden p-6 sm:p-7">
+        <div className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full bg-gradient-to-br from-brand-200/50 via-violet-200/40 to-transparent blur-3xl" />
+        <div className="relative flex flex-wrap items-start gap-5">
+          <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-600 via-brand-500 to-violet-600 font-display text-2xl font-extrabold text-white shadow-brillo">
+            {(empresa.razon_social ?? empresa.nombre_comercial ?? "?").trim().charAt(0).toUpperCase()}
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="mb-1 text-xs font-bold uppercase tracking-[0.16em] text-brand-600">Ficha de empresa</p>
+            <h1 className="font-display text-3xl font-extrabold tracking-tight text-slate-900">
+              {empresa.razon_social ?? empresa.nombre_comercial ?? "(sin nombre)"}
+            </h1>
+            {empresa.razon_social && empresa.nombre_comercial && (
+              <p className="mt-1 text-base text-slate-500">{empresa.nombre_comercial}</p>
+            )}
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {empresa.nif ? (
+                <span className="rounded-lg bg-slate-900 px-2.5 py-1 font-mono text-sm font-semibold text-white">{empresa.nif}</span>
+              ) : (
+                <span className="badge bg-amber-50 text-amber-700">sin NIF</span>
+              )}
+              <span className="badge bg-slate-100 text-slate-700">{empresa.forma_juridica ?? "forma jurídica desconocida"}</span>
+              <span className="badge bg-slate-100 text-slate-700">{empresa.estado ?? "estado desconocido"}</span>
+              {empresa.confianza_global != null && (
+                <span className={`badge ${empresa.confianza_global >= 0.8 ? "bg-emerald-50 text-emerald-700" : empresa.confianza_global >= 0.5 ? "bg-brand-50 text-brand-700" : "bg-amber-50 text-amber-700"}`}>
+                  <ShieldCheck className="h-3.5 w-3.5" /> confianza {empresa.confianza_global.toFixed(2)}
+                </span>
+              )}
+              {empresa.dominio_web && (
+                <a
+                  href={`https://${empresa.dominio_web}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="badge bg-brand-50 text-brand-700 hover:bg-brand-100"
+                >
+                  <Globe className="h-3.5 w-3.5" /> {empresa.dominio_web}
+                </a>
+              )}
+            </div>
+          </div>
         </div>
-        <p className="mt-1 text-sm text-slate-500">
-          {empresa.razon_social && empresa.nombre_comercial && <>{empresa.nombre_comercial} · </>}
-          {empresa.forma_juridica ?? "forma jurídica desconocida"} · {empresa.estado ?? "estado desconocido"} · confianza{" "}
-          {empresa.confianza_global != null ? empresa.confianza_global.toFixed(2) : "—"}
-        </p>
       </div>
 
       <BotonProfundizar empresaId={id} />
 
+      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
+
       {/* Objeto social + CNAE + tamaño */}
       <Seccion icono={FileText} titulo="Actividad">
-        <div className="space-y-2 text-sm text-slate-700">
-          {empresa.objeto_social && <p>{empresa.objeto_social}</p>}
+        <div className="space-y-2.5 text-[15px] text-slate-700">
+          {empresa.objeto_social && <p className="leading-relaxed">{empresa.objeto_social}</p>}
           <p className="text-slate-500">
             CNAE: {empresa.cnae_principal ? `${empresa.cnae_principal} (${empresa.cnae_version})` : "sin clasificar"}
             {cnae?.descripcion && ` — ${cnae.descripcion}`}
@@ -199,9 +230,9 @@ export default async function PaginaDetalleEmpresa({
         {sedes && sedes.length > 0 ? (
           <ul className="space-y-2 text-sm">
             {sedes.map((s, i) => (
-              <li key={i} className="flex items-start justify-between gap-3 rounded-lg border border-slate-100 p-3">
+              <li key={i} className="flex items-start justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/60 p-3.5">
                 <div>
-                  <p className="text-slate-800">
+                  <p className="font-medium text-slate-900">
                     {s.direccion_original ?? "(sin dirección)"}
                     {s.codigo_postal && `, ${s.codigo_postal}`}
                   </p>
@@ -209,7 +240,7 @@ export default async function PaginaDetalleEmpresa({
                     {s.municipio_nombre}, {s.provincia}
                   </p>
                 </div>
-                <span className={`badge shrink-0 ${s.activa ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                <span className={`badge shrink-0 ${s.activa ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
                   {s.tipo} {!s.activa && "· inactiva"}
                 </span>
               </li>
@@ -223,14 +254,21 @@ export default async function PaginaDetalleEmpresa({
       {/* Canales de contacto -- TODOS, no solo el mejor */}
       <Seccion icono={Phone} titulo={`Contacto (${canales?.length ?? 0})`}>
         {canales && canales.length > 0 ? (
-          <ul className="space-y-1.5 text-sm">
+          <ul className="space-y-2">
             {canales.map((c, i) => (
-              <li key={i} className="flex items-center gap-2">
-                {c.tipo === "email" ? <Mail className="h-3.5 w-3.5 text-slate-400" /> : <Phone className="h-3.5 w-3.5 text-slate-400" />}
-                <span className="text-slate-700">{c.valor}</span>
+              <li key={i} className="flex flex-wrap items-center gap-2.5 rounded-xl border border-slate-100 bg-slate-50/60 px-3.5 py-2.5">
+                <span className={`flex h-8 w-8 items-center justify-center rounded-lg ${c.tipo === "email" ? "bg-brand-50 text-brand-600" : "bg-emerald-50 text-emerald-600"}`}>
+                  {c.tipo === "email" ? <Mail className="h-4 w-4" /> : <Phone className="h-4 w-4" />}
+                </span>
+                <a
+                  href={c.tipo === "email" ? `mailto:${c.valor}` : `tel:${c.valor}`}
+                  className="font-medium text-slate-900 hover:text-brand-700"
+                >
+                  {c.valor}
+                </a>
                 {c.es_generico && <span className="badge bg-slate-100 text-slate-500">genérico</span>}
-                {c.estado === "invalido" && <span className="badge bg-rose-100 text-rose-700">inválido</span>}
-                <span className="text-xs text-slate-400">confianza {c.confianza?.toFixed(2) ?? "—"}</span>
+                {c.estado === "invalido" && <span className="badge bg-rose-50 text-rose-700">inválido</span>}
+                <span className="ml-auto text-sm text-slate-400">confianza {c.confianza?.toFixed(2) ?? "—"}</span>
               </li>
             ))}
           </ul>
@@ -247,10 +285,15 @@ export default async function PaginaDetalleEmpresa({
               const personaRaw = c.personas as { nombre: string } | { nombre: string }[] | null;
               const persona = Array.isArray(personaRaw) ? personaRaw[0] : personaRaw;
               return (
-                <li key={i} className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 p-2.5">
-                  <span className="text-slate-800">{persona?.nombre ?? "(sin nombre)"}</span>
-                  <span className="flex items-center gap-2 text-xs text-slate-500">
-                    <span className="badge bg-brand-50 text-brand-700">{ETIQUETA_CARGO[c.cargo] ?? c.cargo}</span>
+                <li key={i} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/60 px-3.5 py-2.5">
+                  <span className="flex items-center gap-2.5 font-semibold text-slate-900">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-violet-100 to-brand-100 text-sm font-bold text-violet-700">
+                      {(persona?.nombre ?? "?").trim().charAt(0).toUpperCase()}
+                    </span>
+                    {persona?.nombre ?? "(sin nombre)"}
+                  </span>
+                  <span className="flex items-center gap-2 text-sm text-slate-500">
+                    <span className="badge bg-violet-50 text-violet-700">{ETIQUETA_CARGO[c.cargo] ?? c.cargo}</span>
                     {nombreFuente(c.fuente_id)}
                   </span>
                 </li>
@@ -261,6 +304,8 @@ export default async function PaginaDetalleEmpresa({
           <p className="text-sm text-slate-400">Sin administradores o cargos registrados todavía.</p>
         )}
       </Seccion>
+
+      </div>
 
       {/* Identificadores */}
       {identificadores && identificadores.length > 0 && (
@@ -283,23 +328,23 @@ export default async function PaginaDetalleEmpresa({
           <div className="space-y-4">
             {Array.from(observacionesPorCampo.entries()).map(([campo, filas]) => (
               <div key={campo}>
-                <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <p className="mb-2 text-xs font-bold uppercase tracking-wider text-brand-600">
                   {ETIQUETA_CAMPO[campo] ?? campo}
                 </p>
-                <ul className="space-y-1 text-sm">
+                <ul className="divide-y divide-slate-100 rounded-xl border border-slate-100">
                   {(filas ?? []).map((o, i) => (
-                    <li key={i} className="flex items-center justify-between gap-3 text-slate-600">
+                    <li key={i} className="flex flex-wrap items-center justify-between gap-3 px-3.5 py-2.5 text-slate-700">
                       <span className={o.vigente ? "" : "text-slate-400 line-through"}>
                         {o.valor_original ?? o.valor_norm}
                       </span>
-                      <span className="shrink-0 text-xs text-slate-400">
+                      <span className="shrink-0 text-sm text-slate-400">
                         {!o.vigente && <span className="mr-1">(sustituida)</span>}
                         {nombreFuente(o.fuente_id)} · {new Date(o.observado_en).toLocaleDateString("es-ES")} · confianza{" "}
                         {o.confianza_fuente?.toFixed(2) ?? "—"}
                         {o.url_evidencia && (
                           <>
                             {" · "}
-                            <a href={o.url_evidencia} target="_blank" rel="noopener noreferrer" className="hover:text-brand-600">
+                            <a href={o.url_evidencia} target="_blank" rel="noopener noreferrer" className="font-medium text-brand-600 hover:underline">
                               evidencia
                             </a>
                           </>
@@ -362,9 +407,11 @@ function Seccion({
   children: React.ReactNode;
 }) {
   return (
-    <div className="card p-5">
-      <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-700">
-        <Icono className="h-4 w-4 text-slate-400" />
+    <div className="card p-6">
+      <h2 className="titulo-seccion mb-4">
+        <span className="icono-seccion">
+          <Icono className="h-4 w-4" />
+        </span>
         {titulo}
       </h2>
       {children}

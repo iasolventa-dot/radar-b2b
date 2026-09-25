@@ -1,12 +1,24 @@
 @import "tailwindcss";
 
-/* Paleta de marca de Radar B2B — azul profesional sobre grises fríos
-   (slate) para máxima legibilidad. Un único tema claro: en un panel
-   interno de un solo usuario, alternar a modo oscuro automático es más
-   riesgo de contraste que beneficio, así que no lo activamos. */
+/* ==========================================================================
+   Radar B2B — sistema visual
+   --------------------------------------------------------------------------
+   Idea: "radar". Barra lateral azul noche con brillo eléctrico, contenido
+   sobre superficies claras y sólidas (los datos densos se leen mejor con
+   alto contraste; el efecto cristal se reserva para la navegación), acento
+   en degradado azul → violeta y cian como color de "señal".
+
+   Tipos de letra más grandes que los de serie de Tailwind (ver @theme): el
+   panel se usa muchas horas y la mayoría del texto era xs/sm. Un único tema
+   claro: es un panel interno de un solo usuario.
+   ========================================================================== */
+
 :root {
-  --background: #f8fafc;
-  --foreground: #0f172a;
+  --background: #f3f5fb;
+  --foreground: #0b1226;
+  --noche-900: #070b1d;
+  --noche-800: #0c1330;
+  --noche-700: #141d45;
 }
 
 @theme inline {
@@ -14,22 +26,100 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-display-face);
+}
 
-  --color-brand-50: #eff6ff;
-  --color-brand-100: #dbeafe;
-  --color-brand-200: #bfdbfe;
-  --color-brand-300: #93c5fd;
-  --color-brand-400: #60a5fa;
-  --color-brand-500: #3b82f6;
-  --color-brand-600: #2563eb;
-  --color-brand-700: #1d4ed8;
-  --color-brand-800: #1e40af;
-  --color-brand-900: #1e3a8a;
+@theme {
+  /* Escala tipográfica +1–2 px respecto a la de serie */
+  --text-xs: 0.8125rem;
+  --text-xs--line-height: 1.25rem;
+  --text-sm: 0.9375rem;
+  --text-sm--line-height: 1.5rem;
+  --text-base: 1.0625rem;
+  --text-base--line-height: 1.7rem;
+  --text-lg: 1.1875rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.625rem;
+  --text-3xl: 2rem;
+  --text-3xl--line-height: 2.4rem;
+
+  --color-brand-50: #eef4ff;
+  --color-brand-100: #dbe7ff;
+  --color-brand-200: #bfd3ff;
+  --color-brand-300: #93b4ff;
+  --color-brand-400: #608bff;
+  --color-brand-500: #3b66f6;
+  --color-brand-600: #2449eb;
+  --color-brand-700: #1d38d0;
+  --color-brand-800: #1e31a8;
+  --color-brand-900: #1e2f84;
+
+  --color-senal-400: #22d3ee;
+  --color-senal-500: #06b6d4;
+
+  --shadow-suave: 0 1px 2px rgb(15 23 42 / 0.04), 0 2px 6px -1px rgb(15 23 42 / 0.05), 0 12px 32px -12px rgb(15 23 42 / 0.10);
+  --shadow-elevada: 0 2px 4px rgb(15 23 42 / 0.05), 0 12px 24px -6px rgb(15 23 42 / 0.10), 0 32px 64px -24px rgb(36 73 235 / 0.22);
+  --shadow-brillo: 0 8px 24px -6px rgb(36 73 235 / 0.55), 0 2px 6px -1px rgb(124 58 237 / 0.35);
+
+  --animate-entrada: entrada 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-barrido: barrido 3.2s linear infinite;
+  --animate-latido: latido 1.8s ease-out infinite;
+  --animate-brillo: brillo 2.4s ease-in-out infinite;
+}
+
+@keyframes entrada {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes barrido {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes latido {
+  0% {
+    box-shadow: 0 0 0 0 currentColor;
+    opacity: 1;
+  }
+  80%,
+  100% {
+    box-shadow: 0 0 0 7px transparent;
+  }
+}
+@keyframes brillo {
+  0% {
+    transform: translateX(-100%);
+  }
+  60%,
+  100% {
+    transform: translateX(250%);
+  }
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
+  font-feature-settings: "ss01", "cv11";
+}
+
+/* Halo de color muy suave detrás del contenido: da profundidad sin competir
+   con los datos (las tarjetas son sólidas y blancas encima). */
+.fondo-panel {
+  background:
+    radial-gradient(60rem 30rem at 100% -10%, rgb(124 58 237 / 0.10), transparent 60%),
+    radial-gradient(50rem 28rem at 0% 0%, rgb(36 73 235 / 0.10), transparent 60%),
+    radial-gradient(40rem 30rem at 70% 110%, rgb(6 182 212 / 0.08), transparent 60%),
+    var(--background);
 }
 
 ::selection {
@@ -37,40 +127,142 @@ body {
   color: var(--color-brand-900);
 }
 
+:focus-visible {
+  outline: 2px solid var(--color-brand-500);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Barras de desplazamiento discretas */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(148 163 184 / 0.5) transparent;
+}
+
 @layer components {
-  /* Contenedor base para tarjetas, tablas y secciones */
+  /* ---- Superficies ---------------------------------------------------- */
   .card {
-    @apply rounded-2xl border border-slate-200 bg-white shadow-sm;
+    @apply rounded-2xl border border-slate-200/80 bg-white shadow-suave;
+  }
+  /* Tarjeta que responde al ratón (enlaces, filas-tarjeta) */
+  .card-interactiva {
+    @apply rounded-2xl border border-slate-200/80 bg-white shadow-suave transition duration-300 hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-elevada;
+  }
+  /* Recuadros informativos de color */
+  .aviso {
+    @apply flex items-start gap-3 rounded-xl border p-4 text-sm leading-relaxed;
+  }
+  .aviso-ok {
+    @apply flex items-start gap-3 rounded-xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-4 text-sm leading-relaxed text-emerald-900;
+  }
+  .aviso-atencion {
+    @apply flex items-start gap-3 rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-4 text-sm leading-relaxed text-amber-900;
+  }
+  .aviso-error {
+    @apply flex items-start gap-3 rounded-xl border border-rose-200 bg-gradient-to-br from-rose-50 to-white p-4 text-sm leading-relaxed text-rose-900;
+  }
+  .aviso-ia {
+    @apply flex items-start gap-3 rounded-xl border border-violet-200 bg-gradient-to-br from-violet-50 via-white to-brand-50 p-4 text-sm leading-relaxed text-violet-950;
   }
 
-  /* Botones — cada variante lleva la lista completa de utilidades porque
-     Tailwind v4 no permite @apply de una clase de @layer components
-     dentro de otra. */
+  /* ---- Botones ---------------------------------------------------------
+     Cada variante lleva la lista completa de utilidades porque Tailwind v4
+     no permite @apply de una clase de @layer components dentro de otra. */
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply relative inline-flex items-center justify-center gap-2 overflow-hidden whitespace-nowrap rounded-xl bg-gradient-to-r from-brand-600 via-brand-500 to-violet-600 px-5 py-2.5 text-sm font-semibold text-white shadow-brillo ring-1 ring-inset ring-white/15 transition duration-200 hover:-translate-y-px hover:brightness-110 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0;
   }
   .btn-secondary {
-    @apply inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition duration-200 hover:-translate-y-px hover:border-brand-200 hover:bg-brand-50/60 hover:text-brand-700 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0;
   }
   .btn-danger {
-    @apply inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-rose-200 bg-white px-4 py-2 text-sm font-medium text-rose-700 transition-colors hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-rose-200 bg-white px-4 py-2.5 text-sm font-semibold text-rose-700 shadow-sm transition duration-200 hover:-translate-y-px hover:bg-rose-50 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0;
   }
 
-  /* Formularios */
+  /* ---- Formularios ---------------------------------------------------- */
   .input-field {
-    @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition focus:border-brand-500 focus:ring-4 focus:ring-brand-100;
+    @apply w-full rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-2.5 text-base text-slate-900 shadow-inner shadow-slate-900/[0.02] outline-none transition duration-200 placeholder:text-slate-400 hover:border-slate-300 focus:border-brand-400 focus:bg-white focus:ring-4 focus:ring-brand-100 disabled:opacity-60;
   }
   .label-field {
-    @apply mb-1.5 block text-xs font-semibold text-slate-600;
+    @apply mb-2 block text-sm font-semibold text-slate-700;
   }
 
-  /* Insignias de estado */
+  /* ---- Insignias ------------------------------------------------------ */
   .badge {
-    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium;
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ring-inset ring-current/10;
+  }
+  /* Punto de estado; con .punto-vivo late (búsqueda en curso) */
+  .punto {
+    @apply inline-block h-2 w-2 shrink-0 rounded-full bg-current;
+  }
+  .punto-vivo {
+    @apply inline-block h-2 w-2 shrink-0 animate-latido rounded-full bg-current;
   }
 
-  /* Cabeceras de tabla */
+  /* ---- Tablas --------------------------------------------------------- */
+  .tabla-panel {
+    @apply w-full text-sm;
+  }
+  .tabla-panel thead {
+    @apply bg-gradient-to-b from-slate-50 to-slate-100/70;
+  }
+  .tabla-panel tbody tr {
+    @apply transition-colors duration-150 hover:bg-brand-50/40;
+  }
   .th-panel {
-    @apply px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-slate-500;
+    @apply whitespace-nowrap border-b border-slate-200 px-5 py-3.5 text-left text-xs font-bold uppercase tracking-wider text-slate-500;
+  }
+  .td-panel {
+    @apply px-5 py-4 align-middle;
+  }
+
+  /* ---- Tipografía de secciones ---------------------------------------- */
+  .titulo-seccion {
+    @apply flex items-center gap-2.5 font-display text-lg font-bold tracking-tight text-slate-900;
+  }
+  .icono-seccion {
+    @apply flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-brand-50 to-violet-50 text-brand-600 ring-1 ring-brand-100;
+  }
+
+  /* ---- Animación de entrada escalonada ---------------------------------
+     El contenedor .entrada anima a cada hijo directo con un pequeño
+     retardo creciente. */
+  .entrada > * {
+    animation: var(--animate-entrada);
+  }
+  .entrada > *:nth-child(2) {
+    animation-delay: 60ms;
+  }
+  .entrada > *:nth-child(3) {
+    animation-delay: 120ms;
+  }
+  .entrada > *:nth-child(4) {
+    animation-delay: 180ms;
+  }
+  .entrada > *:nth-child(5) {
+    animation-delay: 240ms;
+  }
+  .entrada > *:nth-child(n + 6) {
+    animation-delay: 300ms;
+  }
+
+  /* Destello que recorre un elemento (barra de progreso en curso, botón) */
+  .destello {
+    @apply pointer-events-none absolute inset-y-0 left-0 w-1/3 animate-brillo bg-gradient-to-r from-transparent via-white/45 to-transparent;
+  }
+
+  /* Texto con el degradado de la marca */
+  .texto-marca {
+    @apply bg-gradient-to-r from-brand-600 via-violet-600 to-senal-500 bg-clip-text text-transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
