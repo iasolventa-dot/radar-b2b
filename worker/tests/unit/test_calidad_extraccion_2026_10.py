@@ -36,3 +36,11 @@ def test_nombre_de_pagina_sin_sufijo_de_localidad() -> None:
     assert limpiar_nombre_pagina("EMIF | Alcalá de Guadaira") == "EMIF"
     assert limpiar_nombre_pagina("L&M CLIMA S.C. | Alcalá de Guadaira") == "L&M CLIMA S.C."
     assert limpiar_nombre_pagina("Climont") == "Climont"
+
+
+def test_sumario_del_borme_con_un_solo_elemento() -> None:
+    from radar.fuentes.borme import _como_lista
+
+    assert _como_lista({"codigo": "A"}) == [{"codigo": "A"}]
+    assert _como_lista([{"codigo": "A"}, "x"]) == [{"codigo": "A"}]
+    assert _como_lista(None) == []

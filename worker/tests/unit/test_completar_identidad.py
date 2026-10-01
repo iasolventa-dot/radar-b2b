@@ -51,3 +51,17 @@ def test_respuesta_del_modelo_null_o_json_roto() -> None:
     assert propuesta_de_texto("no lo sé", []) is None
     p = propuesta_de_texto(f'```json\n{{"cif": "{CIF_B}", "razon_social": "IRRIPLANT SL", "url": null}}\n```', ["https://u"])
     assert p is not None and p.url == "https://u"
+
+
+def test_homonima_de_otra_localidad_no_se_acepta() -> None:
+    resultados = [{"title": "IRRIPLANT SL - Infocif", "description": f"CIF {CIF_B}. Domicilio en Marbella (Málaga)", "url": "u"}]
+    assert elegir_de_resultados("Irriplant", resultados, {"utrera", "sevilla"}) is None
+    resultados[0]["description"] = f"CIF {CIF_B}. Domicilio en Utrera (Sevilla)"
+    p = elegir_de_resultados("Irriplant", resultados, {"utrera", "sevilla"})
+    assert p is not None and "Utrera" in p.evidencia
+
+
+def test_titulo_con_dos_puntos() -> None:
+    r = [{"title": "Irriplant SL: teléfono, CIF y dirección", "description": f"CIF {CIF_B}", "url": "u"}]
+    p = elegir_de_resultados("Irriplant", r)
+    assert p is not None and p.razon_social == "Irriplant SL"

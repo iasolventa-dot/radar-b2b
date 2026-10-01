@@ -327,6 +327,17 @@ def acto_a_registro_bruto(acto: ActoBorme, provincia: str | None = None) -> Regi
     )
 
 
+def _como_lista(valor: object) -> list[dict]:
+    """El sumario JSON del BORME trae un OBJETO en vez de una lista cuando solo
+    hay un elemento (visto 2026-10-01 en días de 2025: 'str' object has no
+    attribute 'get' al recorrer las claves del objeto como si fueran secciones)."""
+    if isinstance(valor, dict):
+        return [valor]
+    if isinstance(valor, list):
+        return [v for v in valor if isinstance(v, dict)]
+    return []
+
+
 class ConectorBorme(Conector):
     codigo = "borme"
     coste_unitario_eur = 0.0  # API pública y gratuita (verificado 2026-09-10)
@@ -369,13 +380,13 @@ class ConectorBorme(Conector):
             if exc.response.status_code == 404:
                 return []  # sin BORME ese día (fin de semana/festivo)
             raise
-        diarios = datos.get("data", {}).get("sumario", {}).get("diario", [])
+        diarios = _como_lista(datos.get("data", {}).get("sumario", {}).get("diario", []))
         actos: list[ActoBorme] = []
         for diario in diarios:
-            for seccion in diario.get("seccion", []):
+            for seccion in _como_lista(diario.get("seccion", [])):
                 if seccion.get("codigo") != "A":
                     continue
-                for item in seccion.get("item", []):
+                for item in _como_lista(seccion.get("item", [])):
                     if item.get("titulo", "").strip().upper() != provincia_titulo.upper():
                         continue
                     xml_bytes = await self._pedir_bytes(item["url_xml"])

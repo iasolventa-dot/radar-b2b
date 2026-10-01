@@ -56,7 +56,8 @@ CONCURRENCIA_LLM = 4
 
 _SQL_CANDIDATAS = """
 select e.id::text, e.razon_social, e.nombre_comercial,
-  (select s.municipio_nombre from sedes s where s.empresa_id = e.id and s.municipio_nombre is not null limit 1)
+  (select s.municipio_nombre from sedes s where s.empresa_id = e.id and s.municipio_nombre is not null limit 1),
+  (select s.provincia from sedes s where s.empresa_id = e.id and s.provincia is not null limit 1)
 from busqueda_resultados br join empresas e on e.id = br.empresa_id
 where br.busqueda_id = %s and e.fusionada_en is null and e.nif is null and not e.es_persona_fisica
   and coalesce(br.clasificacion, '') not in ('descartado', 'rechazado')
@@ -71,6 +72,10 @@ class EmpresaSinCif:
     id: str
     nombre: str
     municipio: str | None
+    provincia: str | None = None
+
+    def lugares(self) -> set[str]:
+        return {_sin_tildes(x) for x in (self.municipio, self.provincia) if x}
 
 
 @dataclass
@@ -78,6 +83,7 @@ class CifPropuesto:
     nif: str
     razon_social: str | None
     url: str | None
+    evidencia: str = ""  # título + extracto (o respuesta del modelo) que lo justifica
 
 
 def nombre_limpio(nombre: str) -> str:
@@ -104,7 +110,7 @@ def nombre_para_verificar(nombre: str, municipio: str | None) -> str:
 def _razon_de_titulo(titulo: str) -> str:
     """El trozo del título que parece la denominación (el que lleva forma
     jurídica), p. ej. 'CLIMATIZACIONES MONTAÑO SL - CIF B9... - Alcalá'."""
-    partes = [p.strip() for p in re.split(r"\s+[-|·–—:]\s+", titulo) if p.strip()]
+    partes = [p.strip() for p in re.split(r"\s+[-|·–—]\s+|:\s+", titulo) if p.strip()]
     for p in partes:
         if extraer_forma_juridica(p)[0]:
             return p
@@ -122,20 +128,30 @@ def cif_valido_para(nombre: str, nif: str, razon: str | None) -> bool:
     return forma_compatible_con_nif(forma, v["nif"]) is not False
 
 
-def elegir_de_resultados(nombre: str, resultados: list[dict[str, Any]]) -> CifPropuesto | None:
+def menciona_lugar(texto: str, lugares: set[str]) -> bool:
+    """¿El texto nombra el municipio o la provincia de la empresa? Evita dar
+    por buena una homónima de otra provincia (2026-10-01: «Construcciones
+    Guerrero» de Utrera identificada con una sociedad de CIF malagueño)."""
+    return not lugares or any(lugar in _sin_tildes(texto) for lugar in lugares)
+
+
+def elegir_de_resultados(nombre: str, resultados: list[dict[str, Any]], lugares: set[str] | None = None) -> CifPropuesto | None:
     """Del título/extracto de los resultados de búsqueda, el CIF que aparece
-    junto al nombre de la empresa. `None` si no hay o si hay dos distintos."""
+    junto al nombre de la empresa y a su localidad. `None` si no hay o si hay
+    dos distintos."""
     votos: Counter[str] = Counter()
     datos: dict[str, CifPropuesto] = {}
     for r in resultados:
         titulo = str(r.get("title") or "")
         texto = f"{titulo} {r.get('description') or ''}"
+        if not menciona_lugar(texto, lugares or set()):
+            continue
         razon = _razon_de_titulo(titulo)
         for m in RX_NIF.finditer(texto):
             nif = validar_nif(m.group(1))["nif"]
             if cif_valido_para(nombre, nif, razon):
                 votos[nif] += 1
-                datos.setdefault(nif, CifPropuesto(nif, razon, r.get("url")))
+                datos.setdefault(nif, CifPropuesto(nif, razon, r.get("url"), texto[:500]))
     if not votos:
         return None
     (primero, n1), *resto = votos.most_common()
@@ -148,7 +164,7 @@ _PROMPT_LLM = """Busca en la web el CIF (NIF de la sociedad) de esta empresa esp
 - Nombre: {nombre}
 - Municipio: {municipio}
 Fíjate en directorios de empresas o en su aviso legal. Responde SOLO con JSON:
-{{"cif": "B12345678 o null", "razon_social": "denominación exacta con forma jurídica o null", "url": "página donde lo viste o null"}}
+{{"cif": "B12345678 o null", "razon_social": "denominación exacta con forma jurídica o null", "municipio": "municipio de su domicilio según esa página o null", "url": "página donde lo viste o null"}}
 Si no lo encuentras o dudas entre varias empresas, pon null. No inventes."""
 
 
@@ -163,7 +179,10 @@ def propuesta_de_texto(texto: str, urls: list[str]) -> CifPropuesto | None:
     cif = datos.get("cif")
     if not cif or str(cif).lower() == "null":
         return None
-    return CifPropuesto(str(cif), datos.get("razon_social") or None, datos.get("url") or (urls[0] if urls else None))
+    return CifPropuesto(
+        str(cif), datos.get("razon_social") or None, datos.get("url") or (urls[0] if urls else None),
+        json.dumps(datos, ensure_ascii=False)[:500],
+    )
 
 
 async def _propuestas_apify(
@@ -188,7 +207,7 @@ async def _propuestas_apify(
     propuestas: dict[str, CifPropuesto] = {}
     for i, (e, consulta) in enumerate(zip(empresas, consultas, strict=True)):
         item = por_consulta.get(consulta) or (res.items[i] if i < len(res.items) else {})
-        p = elegir_de_resultados(nombre_para_verificar(e.nombre, e.municipio), item.get("organicResults") or [])
+        p = elegir_de_resultados(nombre_para_verificar(e.nombre, e.municipio), item.get("organicResults") or [], e.lugares())
         if p:
             propuestas[e.id] = p
     contadores["empresas_buscadas"] = len(empresas)
@@ -210,7 +229,10 @@ async def _propuestas_llm(
             contadores["error"] = r.error
             return e.id, None, r.coste_eur
         p = propuesta_de_texto(r.texto, r.urls)
-        if p and not cif_valido_para(nombre_para_verificar(e.nombre, e.municipio), p.nif, p.razon_social):
+        if p and (
+            not cif_valido_para(nombre_para_verificar(e.nombre, e.municipio), p.nif, p.razon_social)
+            or not menciona_lugar(p.evidencia, e.lugares())
+        ):
             contadores["rechazadas_por_verificacion"] += 1
             p = None
         return e.id, p, r.coste_eur
@@ -234,7 +256,7 @@ async def completar_identidad(
         "rechazadas_por_verificacion": 0, "error": None,
     }
     filas = conn.execute(_SQL_CANDIDATAS, (busqueda_id, MAX_EMPRESAS)).fetchall()
-    empresas = [EmpresaSinCif(f[0], f[1] or f[2], f[3]) for f in filas if (f[1] or f[2])]
+    empresas = [EmpresaSinCif(f[0], f[1] or f[2], f[3], f[4]) for f in filas if (f[1] or f[2])]
     contadores["sin_cif"] = len(empresas)
     if not empresas or max_coste_eur <= 0:
         return {**contadores, "motivo_parada": None if empresas else "todas tienen CIF", "coste_eur": 0.0}
@@ -251,7 +273,7 @@ async def completar_identidad(
         contadores["cif_encontrados"] += 1
         registro = RegistroBruto(
             fuente="directorio_cif", id_externo=p.nif, url=p.url,
-            payload={"metodo": contadores["metodo"], "razon_social": p.razon_social, "url": p.url},
+            payload={"metodo": contadores["metodo"], "razon_social": p.razon_social, "url": p.url, "evidencia": p.evidencia},
             campos=CamposExtraidos(razon_social=p.razon_social, nif=p.nif),
         )
         try:
