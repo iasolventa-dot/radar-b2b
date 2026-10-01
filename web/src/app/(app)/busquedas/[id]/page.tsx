@@ -11,7 +11,7 @@ export default async function PaginaDetalleBusqueda({ params }: { params: Promis
 
   const { data: busqueda } = await supabase
     .from("busquedas")
-    .select("id, peticion, filtros, presupuesto_eur, estado, rondas, estadisticas, coste_eur, creado_en, finalizado_en")
+    .select("id, peticion, filtros, presupuesto_eur, estado, rondas, estadisticas, coste_eur, creado_en, finalizado_en, opciones")
     .eq("id", decodeURIComponent(id))
     .maybeSingle();
 

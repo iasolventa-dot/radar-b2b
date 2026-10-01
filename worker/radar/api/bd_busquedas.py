@@ -16,7 +16,7 @@ import psycopg
 
 from radar.agente.interpretacion import FiltrosBusqueda
 from radar.agente.planificador import ResultadoPlanificador, RondaPlanificador
-from radar.api.estado import serializar_estadisticas
+from radar.api.estado import rondas_del_agente, serializar_estadisticas
 
 
 @dataclass
@@ -121,7 +121,7 @@ def guardar_progreso_ronda(conn: psycopg.Connection, busqueda_id: str, *, rondas
         cur.execute(
             "update busquedas set rondas = %s, coste_eur = %s, estadisticas = %s::jsonb where id = %s",
             (
-                len(rondas_hasta_ahora), coste_gastado_eur,
+                rondas_del_agente(rondas_hasta_ahora), coste_gastado_eur,
                 json.dumps(serializar_estadisticas(rondas_hasta_ahora, max_rondas=max_rondas)),
                 busqueda_id,
             ),
@@ -144,7 +144,7 @@ def finalizar_busqueda_db(
         cur.execute(
             "update busquedas set estado = %s, rondas = %s, coste_eur = %s, estadisticas = %s::jsonb, finalizado_en = now() where id = %s",
             (
-                estado, len(rondas), coste_gastado_eur,
+                estado, rondas_del_agente(rondas), coste_gastado_eur,
                 json.dumps(serializar_estadisticas(rondas, max_rondas=max_rondas, resultado=resultado)),
                 busqueda_id,
             ),

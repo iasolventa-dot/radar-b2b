@@ -221,6 +221,8 @@ export interface BusquedaFila {
   coste_eur: number;
   creado_en: string;
   finalizado_en: string | null;
+  // fuentes de pago marcadas al confirmar (busquedas.opciones)
+  opciones?: { apify_actores?: string[]; usar_google_places?: boolean } | null;
 }
 
 export const ETIQUETA_ESTADO_BUSQUEDA: Record<string, string> = {

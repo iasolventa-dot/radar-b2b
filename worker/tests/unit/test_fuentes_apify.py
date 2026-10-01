@@ -110,3 +110,38 @@ def test_el_cliente_ejecuta_cualquier_actor_sin_filtrar():
 
     r = asyncio.run(run())
     assert vistos["ruta"] == "/v2/actors/cualquiera~actor/runs" and r.items == [{"ok": 1}]
+
+
+def test_fallo_de_conexion_se_reintenta_y_no_se_queda_sin_resultado(monkeypatch):
+    """2026-10-01: un ConnectError puntual dejaba la búsqueda sin Google Search."""
+    import radar.fuentes.apify as modulo
+
+    llamadas = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            llamadas["n"] += 1
+            if llamadas["n"] == 1:
+                raise httpx.ConnectError("conexión rechazada", request=request)
+            return httpx.Response(201, json={"data": {"id": "r1", "status": "SUCCEEDED", "defaultDatasetId": "d1"}})
+        if "/datasets/" in request.url.path:
+            return httpx.Response(200, json=[{"x": 1}])
+        return httpx.Response(200, json={"data": {"id": "r1", "status": "SUCCEEDED", "usageTotalUsd": 0.01}})
+
+    transporte = httpx.MockTransport(handler)
+    original = httpx.AsyncClient
+
+    class ClienteSimulado(original):  # type: ignore[misc,valid-type]
+        def __init__(self, *a, **k):
+            k.setdefault("transport", transporte)
+            super().__init__(*a, **k)
+
+    monkeypatch.setattr(modulo.httpx, "AsyncClient", ClienteSimulado)
+
+    async def correr():
+        async with ClienteSimulado() as c:
+            return await ejecutar_actor(c, TOKEN, "a/b", {}, intervalo_s=0.0)
+
+    res = asyncio.run(correr())
+    assert res.error is None and res.items == [{"x": 1}]
+    assert llamadas["n"] == 2

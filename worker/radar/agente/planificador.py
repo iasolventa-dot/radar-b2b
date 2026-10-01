@@ -523,15 +523,20 @@ async def planificar(
     from radar.agente.completar_contacto import completar_contacto
     from radar.agente.enriquecer_borme import enriquecer_con_borme
     from radar.agente.fases import ejecutar_con_tope, planes_fuentes_marcadas
+    from radar.agente.redes_marcadas import fuentes_marcadas_finales, reserva_redes
     from radar.agente.relevancia import evaluar_relevancia
     from radar.agente.resolver_dudas import resolver_dudas
 
     # Parte del presupuesto reservada para los pasos finales (completar
     # contacto, relevancia con IA, resolver dudas): sin ella, el bucle LLM se
     # lo gastaba todo y la búsqueda acababa con datos sin limpiar ni resolver.
-    reserva_final = min(0.03, presupuesto_eur * 0.25)
-
+    reserva_ia = min(0.03, presupuesto_eur * 0.25) / 2
     actores = frozenset(apify_actores)
+    # ... y para las fuentes marcadas que se ejecutan al final (LinkedIn,
+    # Facebook, rastreo de webs: `radar.agente.redes_marcadas`).
+    reserva_fase_redes = reserva_redes(actores, presupuesto_eur)
+    reserva_final = reserva_ia * 2 + reserva_fase_redes
+
     contexto = ContextoHerramientas(
         conn=conn, cliente_http=cliente_http, filtros=filtros, presupuesto_restante_eur=presupuesto_eur,
         busqueda_id=busqueda_id, usar_places=usar_places, apify_actores=actores,
@@ -597,14 +602,22 @@ async def planificar(
 
     # --- Fase 3: completar contacto --------------------------------------
     motivo_llm = total.motivo_fin
-    reserva_ia = reserva_final / 2
     resultado_contacto = await completar_contacto(
         conn, cliente_http, filtros, busqueda_id=busqueda_id,
-        max_coste_eur=max(0.0, contexto.presupuesto_restante_eur - reserva_ia), apify_actores=actores,
+        max_coste_eur=max(0.0, contexto.presupuesto_restante_eur - reserva_ia - reserva_fase_redes), apify_actores=actores,
         telefonos_compartidos=contexto.telefonos_compartidos,
     )
     if await registrar("completar_contacto", {}, resultado_contacto):
         return cerrar()
+
+    # --- Fase 3c: LinkedIn, Facebook y rastreo de webs, si están marcados ---
+    for nombre_fuente, args_fuente, resultado_fuente in await fuentes_marcadas_finales(
+        conn, cliente_http, busqueda_id=busqueda_id, actores=actores,
+        max_coste_eur=max(0.0, contexto.presupuesto_restante_eur - reserva_ia),
+        telefonos_compartidos=contexto.telefonos_compartidos,
+    ):
+        if await registrar(nombre_fuente, args_fuente, resultado_fuente):
+            return cerrar()
 
     # --- Fase 3b: identidad y directivos desde el índice del BORME (gratis) ---
     resultado_borme = await asyncio.to_thread(

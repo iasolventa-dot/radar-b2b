@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import { EstadoVacio, TarjetaCifra } from "@/components/encabezado-pagina";
 import { EstadoBusqueda } from "@/components/estado-busqueda";
+import { FuentesMarcadas } from "@/components/fuentes-marcadas";
 import { crearClienteNavegador } from "@/lib/supabase/client";
 import { cancelarBusqueda, confirmarBusqueda } from "@/lib/api";
 import { describirFiltros } from "@/lib/filtros";
@@ -168,7 +169,7 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
     async function sondear() {
       const { data: fila } = await supabase
         .from("busquedas")
-        .select("id, peticion, filtros, presupuesto_eur, estado, rondas, estadisticas, coste_eur, creado_en, finalizado_en")
+        .select("id, peticion, filtros, presupuesto_eur, estado, rondas, estadisticas, coste_eur, creado_en, finalizado_en, opciones")
         .eq("id", id)
         .maybeSingle();
       if (cancelado || !fila) return;
@@ -473,6 +474,8 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
         </div>
       )}
 
+      <FuentesMarcadas opciones={busqueda.opciones} rondas={rondas} activa={activa} />
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
         {/* Progreso ronda a ronda */}
         <section className="card p-6">
@@ -480,7 +483,8 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
             <span className="icono-seccion">
               <Activity className="h-4 w-4" />
             </span>
-            Progreso ronda a ronda
+            Progreso paso a paso
+            <span className="badge bg-slate-100 text-slate-600">{rondas.length} pasos</span>
           </h2>
           {rondas.length > 0 ? (
             <ol className="relative space-y-1">

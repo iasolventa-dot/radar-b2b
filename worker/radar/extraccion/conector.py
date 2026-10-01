@@ -38,14 +38,38 @@ def _limpiar_meta(texto: str | None) -> str | None:
     return re.sub(r"\s+", " ", texto).strip()[:300] or None if texto else None
 
 
-def metadatos_portada(html: str) -> dict[str, str | None]:
-    """Título y meta-descripción: lo que la empresa dice de sí misma en una
-    frase. Lo usa el filtro de relevancia (`radar.agente.relevancia`)."""
+# Enlaces a sus propias páginas de LinkedIn/Facebook que casi toda web de
+# empresa pone en la portada (iconos del pie). Con la URL exacta los Actors de
+# Apify sí devuelven datos; por nombre casi nunca (2026-10-01: 0 de 5).
+_RX_LINKEDIN = re.compile(r"https?://(?:[a-z]{2,3}\.)?linkedin\.com/company/[A-Za-z0-9_\-.%]+", re.IGNORECASE)
+_RX_FACEBOOK = re.compile(r"https?://(?:www\.|m\.|es-es\.)?facebook\.com/[A-Za-z0-9_\-.]+", re.IGNORECASE)
+_RUTAS_FACEBOOK_NO_PAGINA = {
+    "sharer", "sharer.php", "share", "share.php", "plugins", "dialog", "tr", "policies", "privacy", "groups", "events",
+    "login", "login.php", "help", "watch", "profile.php", "pages", "people", "hashtag", "photo.php", "permalink.php",
+}
+MAX_REDES_POR_WEB = 2
+
+
+def enlaces_redes(html: str) -> dict[str, list[str]]:
+    linkedin = list(dict.fromkeys(u.rstrip("/.") for u in _RX_LINKEDIN.findall(html)))
+    facebook = []
+    for u in _RX_FACEBOOK.findall(html):
+        ruta = u.rstrip("/.").rsplit("/", 1)[-1].lower()
+        if ruta not in _RUTAS_FACEBOOK_NO_PAGINA and u.rstrip("/.") not in facebook:
+            facebook.append(u.rstrip("/."))
+    return {"redes_linkedin": linkedin[:MAX_REDES_POR_WEB], "redes_facebook": facebook[:MAX_REDES_POR_WEB]}
+
+
+def metadatos_portada(html: str) -> dict[str, str | list[str] | None]:
+    """Título y meta-descripción (lo que la empresa dice de sí misma en una
+    frase; lo usa el filtro de relevancia, `radar.agente.relevancia`) y los
+    enlaces a sus páginas de LinkedIn/Facebook (`radar.agente.redes_marcadas`)."""
     titulo = _RX_TITULO.search(html)
     descripcion = _RX_DESCRIPCION.search(html)
     return {
         "titulo_web": _limpiar_meta(titulo.group(1)) if titulo else None,
         "descripcion_web": _limpiar_meta(descripcion.group(1)) if descripcion else None,
+        **enlaces_redes(html),
     }
 
 
@@ -56,7 +80,9 @@ async def leer_texto_web(cliente: httpx.AsyncClient, url_portada: str) -> str:
     return texto
 
 
-async def _texto_relevante(cliente: httpx.AsyncClient, url_portada: str) -> tuple[str, list[str], dict[str, str | None]]:
+async def _texto_relevante(
+    cliente: httpx.AsyncClient, url_portada: str
+) -> tuple[str, list[str], dict[str, str | list[str] | None]]:
     """Descarga la portada y hasta `MAX_PAGINAS_LEGALES` páginas legales
     enlazadas desde ella; devuelve el texto visible concatenado, las URLs que
     sí se pudieron leer (evidencia, doc 04 §3) y los metadatos de la portada."""

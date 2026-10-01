@@ -36,6 +36,14 @@ from radar.agente.planificador import ResultadoPlanificador, RondaPlanificador
 EstadoBusqueda = Literal["interpretada", "en_curso", "completada", "esperando_respuesta", "error", "cancelada"]
 
 
+def rondas_del_agente(rondas: list[RondaPlanificador]) -> int:
+    """Rondas en el sentido de `max_rondas`: turnos del agente (cada llamada al
+    planificador LLM). Antes `busquedas.rondas` guardaba el número total de
+    pasos (consultas, fuentes marcadas, fases finales...) y el panel mostraba
+    "29 / 10" aunque el agente se hubiera parado bien en su décimo turno."""
+    return sum(1 for r in rondas if r.herramienta == "planificador_llm")
+
+
 def serializar_ronda(ronda: RondaPlanificador) -> dict[str, Any]:
     return {
         "numero": ronda.numero,

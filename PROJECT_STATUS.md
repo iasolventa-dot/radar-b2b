@@ -250,4 +250,11 @@ Pendiente conocido: muchas dudosas en empresas guardadas antes de este cambio (s
 
 Verificado: 377 tests, ruff, mypy, tsc, eslint. Búsquedas reales desde el panel: «reformas y construcción en Alcobendas» (0,185 €, sin Maps): 21 empresas, 12 relevantes, BORME unió 3; «instaladores eléctricos en Getafe» (0,143 €, con Apify Maps): 25 empresas, 24 con teléfono, 20 con email, BORME añadió 6 actos con administradores/consejeros en 5 sociedades, 15 relevantes / 2 dudosas / 8 descartadas correctamente (calderas, cerrajero, tienda, proveedores de equipos, una empresa de Managua).
 
+### 13b. Correcciones 2026-10-01 (búsqueda real «transporte en Sevilla», todas las fuentes marcadas)
+
+- **Rondas «29 de 10»**: `busquedas.rondas` contaba todos los pasos; ahora cuenta turnos del agente (`rondas_del_agente`), que es lo que limita `max_rondas`. Filas existentes corregidas por SQL. El panel muestra además «N pasos».
+- **Apify `ConnectError`** (Google Search y, en completar contacto, también Maps; la petición no llegaba a Apify): `radar/fuentes/apify.py` reintenta los fallos de conexión con un cliente HTTP nuevo (lanzar una ejecución solo se reintenta si no llegó a enviarse) y guarda el mensaje completo del error.
+- **LinkedIn 0 resultados / Facebook y rastreo de webs nunca usados**: el lector de webs extrae de la portada los enlaces a LinkedIn y Facebook de la empresa (`enlaces_redes`), y la nueva fase 3c (`radar/agente/redes_marcadas.py`) ejecuta siempre las fuentes marcadas: LinkedIn y Facebook con esas URLs exactas, el rastreo de webs con las empresas a las que les falta teléfono o email. Tiene presupuesto reservado y, si no hay datos, deja registrado el motivo.
+- **Panel**: bloque «Fuentes de pago marcadas» con el estado real de cada una (usada, error, sin datos y por qué, no usada).
+
 Pendiente conocido: `consultar_bd` informa al planificador de "0 empresas que cumplen los filtros" (confianza/frescura) aunque la búsqueda tenga 25, lo que le confunde; el coste del planificador LLM es ~50 % del gasto en búsquedas sin Maps; ampliar el índice del BORME a más provincias/años cuando se busque fuera de Madrid/Sevilla.

@@ -49,6 +49,46 @@ def _mensaje_error(status: int, cuerpo: Any) -> str:
     return f"Apify respondió {status}" + (f": {detalle}" if detalle else "")
 
 
+# Reintentos ante fallos de CONEXIÓN (visto en vivo 2026-10-01: "no se pudo
+# contactar con Apify: ConnectError" en mitad de una búsqueda, mientras la
+# misma llamada aislada funcionaba). El cliente compartido de la búsqueda lee
+# a la vez decenas de webs; si su conexión falla, se reintenta con un cliente
+# nuevo (conexiones limpias) tras una pausa creciente.
+INTENTOS_CONEXION = 3
+PAUSA_REINTENTO_S = 2.0
+
+
+def _texto_error(exc: Exception) -> str:
+    detalle = str(exc).strip()
+    return f"{type(exc).__name__}" + (f" ({detalle[:160]})" if detalle else "")
+
+
+async def _peticion(
+    cliente: httpx.AsyncClient, metodo: str, url: str, *, solo_fallos_de_conexion: bool, pausa_s: float, **kwargs: Any
+) -> httpx.Response:
+    """Hace la petición y reintenta con un cliente nuevo si falla la conexión.
+    `solo_fallos_de_conexion=True` (lanzar una ejecución): solo se reintenta
+    si la petición NO llegó a enviarse (ConnectError/ConnectTimeout), para no
+    lanzar -- y pagar -- el mismo Actor dos veces."""
+    ultimo: Exception | None = None
+    for intento in range(INTENTOS_CONEXION):
+        try:
+            if intento == 0:
+                return await cliente.request(metodo, url, **kwargs)
+            async with httpx.AsyncClient() as nuevo:
+                return await nuevo.request(metodo, url, **kwargs)
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            ultimo = exc
+        except httpx.TransportError as exc:
+            if solo_fallos_de_conexion:
+                raise
+            ultimo = exc
+        if intento < INTENTOS_CONEXION - 1:
+            await asyncio.sleep(pausa_s * (intento + 1))
+    assert ultimo is not None
+    raise ultimo
+
+
 def _id_actor(actor_id: str) -> str:
     # la API acepta "usuario/actor" o "usuario~actor"
     return actor_id.replace("/", "~")
@@ -92,11 +132,13 @@ async def ejecutar_actor(
         "timeout": timeout_s,
     }
     try:
-        r = await cliente.post(
-            f"{URL_BASE}/actors/{_id_actor(actor_id)}/runs", params=params, json=entrada or {}, headers=cab, timeout=60.0
+        r = await _peticion(
+            cliente, "POST", f"{URL_BASE}/actors/{_id_actor(actor_id)}/runs", solo_fallos_de_conexion=True,
+            pausa_s=PAUSA_REINTENTO_S if intervalo_s else 0.0,
+            params=params, json=entrada or {}, headers=cab, timeout=60.0,
         )
     except httpx.HTTPError as exc:
-        return ResultadoActor(error=f"no se pudo contactar con Apify: {type(exc).__name__}")
+        return ResultadoActor(error=f"no se pudo contactar con Apify: {_texto_error(exc)}")
     if r.status_code not in (200, 201):
         try:
             cuerpo = r.json()
@@ -112,9 +154,12 @@ async def ejecutar_actor(
         await asyncio.sleep(intervalo_s)
         espera += intervalo_s
         try:
-            rr = await cliente.get(f"{URL_BASE}/actor-runs/{run_id}", headers=cab, timeout=30.0)
+            rr = await _peticion(
+                cliente, "GET", f"{URL_BASE}/actor-runs/{run_id}", solo_fallos_de_conexion=False,
+                pausa_s=PAUSA_REINTENTO_S if intervalo_s else 0.0, headers=cab, timeout=30.0,
+            )
         except httpx.HTTPError as exc:
-            resultado.error = f"no se pudo consultar la ejecución: {type(exc).__name__}"
+            resultado.error = f"no se pudo consultar la ejecución: {_texto_error(exc)}"
             return resultado
         if rr.status_code != 200:
             resultado.error = _mensaje_error(rr.status_code, None)
@@ -129,11 +174,13 @@ async def ejecutar_actor(
 
     dataset_id = run.get("defaultDatasetId")
     try:
-        ri = await cliente.get(
-            f"{URL_BASE}/datasets/{dataset_id}/items", params={"limit": max_items, "clean": "true"}, headers=cab, timeout=60.0
+        ri = await _peticion(
+            cliente, "GET", f"{URL_BASE}/datasets/{dataset_id}/items", solo_fallos_de_conexion=False,
+            pausa_s=PAUSA_REINTENTO_S if intervalo_s else 0.0,
+            params={"limit": max_items, "clean": "true"}, headers=cab, timeout=60.0,
         )
     except httpx.HTTPError as exc:
-        resultado.error = f"no se pudo leer el dataset: {type(exc).__name__}"
+        resultado.error = f"no se pudo leer el dataset: {_texto_error(exc)}"
         return resultado
     if ri.status_code != 200:
         resultado.error = _mensaje_error(ri.status_code, None)
