@@ -73,6 +73,42 @@ def metadatos_portada(html: str) -> dict[str, str | list[str] | None]:
     }
 
 
+_RX_MAILTO = re.compile(r"mailto:([^\"'?>\s]+@[^\"'?>\s]+)", re.IGNORECASE)
+_RX_CFEMAIL = re.compile(r"data-cfemail=[\"']([0-9a-fA-F]+)[\"']")
+_RX_ARROBA = re.compile(r"\s*[\(\[\{]\s*(?:arroba|at)\s*[\)\]\}]\s*", re.IGNORECASE)
+_RX_PUNTO = re.compile(r"\s*[\(\[\{]\s*(?:punto|dot)\s*[\)\]\}]\s*", re.IGNORECASE)
+
+
+def _descifrar_cfemail(codigo: str) -> str | None:
+    """Cloudflare oculta los emails como `data-cfemail="<hex>"`: el primer byte
+    es la clave XOR del resto. Muy común en webs de pymes."""
+    try:
+        datos = bytes.fromhex(codigo)
+        return "".join(chr(b ^ datos[0]) for b in datos[1:])
+    except (ValueError, IndexError):
+        return None
+
+
+def emails_en_html(html: str) -> list[str]:
+    """Emails que NO salen en el texto visible: enlaces `mailto:` cuyo texto
+    es "Escríbenos" y emails protegidos por Cloudflare (2026-10-01: webs con
+    email en el enlace de contacto se quedaban sin email)."""
+    encontrados = [m.split("?")[0] for m in _RX_MAILTO.findall(html)]
+    encontrados += [e for e in (_descifrar_cfemail(c) for c in _RX_CFEMAIL.findall(html)) if e and "@" in e]
+    return list(dict.fromkeys(e.strip().lower() for e in encontrados))
+
+
+def desofuscar_texto(texto: str) -> str:
+    """'info (arroba) empresa (punto) es' -> 'info@empresa.es'."""
+    return _RX_PUNTO.sub(".", _RX_ARROBA.sub("@", texto))
+
+
+def _texto_de_pagina(html: str) -> str:
+    texto = desofuscar_texto(reglas.html_a_texto(html))
+    ocultos = [e for e in emails_en_html(html) if e not in texto.lower()]
+    return texto + ("\n" + "\n".join(f"Email: {e}" for e in ocultos) if ocultos else "")
+
+
 async def leer_texto_web(cliente: httpx.AsyncClient, url_portada: str) -> str:
     """Solo el texto (portada + aviso legal/contacto/equipo): para comprobar si
     un dato concreto aparece en la web de una empresa (`resolver_dudas`)."""
@@ -89,12 +125,12 @@ async def _texto_relevante(
     portada = await descargar(url_portada, cliente)
     if portada is None:
         return "", [], {}
-    textos = [reglas.html_a_texto(portada.html)]
+    textos = [_texto_de_pagina(portada.html)]
     urls = [url_portada]
     for enlace in encontrar_enlaces_legales(portada.html, url_portada)[:MAX_PAGINAS_LEGALES]:
         pagina = await descargar(enlace, cliente)
         if pagina:
-            textos.append(reglas.html_a_texto(pagina.html))
+            textos.append(_texto_de_pagina(pagina.html))
             urls.append(enlace)
     return "\n\n".join(textos), urls, metadatos_portada(portada.html)
 

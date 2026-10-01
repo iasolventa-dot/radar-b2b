@@ -99,7 +99,8 @@ PLANIFICADOR_LLM = "planificador_llm"
 HERRAMIENTAS_QUE_CONSUMEN_PRESUPUESTO = {
     "buscar_web", "descubrir_borme", "descubrir_places", "enriquecer_con_apify",
     "descubrir_google_search", "descubrir_apify_maps", "enriquecer_con_linkedin", "enriquecer_con_facebook",
-    "completar_contacto", "resolver_dudas", "evaluar_relevancia", "conciliar_costes_apify", PLANIFICADOR_LLM,
+    "completar_contacto", "resolver_dudas", "evaluar_relevancia", "conciliar_costes_apify", "completar_identidad",
+    PLANIFICADOR_LLM,
 }
 
 OnRonda = Callable[["RondaPlanificador"], Awaitable[None]]
@@ -522,6 +523,7 @@ async def planificar(
     todo lo encontrado. `on_ronda`/`debe_cancelar`: ver docstring del módulo
     -- se aplican igual a las rondas de las fases 1 y 3."""
     from radar.agente.completar_contacto import completar_contacto
+    from radar.agente.completar_identidad import completar_identidad
     from radar.agente.costes_apify import conciliar_costes_apify
     from radar.agente.enriquecer_borme import enriquecer_con_borme
     from radar.agente.fases import ejecutar_con_tope, planes_fuentes_marcadas
@@ -538,7 +540,10 @@ async def planificar(
     # ... y para las fuentes marcadas que se ejecutan al final (LinkedIn,
     # Facebook, rastreo de webs: `radar.agente.redes_marcadas`).
     reserva_fase_redes = reserva_redes(actores, presupuesto_eur)
-    reserva_final = reserva_ia * 2 + reserva_fase_redes
+    # ... y para localizar el CIF de las empresas que no lo tienen
+    # (`radar.agente.completar_identidad`).
+    reserva_identidad = min(0.08, presupuesto_eur * 0.2)
+    reserva_final = reserva_ia * 2 + reserva_fase_redes + reserva_identidad
 
     contexto = ContextoHerramientas(
         conn=conn, cliente_http=cliente_http, filtros=filtros, presupuesto_restante_eur=presupuesto_eur,
@@ -607,7 +612,8 @@ async def planificar(
     motivo_llm = total.motivo_fin
     resultado_contacto = await completar_contacto(
         conn, cliente_http, filtros, busqueda_id=busqueda_id,
-        max_coste_eur=max(0.0, contexto.presupuesto_restante_eur - reserva_ia - reserva_fase_redes), apify_actores=actores,
+        max_coste_eur=max(0.0, contexto.presupuesto_restante_eur - reserva_ia - reserva_fase_redes - reserva_identidad),
+        apify_actores=actores,
         telefonos_compartidos=contexto.telefonos_compartidos,
     )
     if await registrar("completar_contacto", {}, resultado_contacto):
@@ -616,26 +622,40 @@ async def planificar(
     # --- Fase 3c: LinkedIn, Facebook y rastreo de webs, si están marcados ---
     for nombre_fuente, args_fuente, resultado_fuente in await fuentes_marcadas_finales(
         conn, cliente_http, busqueda_id=busqueda_id, actores=actores,
-        max_coste_eur=max(0.0, contexto.presupuesto_restante_eur - reserva_ia),
+        max_coste_eur=max(0.0, contexto.presupuesto_restante_eur - reserva_ia - reserva_identidad),
         telefonos_compartidos=contexto.telefonos_compartidos,
     ):
         if await registrar(nombre_fuente, args_fuente, resultado_fuente):
             return cerrar()
 
-    # --- Fase 3b: identidad y directivos desde el índice del BORME (gratis) ---
+    # --- Fase 4: relevancia (IA) ---------------------------------------------
+    # Antes que identificar, el BORME y las dudas: no se gasta en empresas que
+    # no son del sector pedido.
+    resultado_relevancia = await asyncio.to_thread(
+        evaluar_relevancia, conn, filtros, busqueda_id,
+        max_coste_eur=max(0.005, (contexto.presupuesto_restante_eur - reserva_identidad) / 2),
+    )
+    if await registrar("evaluar_relevancia", {}, resultado_relevancia):
+        return cerrar()
+
+    # --- Fase 4b: CIF y razón social de las que no lo tienen -------------------
+    resultado_identidad = await completar_identidad(
+        conn, cliente_http, busqueda_id=busqueda_id,
+        max_coste_eur=max(0.0, contexto.presupuesto_restante_eur - reserva_ia),
+        usar_google_apify="google_search" in actores, telefonos_compartidos=contexto.telefonos_compartidos,
+    )
+    if await registrar("completar_identidad", {}, resultado_identidad):
+        return cerrar()
+
+    # --- Fase 4c: administradores desde el índice del BORME (gratis) -----------
+    # Después de identificar: con la razón social ya conocida hay más actos.
     resultado_borme = await asyncio.to_thread(
         enriquecer_con_borme, conn, busqueda_id, telefonos_compartidos=contexto.telefonos_compartidos
     )
     if await registrar("enriquecer_borme", {}, resultado_borme):
         return cerrar()
 
-    # --- Fase 4: relevancia (IA) y resolución de dudas ---------------------
-    # Primero relevancia: no se gasta en resolver dudas de empresas descartadas.
-    resultado_relevancia = await asyncio.to_thread(
-        evaluar_relevancia, conn, filtros, busqueda_id, max_coste_eur=max(0.005, contexto.presupuesto_restante_eur / 2)
-    )
-    if await registrar("evaluar_relevancia", {}, resultado_relevancia):
-        return cerrar()
+    # --- Fase 4d: resolución de dudas --------------------------------------------
     resultado_dudas = await resolver_dudas(
         conn, cliente_http, busqueda_id=busqueda_id, max_coste_eur=max(0.0, contexto.presupuesto_restante_eur)
     )

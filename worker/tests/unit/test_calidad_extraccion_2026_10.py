@@ -28,3 +28,11 @@ def test_email_del_delegado_de_proteccion_de_datos_no_es_contacto() -> None:
     assert not es_email_privacidad("info@dpointerior.es")
     r = normalizar_registro({"razon_social": "MULTIMAP, S.A", "emails": ["dpo.multimap.es@mapfre.com", "info@multimap.es"]})
     assert r["emails"] == ["info@multimap.es"]
+
+
+def test_nombre_de_pagina_sin_sufijo_de_localidad() -> None:
+    from radar.normalizacion.nombre import limpiar_nombre_pagina
+
+    assert limpiar_nombre_pagina("EMIF | Alcalá de Guadaira") == "EMIF"
+    assert limpiar_nombre_pagina("L&M CLIMA S.C. | Alcalá de Guadaira") == "L&M CLIMA S.C."
+    assert limpiar_nombre_pagina("Climont") == "Climont"

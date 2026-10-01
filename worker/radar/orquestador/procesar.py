@@ -210,6 +210,7 @@ def procesar_registro(
     busqueda_id: str | None = None,
     telefonos_compartidos: set[str] | None = None,
     forzar_nueva: bool = False,
+    empresa_destino: str | None = None,
 ) -> ResultadoResolucion:
     """Procesa UN `RegistroBruto` de principio a fin (pasos 6-8 de doc 02
     §2). Idempotente por `(fuente, hash_contenido)`: reprocesar el mismo
@@ -236,6 +237,19 @@ def procesar_registro(
         # «Separar» desde «Datos sin contrastar»: una persona ha decidido que
         # este registro NO es de la empresa a la que se unió.
         decision = DecisionResolucion("crear", None, None, None, None)
+    elif empresa_destino:
+        # El registro se buscó PARA esta empresa (p. ej. su CIF localizado por
+        # nombre + municipio, `radar.agente.completar_identidad`): se une a
+        # ella, salvo que su NIF ya sea de OTRA empresa -- entonces las dos
+        # filas son probablemente la misma y queda como posible duplicado.
+        otra = bd.buscar_candidato_por_nif(campos_norm["nif"], conn) if campos_norm.get("nif_valido") else None
+        if otra and otra != empresa_destino:
+            bd.insertar_candidato_duplicado(
+                empresa_destino, otra, {"puntuacion": 0.7, "senales": [f"mismo NIF localizado por búsqueda ({campos_norm['nif']})"]}, conn
+            )
+            bd.actualizar_registro_bruto(rb.id, "descartado", None, None, conn)
+            return ResultadoResolucion("en_revision", otra, rb.id, None, len(candidatos))
+        decision = DecisionResolucion("vincular", empresa_destino, None, None, None)
 
     if decision.accion == "crear_y_revisar" and decision.mejor_candidato_id:
         # Franja de duda (2026-09-24, decisión del usuario): en vez de crear

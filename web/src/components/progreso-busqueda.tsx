@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   Activity,
   AlertTriangle,
+  BadgeCheck,
   ArrowLeft,
   Ban,
   Brain,
@@ -16,6 +17,7 @@ import {
   Download,
   Euro,
   Filter,
+  Fingerprint,
   Flag,
   Globe,
   HelpCircle,
@@ -70,6 +72,10 @@ interface EmpresaResultado {
   telefono: string | null;
   email: string | null;
   contacto: string | null;
+  contacto_nombre: string | null;
+  contacto_cargo: string | null;
+  // Campos de la lista ideal presentes (de 5): contacto, nombre, CIF, teléfono, email
+  completitud: number;
   // conflictos_datos pendientes de la empresa (migración 202609241000)
   sin_contrastar: number;
   en_revision: number;
@@ -100,6 +106,12 @@ function resumenRonda(ronda: RondaEstadistica): string {
   }
   if (ronda.herramienta === "enriquecer_borme") {
     return `${r.empresas_revisadas ?? 0} sociedades buscadas en el BORME: ${r.encontradas_en_borme ?? 0} encontradas, ${r.unidas ?? 0} actos añadidos (administradores, hoja registral)`;
+  }
+  if (ronda.herramienta === "completar_identidad") {
+    if (typeof r.motivo_parada === "string") return r.motivo_parada;
+    const err = typeof r.error === "string" && r.error ? ` · error: ${r.error}` : "";
+    const coste = typeof r.coste_eur === "number" ? ` · ${r.coste_eur.toFixed(3)} €` : "";
+    return `${r.sin_cif ?? 0} sin CIF, ${r.empresas_buscadas ?? 0} buscadas (${r.metodo ?? "—"}): ${r.cif_encontrados ?? 0} CIF verificados, ${r.unidas ?? 0} añadidos, ${r.posibles_duplicados ?? 0} posibles duplicados${err}${coste}`;
   }
   if (ronda.herramienta === "conciliar_costes_apify") {
     const ajuste = typeof r.ajuste_usd === "number" ? r.ajuste_usd : 0;
@@ -183,7 +195,7 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
 
       const { data: filas } = await supabase
         .from("busqueda_resultados")
-        .select("empresa_id, motivo, clasificacion, motivo_relevancia, empresas(razon_social, nombre_comercial, nif, estado, confianza_global, dominio_web)")
+        .select("empresa_id, motivo, clasificacion, motivo_relevancia, empresas(razon_social, nombre_comercial, nif, estado, confianza_global, dominio_web, es_persona_fisica)")
         .eq("busqueda_id", id)
         .limit(200);
       if (cancelado || !filas) return;
@@ -238,7 +250,7 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
         filas.map((f: Record<string, unknown>) => {
           type Empresa = {
             razon_social: string | null; nombre_comercial: string | null; nif: string | null; estado: string | null;
-            confianza_global: number | null; dominio_web: string | null;
+            confianza_global: number | null; dominio_web: string | null; es_persona_fisica: boolean | null;
           };
           const empresaRaw = f.empresas as Empresa | Empresa[] | null;
           const empresa = Array.isArray(empresaRaw) ? empresaRaw[0] : empresaRaw;
@@ -256,7 +268,13 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
           const cargosEmpresa = cargosPorEmpresa.get(empresaId) ?? [];
           cargosEmpresa.sort((a, b) => PRIORIDAD_CARGO.indexOf(a.cargo) - PRIORIDAD_CARGO.indexOf(b.cargo));
           const principal = cargosEmpresa[0];
-          const contacto = principal ? `${principal.nombre} (${ETIQUETA_CARGO[principal.cargo] ?? principal.cargo})` : null;
+          // Autónomo: la persona de contacto es el propio titular.
+          const titular = !principal && empresa?.es_persona_fisica && empresa.razon_social ? empresa.razon_social : null;
+          const contactoNombre = principal?.nombre ?? titular;
+          const contactoCargo = principal ? (ETIQUETA_CARGO[principal.cargo] ?? principal.cargo) : titular ? "Titular (autónomo)" : null;
+          const contacto = contactoNombre ? `${contactoNombre} (${contactoCargo})` : null;
+          const nombreEmpresa = empresa?.razon_social ?? empresa?.nombre_comercial ?? null;
+          const completitud = [contactoNombre, nombreEmpresa, empresa?.nif, telefono, email].filter(Boolean).length;
           return {
             empresa_id: empresaId,
             motivo: f.motivo as string | null,
@@ -268,6 +286,9 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
             telefono: telefono?.valor ?? null,
             email: email?.valor ?? null,
             contacto,
+            contacto_nombre: contactoNombre,
+            contacto_cargo: contactoCargo,
+            completitud,
             sin_contrastar: conflictosPorEmpresa.get(empresaId)?.sin_contrastar ?? 0,
             en_revision: conflictosPorEmpresa.get(empresaId)?.en_revision ?? 0,
             relevancia: (f.clasificacion as string | null) ?? null,
@@ -276,7 +297,12 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
         })
       );
       const ocultas = new Set(["descartado", "rechazado"]);
-      setResultados(filasTodas.filter((r) => !ocultas.has(r.relevancia ?? "")));
+      // Primero las fichas más completas (la lista ideal: contacto, nombre, CIF, teléfono y email).
+      setResultados(
+        filasTodas
+          .filter((r) => !ocultas.has(r.relevancia ?? ""))
+          .sort((a, b) => b.completitud - a.completitud || (b.confianza_global ?? 0) - (a.confianza_global ?? 0)),
+      );
       setDescartadas(filasTodas.filter((r) => ocultas.has(r.relevancia ?? "")).length);
     }
 
@@ -327,6 +353,10 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
   const pctGasto = presupuesto ? Math.min(100, (busqueda.coste_eur / presupuesto) * 100) : 0;
   const conTelefono = resultados.filter((r) => r.telefono).length;
   const conEmail = resultados.filter((r) => r.email).length;
+  const conCif = resultados.filter((r) => r.nif).length;
+  const conContacto = resultados.filter((r) => r.contacto_nombre).length;
+  const completas = resultados.filter((r) => r.completitud === 5).length;
+  const pct = (n: number) => (resultados.length ? `${Math.round((n / resultados.length) * 100)} %` : "—");
 
   return (
     <div className="entrada space-y-7">
@@ -408,8 +438,8 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <TarjetaCifra icono={Building2} etiqueta="Empresas encontradas" valor={resultados.length} tono="marca"
           detalle={descartadas > 0 ? `${descartadas} descartadas por no ser del sector` : undefined} />
-        <TarjetaCifra icono={Phone} etiqueta="Con teléfono" valor={conTelefono} tono="verde"
-          detalle={resultados.length ? `${Math.round((conTelefono / resultados.length) * 100)} % · ${conEmail} con email` : undefined} />
+        <TarjetaCifra icono={BadgeCheck} etiqueta="Fichas completas (5/5)" valor={completas} tono="verde"
+          detalle={`CIF ${pct(conCif)} · contacto ${pct(conContacto)} · tel. ${pct(conTelefono)} · email ${pct(conEmail)}`} />
         <TarjetaCifra icono={Euro} etiqueta="Coste" valor={`${busqueda.coste_eur.toFixed(2)} €`} tono="cian"
           detalle={presupuesto != null ? `de ${presupuesto.toFixed(2)} € de presupuesto` : undefined}>
           {presupuesto != null && (
@@ -577,6 +607,7 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
             <table className="tabla-panel">
               <thead>
                 <tr>
+                  <th className="th-panel">Completa</th>
                   <th className="th-panel">Empresa</th>
                   <th className="th-panel">Contacto</th>
                   <th className="th-panel">Teléfono y email</th>
@@ -587,6 +618,9 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
               <tbody className="divide-y divide-slate-100">
                 {resultados.map((r) => (
                   <tr key={r.empresa_id} className="group">
+                    <td className="td-panel">
+                      <Completitud valor={r.completitud} />
+                    </td>
                     <td className="td-panel min-w-[220px]">
                       <Link
                         href={`/empresas/${r.empresa_id}?desde=${id}`}
@@ -672,7 +706,7 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
                 ))}
                 {resultados.length === 0 && (
                   <tr>
-                    <td colSpan={5}>
+                    <td colSpan={6}>
                       <EstadoVacio icono={activa ? Radar : Building2}>
                         {activa
                           ? "El agente todavía no ha encontrado empresas. Irán apareciendo aquí en cuanto las encuentre."
@@ -686,6 +720,21 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
           </div>
         </div>
       </section>
+    </div>
+  );
+}
+
+// Cinco puntos: contacto, nombre, CIF, teléfono, email (la lista ideal).
+function Completitud({ valor }: { valor: number }) {
+  const color = valor === 5 ? "bg-emerald-500" : valor >= 3 ? "bg-brand-500" : "bg-amber-400";
+  return (
+    <div className="flex items-center gap-1.5" title={`${valor} de 5: contacto, nombre, CIF, teléfono y email`}>
+      <div className="flex gap-0.5">
+        {[0, 1, 2, 3, 4].map((i) => (
+          <span key={i} className={`h-2.5 w-2.5 rounded-full ${i < valor ? color : "bg-slate-200"}`} />
+        ))}
+      </div>
+      <span className="text-xs font-semibold tabular-nums text-slate-500">{valor}/5</span>
     </div>
   );
 }
@@ -714,6 +763,7 @@ function iconoHerramienta(herramienta: string): LucideIcon {
   if (herramienta === "evaluar_relevancia") return Filter;
   if (herramienta === "resolver_dudas") return Sparkles;
   if (herramienta === "conciliar_costes_apify") return Euro;
+  if (herramienta === "completar_identidad") return Fingerprint;
   if (herramienta === "finalizar_busqueda") return Flag;
   if (herramienta === "preguntar_usuario") return HelpCircle;
   if (herramienta === "descubrir_apify_maps" || herramienta === "descubrir_places") return MapPinned;

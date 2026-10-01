@@ -308,6 +308,59 @@ def buscar(
     )
 
 
+@dataclass
+class RespuestaConBusqueda:
+    """Respuesta en texto de un modelo que ha buscado en la web, con las URLs
+    consultadas como evidencia. Es una AFIRMACIÓN del modelo: quien la usa
+    debe verificar el dato con código (dígito de control, coincidencia de
+    nombre) antes de guardarlo -- ver `radar.agente.completar_identidad`."""
+
+    texto: str = ""
+    urls: list[str] = field(default_factory=list)
+    numero_busquedas: int = 0
+    coste_eur: float = 0.0
+    error: str | None = None
+
+
+def consultar_con_busqueda(cliente: Any | None, pregunta: str, *, modelo: str | None = None, max_busquedas: int = 2) -> RespuestaConBusqueda:
+    """Pregunta a un modelo que puede buscar en la web y devuelve su respuesta
+    en texto. Coste = tokens reales + `COSTE_POR_BUSQUEDA_EUR` por búsqueda."""
+    from radar.coste_llm import calcular_coste_eur
+
+    settings = get_settings()
+    try:
+        if settings.proveedor_llm == "openai":
+            cli = cliente or (OpenAI(api_key=settings.openai_api_key) if settings.openai_api_key else None)
+            if cli is None:
+                return RespuestaConBusqueda(error="OPENAI_API_KEY no configurada")
+            mod = modelo or settings.modelo_extraccion
+            r = cli.responses.create(
+                model=mod, input=pregunta, tools=[_tool_param_openai(dominios_permitidos=None, dominios_bloqueados=None)],
+                max_tool_calls=max_busquedas, include=["web_search_call.action.sources"],
+            )
+            busqueda = _procesar_respuesta_openai(r, pregunta, 20)
+            uso = getattr(r, "usage", None)
+            tokens = (getattr(uso, "input_tokens", 0) or 0, getattr(uso, "output_tokens", 0) or 0)
+            texto = getattr(r, "output_text", "") or ""
+        else:
+            cli = cliente or (Anthropic(api_key=settings.anthropic_api_key) if settings.anthropic_api_key else None)
+            if cli is None:
+                return RespuestaConBusqueda(error="ANTHROPIC_API_KEY no configurada")
+            mod = modelo or settings.modelo_extraccion
+            herramienta = _tool_param_anthropic(dominios_permitidos=None, dominios_bloqueados=None)
+            herramienta["max_uses"] = max_busquedas
+            r = cli.messages.create(model=mod, max_tokens=512, messages=[{"role": "user", "content": pregunta}], tools=[herramienta])
+            busqueda = _procesar_respuesta_anthropic(r, pregunta, 20)
+            tokens = (r.usage.input_tokens or 0, r.usage.output_tokens or 0)
+            texto = "".join(getattr(b, "text", "") for b in r.content if getattr(b, "type", None) == "text")
+    except Exception as exc:  # noqa: BLE001 -- nunca inventamos una respuesta si la API falla
+        return RespuestaConBusqueda(error=str(exc)[:200])
+    coste = calcular_coste_eur(mod, *tokens) + busqueda.numero_busquedas * COSTE_POR_BUSQUEDA_EUR
+    return RespuestaConBusqueda(
+        texto=texto, urls=[x.url for x in busqueda.resultados], numero_busquedas=busqueda.numero_busquedas, coste_eur=round(coste, 5)
+    )
+
+
 def _resultado_a_registro_bruto(resultado: ResultadoBusqueda) -> RegistroBruto:
     """`campos` se deja vacío a propósito (ver docstring del módulo): este
     `RegistroBruto` es solo un registro de qué URLs salieron para esta

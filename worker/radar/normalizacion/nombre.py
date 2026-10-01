@@ -141,3 +141,11 @@ def similitud_nombres(a: str, b: str) -> float:
     t2 = (inter + " " + " ".join(sorted(tb - ta))).strip()
     token_set = max(_ratio(inter, t1), _ratio(inter, t2), _ratio(t1, t2)) if inter else _ratio(t1, t2)
     return round(0.5 * token_set + 0.5 * token_sort, 4)
+
+
+def limpiar_nombre_pagina(nombre: str) -> str:
+    """Nombre de una página de Facebook o ficha de Maps sin el sufijo de
+    localidad o eslogan: 'EMIF | Alcalá de Guadaira' -> 'EMIF',
+    'Grupo Cox | Seville' -> 'Grupo Cox' (2026-10-01)."""
+    base = nombre.split(" | ")[0].strip()
+    return base if len(base) >= 2 else nombre.strip()

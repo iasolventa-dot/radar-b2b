@@ -14,12 +14,14 @@ from __future__ import annotations
 from typing import Any
 
 from radar.fuentes.base import CamposExtraidos, RegistroBruto
+from radar.normalizacion.nombre import limpiar_nombre_pagina
 
 
 def lugar_a_registro(item: dict[str, Any]) -> RegistroBruto | None:
     """`None` si no hay nombre (sin nombre no hay candidato) o el lugar está
     `permanentlyClosed` (no se guarda una empresa que ya cerró)."""
     nombre = (item.get("title") or "").strip()
+    nombre = limpiar_nombre_pagina(nombre) if nombre else nombre
     if not nombre or item.get("permanentlyClosed"):
         return None
     # Sin teléfono ni web no aporta nada a una base de contactos y a menudo ni

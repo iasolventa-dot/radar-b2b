@@ -16,11 +16,13 @@ from __future__ import annotations
 from typing import Any
 
 from radar.fuentes.base import CamposExtraidos, RegistroBruto
+from radar.normalizacion.nombre import limpiar_nombre_pagina
 
 
 def pagina_a_registro(item: dict[str, Any]) -> RegistroBruto | None:
     """`None` si no hay nombre de página."""
     nombre = (item.get("title") or item.get("pageName") or "").strip()
+    nombre = limpiar_nombre_pagina(nombre) if nombre else nombre
     if not nombre:
         return None
 
