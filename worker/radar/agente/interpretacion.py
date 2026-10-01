@@ -23,13 +23,14 @@ declara en `supuestos`, nunca se cuela en los filtros como si fuera literal.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
 from anthropic import Anthropic
 from anthropic.types import MessageParam, TextBlock
 from openai import OpenAI
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
 
 from radar.agente.prompts import PROMPT_INTERPRETACION
 from radar.config import Settings, get_settings
@@ -72,6 +73,24 @@ class UbicacionFiltro(BaseModel):
     provincias: list[str] = []
     municipios: list[str] = []
     ccaa: list[str] = []
+
+    @model_validator(mode="after")
+    def _separar_provincia_del_municipio(self) -> UbicacionFiltro:
+        """El modelo a veces escribe "Carmona (Sevilla)" como municipio: así no
+        lo reconoce ninguna fuente (2026-10-01: Google Maps devolvió 0 negocios
+        y OSM/INE "sin municipio reconocido"). Se separa en municipio y
+        provincia."""
+        limpios = []
+        for m in self.municipios:
+            encontrado = re.match(r"^\s*(.+?)\s*\(([^)]+)\)\s*$", m)
+            if encontrado:
+                limpios.append(encontrado.group(1))
+                if encontrado.group(2) not in self.provincias:
+                    self.provincias.append(encontrado.group(2))
+            else:
+                limpios.append(m.strip())
+        self.municipios = limpios
+        return self
 
 
 class SectorFiltro(BaseModel):

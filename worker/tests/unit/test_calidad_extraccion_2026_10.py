@@ -44,3 +44,26 @@ def test_sumario_del_borme_con_un_solo_elemento() -> None:
     assert _como_lista({"codigo": "A"}) == [{"codigo": "A"}]
     assert _como_lista([{"codigo": "A"}, "x"]) == [{"codigo": "A"}]
     assert _como_lista(None) == []
+
+
+def test_municipio_con_provincia_entre_parentesis() -> None:
+    from radar.agente.interpretacion import UbicacionFiltro
+
+    u = UbicacionFiltro(tipo="municipios", municipios=["Carmona (Sevilla)", "Utrera"])
+    assert u.municipios == ["Carmona", "Utrera"] and u.provincias == ["Sevilla"]
+
+
+def test_email_de_plantilla_no_es_contacto() -> None:
+    from radar.normalizacion.registro import es_email_plantilla, normalizar_registro
+
+    assert es_email_plantilla("hello@mycompany.com") and es_email_plantilla("mail@example.com")
+    assert not es_email_plantilla("info@casticarmo.com")
+    assert normalizar_registro({"razon_social": "X SL", "emails": ["mail@example.com"]})["emails"] == []
+
+
+def test_razon_social_del_proveedor_web() -> None:
+    from radar.extraccion.conector import es_proveedor_web
+
+    assert es_proveedor_web("Telefónica Soluciones De Informática Y Comunicaciones De España S A U", "carpinteriametalicaensevilla.es")
+    assert not es_proveedor_web("Telefónica de España SAU", "telefonica.es")
+    assert not es_proveedor_web("Puertas Metalicas Castillo Carmona SL", "casticarmo.com")

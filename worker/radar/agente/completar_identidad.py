@@ -51,7 +51,7 @@ from radar.orquestador import bd, procesar_registro
 from radar.secretos import gasto_mes_apify_usd, obtener_token_apify, presupuesto_mensual_apify_usd
 
 MAX_EMPRESAS = 20
-COSTE_ESTIMADO_LLM_EUR = 0.025  # por empresa (búsqueda web + tokens); se descuenta el real
+COSTE_ESTIMADO_LLM_EUR = 0.015  # por empresa (medido 2026-10-01: ~0,013 € con búsqueda web + tokens)
 CONCURRENCIA_LLM = 4
 
 _SQL_CANDIDATAS = """

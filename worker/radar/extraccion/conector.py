@@ -238,6 +238,25 @@ MAX_PERSONAS_POR_WEB = 5
 MAX_LONGITUD_CARGO = 60
 
 
+# Proveedores de hosting/creación de webs que aparecen en el aviso legal de
+# webs de terceros (2026-10-01: "Telefónica Soluciones de Informática..." como
+# razón social de carpinteriametalicaensevilla.es).
+_RX_PROVEEDOR_WEB = re.compile(
+    r"\b(?:telef[oó]nica|wix|ionos|1\s*&\s*1|arsys|hostinger|godaddy|google|amazon\s+web|ovh|dinahosting|raiola|cdmon|"
+    r"webempresa|siteground|automattic|wordpress|jimdo|squarespace|shopify|strato|nominalia|hostalia|piensa\s+solutions)\b",
+    re.IGNORECASE,
+)
+
+
+def es_proveedor_web(nombre: str | None, dominio: str | None) -> bool:
+    """La razón social es la del proveedor de la web, no la de la empresa
+    (salvo que la web sea precisamente la del proveedor)."""
+    if not nombre or not _RX_PROVEEDOR_WEB.search(nombre):
+        return False
+    marca = _RX_PROVEEDOR_WEB.search(nombre).group(0).lower().replace(" ", "")  # type: ignore[union-attr]
+    return not (dominio and marca.replace("ó", "o") in dominio.replace("-", ""))
+
+
 def es_organismo_publico(nombre: str | None) -> bool:
     return bool(nombre and _RX_ORGANISMO_PUBLICO.search(nombre))
 
@@ -266,6 +285,11 @@ def registro_desde_texto(texto: str, urls: list[str], url_portada: str, dominio:
 
     if es_organismo_publico(campos.razon_social) or es_organismo_publico(campos.nombre_comercial):
         return None
+    if es_proveedor_web(campos.razon_social, dominio):
+        # Su NIF tampoco es el de la empresa: se descartan los dos.
+        campos.extra["razon_social_descartada"] = campos.razon_social
+        campos.razon_social = None
+        campos.nif = None
 
     return RegistroBruto(
         fuente="web_empresa",

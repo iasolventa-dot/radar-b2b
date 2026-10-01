@@ -32,6 +32,19 @@ def es_email_privacidad(email: str | None) -> bool:
     return bool(email and _RX_EMAIL_PRIVACIDAD.search(email.split("@")[0]))
 
 
+# Emails de ejemplo que traen las plantillas de web sin rellenar (2026-10-01:
+# "hello@mycompany.com", "mail@example.com" guardados como email de empresas).
+DOMINIOS_PLANTILLA = {
+    "example.com", "example.es", "example.org", "ejemplo.com", "ejemplo.es", "mycompany.com", "yourcompany.com",
+    "company.com", "tudominio.com", "tudominio.es", "tuempresa.com", "tuempresa.es", "yourdomain.com", "domain.com",
+    "dominio.com", "dominio.es", "email.com", "correo.com", "website.com", "yoursite.com", "test.com", "sitio.com",
+}
+
+
+def es_email_plantilla(email: str | None) -> bool:
+    return bool(email and "@" in email and email.rsplit("@", 1)[1].strip().lower() in DOMINIOS_PLANTILLA)
+
+
 def _lista(v: object) -> list:
     if v is None or (isinstance(v, float) and math.isnan(v)):
         return []
@@ -54,7 +67,7 @@ def normalizar_registro(reg: dict) -> dict:
     nif = validar_nif(reg.get("nif"))
     telefonos = [normalizar_telefono(t) for t in _lista(reg.get("telefonos") or reg.get("telefono"))]
     emails = [
-        normalizar_email(e) for e in _lista(reg.get("emails") or reg.get("email")) if not es_email_privacidad(str(e))
+        normalizar_email(e) for e in _lista(reg.get("emails") or reg.get("email")) if not es_email_privacidad(str(e)) and not es_email_plantilla(str(e))
     ]
     web = reg.get("web")
     dominio = extraer_dominio(web)
