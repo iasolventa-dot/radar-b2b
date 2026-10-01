@@ -1,0 +1,20 @@
+"""Casos vistos en la búsqueda real «ingeniería en Dos Hermanas» (2026-10-01)."""
+
+from radar.extraccion.reglas import limpiar_razon_social
+from radar.normalizacion.dominio import (
+    es_dominio_plataforma,
+    extraer_dominio,
+    parece_ficha_de_directorio,
+)
+
+
+def test_frase_del_aviso_legal_no_es_la_razon_social() -> None:
+    assert limpiar_razon_social("Participación en el capital social de Cox Abg Group, S.A") == "Cox Abg Group, S.A"
+    assert limpiar_razon_social("Filial de Montrel S.A") == "Montrel S.A"
+
+
+def test_directorio_de_un_periodico_no_es_la_web_de_la_empresa() -> None:
+    url = "https://cincodias.elpais.com/directorio-empresas/empresa/638643/ingenieria-y-construcciones-del-sur"
+    assert parece_ficha_de_directorio(url)
+    assert es_dominio_plataforma(extraer_dominio(url))
+    assert not parece_ficha_de_directorio("https://ingesur.es/empresa/historia")

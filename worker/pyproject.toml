@@ -21,6 +21,7 @@ dependencies = [
   "tenacity>=8.5",
   "fastapi>=0.115",  # tarea #22 (radar.api) — verificado contra la 0.141.1 instalada 2026-09-11
   "uvicorn[standard]>=0.30",  # servidor ASGI para radar.api en Railway (D-07)
+  "truststore>=0.10",  # HTTPS con los certificados de Windows (antivirus que inspecciona TLS), ver radar/__init__.py
 ]
 
 [project.optional-dependencies]

@@ -69,6 +69,7 @@ import asyncio
 import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import httpx
@@ -98,7 +99,7 @@ PLANIFICADOR_LLM = "planificador_llm"
 HERRAMIENTAS_QUE_CONSUMEN_PRESUPUESTO = {
     "buscar_web", "descubrir_borme", "descubrir_places", "enriquecer_con_apify",
     "descubrir_google_search", "descubrir_apify_maps", "enriquecer_con_linkedin", "enriquecer_con_facebook",
-    "completar_contacto", "resolver_dudas", "evaluar_relevancia", PLANIFICADOR_LLM,
+    "completar_contacto", "resolver_dudas", "evaluar_relevancia", "conciliar_costes_apify", PLANIFICADOR_LLM,
 }
 
 OnRonda = Callable[["RondaPlanificador"], Awaitable[None]]
@@ -521,6 +522,7 @@ async def planificar(
     todo lo encontrado. `on_ronda`/`debe_cancelar`: ver docstring del módulo
     -- se aplican igual a las rondas de las fases 1 y 3."""
     from radar.agente.completar_contacto import completar_contacto
+    from radar.agente.costes_apify import conciliar_costes_apify
     from radar.agente.enriquecer_borme import enriquecer_con_borme
     from radar.agente.fases import ejecutar_con_tope, planes_fuentes_marcadas
     from radar.agente.redes_marcadas import fuentes_marcadas_finales, reserva_redes
@@ -532,6 +534,7 @@ async def planificar(
     # lo gastaba todo y la búsqueda acababa con datos sin limpiar ni resolver.
     reserva_ia = min(0.03, presupuesto_eur * 0.25) / 2
     actores = frozenset(apify_actores)
+    inicio = datetime.now(UTC) - timedelta(seconds=5)
     # ... y para las fuentes marcadas que se ejecutan al final (LinkedIn,
     # Facebook, rastreo de webs: `radar.agente.redes_marcadas`).
     reserva_fase_redes = reserva_redes(actores, presupuesto_eur)
@@ -636,6 +639,13 @@ async def planificar(
     resultado_dudas = await resolver_dudas(
         conn, cliente_http, busqueda_id=busqueda_id, max_coste_eur=max(0.0, contexto.presupuesto_restante_eur)
     )
-    if not await registrar("resolver_dudas", {}, resultado_dudas):
-        total.motivo_fin = motivo_llm
+    if await registrar("resolver_dudas", {}, resultado_dudas):
+        return cerrar()
+
+    # --- Fase 5: gasto real de Apify (lo que cobró de verdad) ----------------
+    if actores:
+        resultado_costes = await conciliar_costes_apify(conn, cliente_http, desde=inicio)
+        if await registrar("conciliar_costes_apify", {}, resultado_costes):
+            return cerrar()
+    total.motivo_fin = motivo_llm
     return cerrar()

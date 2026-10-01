@@ -27,6 +27,7 @@ ESTADOS_FINALES = {"SUCCEEDED", "FAILED", "TIMED-OUT", "ABORTED"}
 # aquí, y el gasto REAL se limita con el número de resultados (`max_items` +
 # los límites propios de la entrada de cada Actor), que es lo que cobran.
 MINIMO_TOPE_APIFY_USD = 0.5
+LECTURAS_COSTE = 6
 
 
 class ApifyError(Exception):
@@ -152,7 +153,7 @@ async def ejecutar_actor(
     espera = 0.0
     while resultado.estado not in ESTADOS_FINALES and espera <= timeout_s + 30:
         await asyncio.sleep(intervalo_s)
-        espera += intervalo_s
+        espera += max(intervalo_s, 1.0)  # cada consulta cuenta al menos 1 s: nunca bucle infinito
         try:
             rr = await _peticion(
                 cliente, "GET", f"{URL_BASE}/actor-runs/{run_id}", solo_fallos_de_conexion=False,
@@ -167,6 +168,11 @@ async def ejecutar_actor(
         run = rr.json().get("data") or {}
         resultado.estado = run.get("status")
 
+    if resultado.estado not in ESTADOS_FINALES and run_id:
+        # Se agotó la espera: la ejecución seguiría corriendo (y cobrando) en
+        # Apify aunque aquí ya no se lea. Visto en la consola 2026-10-01: "This
+        # Actor timed out" mientras Radar la registraba a 0 €.
+        await _abortar(cliente, cab, run_id)
     resultado.coste_usd = float(run.get("usageTotalUsd") or 0.0)
     if resultado.estado != "SUCCEEDED":
         resultado.error = f"la ejecución terminó en estado {resultado.estado}"
@@ -194,12 +200,35 @@ async def ejecutar_actor(
 async def _coste_asentado(cliente: httpx.AsyncClient, cab: dict[str, str], run_id: str | None, intervalo_s: float) -> float:
     """`usageTotalUsd` justo al terminar la ejecución todavía no incluye todos
     los eventos cobrados (visto en vivo: 0 $ al terminar, 0,012 $ segundos
-    después). Se vuelve a leer tras una pausa para registrar el gasto real."""
+    después; y con una sola relectura se registraba un ~12 % menos de lo real,
+    2026-10-01). Se relee hasta que dos lecturas seguidas coinciden (como
+    mucho `LECTURAS_COSTE` veces). Lo que aún falte lo corrige
+    `radar.agente.costes_apify.conciliar_costes_apify` al final de la búsqueda."""
     if not run_id:
         return 0.0
-    await asyncio.sleep(intervalo_s)
+    anterior = -1.0
+    for _ in range(LECTURAS_COSTE):
+        await asyncio.sleep(intervalo_s)
+        actual = await coste_real(cliente, cab, run_id)
+        if actual is None:
+            return max(anterior, 0.0)
+        if actual > 0 and actual == anterior:
+            return actual
+        anterior = actual
+    return max(anterior, 0.0)
+
+
+async def coste_real(cliente: httpx.AsyncClient, cab: dict[str, str], run_id: str) -> float | None:
+    """`usageTotalUsd` actual de una ejecución (`None` si no se pudo leer)."""
     try:
         r = await cliente.get(f"{URL_BASE}/actor-runs/{run_id}", headers=cab, timeout=30.0)
-        return float((r.json().get("data") or {}).get("usageTotalUsd") or 0.0) if r.status_code == 200 else 0.0
+        return float((r.json().get("data") or {}).get("usageTotalUsd") or 0.0) if r.status_code == 200 else None
     except (httpx.HTTPError, ValueError):
-        return 0.0
+        return None
+
+
+async def _abortar(cliente: httpx.AsyncClient, cab: dict[str, str], run_id: str) -> None:
+    try:
+        await cliente.post(f"{URL_BASE}/actor-runs/{run_id}/abort", headers=cab, timeout=30.0)
+    except httpx.HTTPError:
+        pass

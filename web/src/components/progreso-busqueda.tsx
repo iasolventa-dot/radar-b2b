@@ -101,6 +101,12 @@ function resumenRonda(ronda: RondaEstadistica): string {
   if (ronda.herramienta === "enriquecer_borme") {
     return `${r.empresas_revisadas ?? 0} sociedades buscadas en el BORME: ${r.encontradas_en_borme ?? 0} encontradas, ${r.unidas ?? 0} actos añadidos (administradores, hoja registral)`;
   }
+  if (ronda.herramienta === "conciliar_costes_apify") {
+    const ajuste = typeof r.ajuste_usd === "number" ? r.ajuste_usd : 0;
+    return ajuste > 0
+      ? `${r.ejecuciones ?? 0} ejecuciones revisadas: Apify cobró ${ajuste.toFixed(3)} € más de lo leído al terminar (ya sumado al coste)`
+      : `${r.ejecuciones ?? 0} ejecuciones revisadas: el coste registrado coincide con lo cobrado`;
+  }
   if (ronda.herramienta === "evaluar_relevancia") {
     if (typeof r.error === "string" && r.error) return `error: ${r.error}`;
     return `${r.evaluadas ?? 0} revisadas: ${r.relevante ?? 0} del sector, ${r.dudoso ?? 0} dudosas, ${r.descartado ?? 0} descartadas`;
@@ -707,6 +713,7 @@ function iconoHerramienta(herramienta: string): LucideIcon {
   if (herramienta === "enriquecer_borme" || herramienta === "descubrir_borme") return Landmark;
   if (herramienta === "evaluar_relevancia") return Filter;
   if (herramienta === "resolver_dudas") return Sparkles;
+  if (herramienta === "conciliar_costes_apify") return Euro;
   if (herramienta === "finalizar_busqueda") return Flag;
   if (herramienta === "preguntar_usuario") return HelpCircle;
   if (herramienta === "descubrir_apify_maps" || herramienta === "descubrir_places") return MapPinned;

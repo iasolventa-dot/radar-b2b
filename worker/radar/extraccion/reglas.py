@@ -155,6 +155,13 @@ def limpiar_razon_social(c: str | None) -> str | None:
     if not c:
         return None
     c = re.sub(r"^(?:la\s+empresa|la\s+sociedad|el\s+titular|esta\s+web\s+es\s+propiedad\s+de|propiedad\s+de)\s+", "", c, flags=re.IGNORECASE)
+    # Frases del aviso legal que el LLM a veces copia enteras (2026-10-01:
+    # "Participación en el capital social de Cox Abg Group, S.A").
+    c = re.sub(
+        r"^(?:participaci[oó]n\s+en\s+el\s+capital(?:\s+social)?\s+de|titularidad\s+de|perteneciente\s+a|filial\s+de|"
+        r"sociedad\s+(?:dependiente|participada)\s+de|empresa\s+del\s+grupo)\s+",
+        "", c, flags=re.IGNORECASE,
+    )
     c = re.sub(r"^(?:titular|raz[oó]n\s+social|denominaci[oó]n(?:\s+social)?|empresa)\s*:\s*", "", c.strip(), flags=re.IGNORECASE)
     c = _RX_NIF_DELANTE.sub("", c.strip())
     c = re.sub(r"\s+", " ", c).strip(" ,:;-").lstrip(".")
