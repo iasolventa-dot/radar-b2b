@@ -18,6 +18,19 @@ from radar.normalizacion.nif import dni_en_sociedad, forma_compatible_con_nif, v
 from radar.normalizacion.nombre import PALABRAS_VACIAS, extraer_forma_juridica
 from radar.normalizacion.telefono import normalizar_telefono
 
+# Buzones de protección de datos: salen del aviso legal y no son un contacto
+# comercial (2026-10-01: dpo.multimap.es@mapfre.com, dpo.spain@euromaster.com,
+# dpo@prisa.com acabaron como "email" de la empresa).
+_RX_EMAIL_PRIVACIDAD = re.compile(
+    r"^(?:dpo|rgpd|gdpr|lopd|lopdgdd|protecciondedatos|proteccion[._-]?datos|privacidad|privacy|dataprotection|"
+    r"data[._-]?protection|delegado[._-]?(?:de[._-]?)?proteccion)\b",
+    re.IGNORECASE,
+)
+
+
+def es_email_privacidad(email: str | None) -> bool:
+    return bool(email and _RX_EMAIL_PRIVACIDAD.search(email.split("@")[0]))
+
 
 def _lista(v: object) -> list:
     if v is None or (isinstance(v, float) and math.isnan(v)):
@@ -40,7 +53,9 @@ def normalizar_registro(reg: dict) -> dict:
     _, nc_norm = extraer_forma_juridica(reg.get("nombre_comercial"))
     nif = validar_nif(reg.get("nif"))
     telefonos = [normalizar_telefono(t) for t in _lista(reg.get("telefonos") or reg.get("telefono"))]
-    emails = [normalizar_email(e) for e in _lista(reg.get("emails") or reg.get("email"))]
+    emails = [
+        normalizar_email(e) for e in _lista(reg.get("emails") or reg.get("email")) if not es_email_privacidad(str(e))
+    ]
     web = reg.get("web")
     dominio = extraer_dominio(web)
     host = str(web).lower() if web else None

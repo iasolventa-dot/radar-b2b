@@ -18,3 +18,13 @@ def test_directorio_de_un_periodico_no_es_la_web_de_la_empresa() -> None:
     assert parece_ficha_de_directorio(url)
     assert es_dominio_plataforma(extraer_dominio(url))
     assert not parece_ficha_de_directorio("https://ingesur.es/empresa/historia")
+
+
+def test_email_del_delegado_de_proteccion_de_datos_no_es_contacto() -> None:
+    from radar.normalizacion.registro import es_email_privacidad, normalizar_registro
+
+    assert es_email_privacidad("dpo.multimap.es@mapfre.com")
+    assert es_email_privacidad("protecciondedatos@empresa.es")
+    assert not es_email_privacidad("info@dpointerior.es")
+    r = normalizar_registro({"razon_social": "MULTIMAP, S.A", "emails": ["dpo.multimap.es@mapfre.com", "info@multimap.es"]})
+    assert r["emails"] == ["info@multimap.es"]

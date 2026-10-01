@@ -171,7 +171,7 @@ export function FormularioNuevaBusqueda({
                       id="presupuesto"
                       type="number"
                       min={0.1}
-                      step={0.1}
+                      step={0.01}
                       required
                       value={presupuestoEur}
                       onChange={(e) => setPresupuestoEur(Number(e.target.value))}
