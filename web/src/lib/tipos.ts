@@ -259,6 +259,7 @@ export const ETIQUETA_HERRAMIENTA: Record<string, string> = {
   enriquecer_con_facebook: "Enriquecer con Facebook (Apify)",
   conciliar_costes_apify: "Coste real cobrado por Apify",
   completar_identidad: "Identificar empresas sin CIF",
+  filtrar_autonomos: "Omitir autónomos",
   completar_contacto: "Completar contacto (web, teléfono, email)",
   enriquecer_borme: "Identidad y directivos desde el BORME",
   evaluar_relevancia: "Filtrar resultados que no son del sector (IA)",

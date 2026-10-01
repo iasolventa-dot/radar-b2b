@@ -18,6 +18,7 @@ import {
   RotateCcw,
   Search,
   Sparkles,
+  UserX,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -54,6 +55,9 @@ export function FormularioNuevaBusqueda({
   const [usarPlaces, setUsarPlaces] = useState(false);
   const [apifyActores, setApifyActores] = useState<Set<ApifyActor>>(new Set());
   const [placesConfigurado, setPlacesConfigurado] = useState<boolean | null>(null);
+  // Omitir autónomos: null = lo que haya entendido el intérprete de la petición;
+  // si se marca/desmarca a mano, manda la casilla.
+  const [omitirAutonomos, setOmitirAutonomos] = useState<boolean | null>(null);
   const [apifyConfigurado, setApifyConfigurado] = useState<boolean | null>(null);
 
   function alternarApifyActor(actor: ApifyActor, marcado: boolean) {
@@ -90,8 +94,10 @@ export function FormularioNuevaBusqueda({
     setEstado("confirmando");
     setError(null);
     try {
+      const omitir = omitirAutonomos ?? !interpretacion.filtros.incluir_autonomos;
       await confirmarBusqueda(interpretacion.id, {
         maxRondas,
+        filtros: { ...interpretacion.filtros, incluir_autonomos: !omitir },
         usarGooglePlaces: usarPlaces && placesConfigurado === true,
         apifyActores: apifyConfigurado === true ? Array.from(apifyActores) : [],
       });
@@ -185,6 +191,14 @@ export function FormularioNuevaBusqueda({
               </div>
             </div>
           </div>
+
+          <CasillaAutonomos
+            id="ini-omitir-autonomos"
+            marcada={omitirAutonomos ?? true}
+            onCambio={setOmitirAutonomos}
+            deshabilitado={estado === "interpretando"}
+            nota={omitirAutonomos === null ? "Por defecto se omiten, salvo que la petición pida autónomos." : undefined}
+          />
 
           <SelectorFuentes
             prefijo="ini"
@@ -304,6 +318,13 @@ export function FormularioNuevaBusqueda({
             </div>
           </div>
 
+          <CasillaAutonomos
+            id="rev-omitir-autonomos"
+            marcada={omitirAutonomos ?? !interpretacion.filtros.incluir_autonomos}
+            onCambio={setOmitirAutonomos}
+            deshabilitado={estado === "confirmando"}
+          />
+
           <SelectorFuentes
             prefijo="rev"
             deshabilitado={estado === "confirmando"}
@@ -352,6 +373,63 @@ export function FormularioNuevaBusqueda({
         </div>
       )}
     </div>
+  );
+}
+
+// Omitir autónomos (personas físicas sin sociedad). Se aplica al final de la
+// búsqueda (worker: radar/agente/autonomos.py); los omitidos se pueden
+// recuperar en la Cola de revisión.
+function CasillaAutonomos({
+  id,
+  marcada,
+  onCambio,
+  deshabilitado,
+  nota,
+}: {
+  id: string;
+  marcada: boolean;
+  onCambio: (v: boolean) => void;
+  deshabilitado: boolean;
+  nota?: string;
+}) {
+  return (
+    <label
+      htmlFor={id}
+      className={`card group flex cursor-pointer items-start gap-3.5 p-5 transition hover:border-brand-200 ${
+        marcada ? "ring-1 ring-brand-200" : ""
+      } ${deshabilitado ? "pointer-events-none opacity-60" : ""}`}
+    >
+      <input
+        id={id}
+        type="checkbox"
+        className="peer sr-only"
+        checked={marcada}
+        disabled={deshabilitado}
+        onChange={(e) => onCambio(e.target.checked)}
+      />
+      <span
+        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition ${
+          marcada ? "bg-gradient-to-br from-brand-500 to-violet-600 text-white shadow-brillo" : "bg-slate-100 text-slate-500"
+        }`}
+      >
+        <UserX className="h-5 w-5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block font-semibold text-slate-900">Omitir autónomos</span>
+        <span className="mt-0.5 block text-sm leading-snug text-slate-500">
+          Solo sociedades. Los autónomos (personas físicas sin sociedad) no saldrán en los resultados ni en el CSV; se
+          pueden recuperar en la Cola de revisión.
+        </span>
+        {nota && <span className="mt-1 block text-xs text-slate-400">{nota}</span>}
+      </span>
+      <span
+        className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border-2 transition peer-focus-visible:ring-4 peer-focus-visible:ring-brand-200 ${
+          marcada ? "border-transparent bg-gradient-to-br from-brand-500 to-violet-600 text-white" : "border-slate-300 bg-white text-transparent"
+        }`}
+      >
+        <Check className="h-4 w-4" strokeWidth={3} />
+      </span>
+    </label>
   );
 }
 

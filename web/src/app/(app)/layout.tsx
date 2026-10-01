@@ -48,7 +48,7 @@ export default async function LayoutApp({ children }: { children: React.ReactNod
   return (
     <div className="fondo-panel flex min-h-screen">
       {/* Barra lateral (escritorio) */}
-      <aside className="sticky top-0 hidden h-screen w-72 shrink-0 flex-col overflow-hidden bg-[var(--noche-900)] lg:flex">
+      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col overflow-hidden bg-[var(--noche-900)] lg:flex 2xl:w-72">
         {/* Brillos de fondo de la barra */}
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(22rem_18rem_at_0%_0%,rgb(36_73_235/0.35),transparent_70%),radial-gradient(20rem_20rem_at_100%_100%,rgb(124_58_237/0.25),transparent_70%)]" />
         <div className="pointer-events-none absolute inset-0 opacity-[0.07] [background-image:radial-gradient(rgb(255_255_255)_1px,transparent_1px)] [background-size:18px_18px]" />

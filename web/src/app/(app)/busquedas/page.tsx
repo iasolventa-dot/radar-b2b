@@ -63,7 +63,7 @@ export default async function PaginaBusquedas() {
 
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="tabla-panel">
+          <table className="tabla-panel tabla-compacta">
             <thead>
               <tr>
                 <th className="th-panel">Petición</th>
@@ -77,10 +77,10 @@ export default async function PaginaBusquedas() {
             <tbody className="divide-y divide-slate-100">
               {filas.map((b) => (
                 <tr key={b.id} className="group">
-                  <td className="td-panel max-w-md">
+                  <td className="td-panel">
                     <Link
                       href={`/busquedas/${b.id}`}
-                      className="block truncate text-base font-semibold text-slate-900 group-hover:text-brand-700"
+                      className="line-clamp-2 block max-w-[16rem] text-base font-semibold text-slate-900 group-hover:text-brand-700 xl:max-w-[20rem] 2xl:max-w-[26rem]"
                       title={b.peticion}
                     >
                       {b.peticion}
@@ -92,13 +92,13 @@ export default async function PaginaBusquedas() {
                   <td className="td-panel tabular-nums text-slate-600">
                     {b.rondas} / {b.estadisticas?.max_rondas ?? "—"}
                   </td>
-                  <td className="td-panel whitespace-nowrap tabular-nums">
-                    <span className="font-semibold text-slate-800">{b.coste_eur.toFixed(2)} €</span>
+                  <td className="td-panel tabular-nums">
+                    <span className="whitespace-nowrap font-semibold text-slate-800">{b.coste_eur.toFixed(2)} €</span>
                     {b.presupuesto_eur != null && (
-                      <span className="text-slate-400"> / {Number(b.presupuesto_eur).toFixed(2)} €</span>
+                      <span className="whitespace-nowrap text-slate-400"> / {Number(b.presupuesto_eur).toFixed(2)} €</span>
                     )}
                   </td>
-                  <td className="td-panel whitespace-nowrap text-slate-500">
+                  <td className="td-panel min-w-[7rem] text-slate-500">
                     {new Date(b.creado_en).toLocaleString("es-ES", { dateStyle: "medium", timeStyle: "short" })}
                   </td>
                   <td className="td-panel text-right">

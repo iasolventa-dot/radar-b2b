@@ -1,0 +1,11 @@
+-- Autónomos (2026-10-01). El filtro «incluir_autonomos» de la búsqueda solo
+-- se aplicaba a la consulta interna del agente y solo reconocía como
+-- autónomo a quien tenía DNI/NIE como NIF: autónomos sin NIF conocido
+-- («Lorena Pérez Castro», «Gonzalo de Luque») salían igualmente.
+--
+-- Juicio del filtro de IA (radar/agente/relevancia.py) sobre si el resultado
+-- es una persona física que trabaja por su cuenta, sin sociedad. Solo se usa
+-- cuando no hay evidencia determinista (NIF de persona física → autónomo;
+-- CIF de sociedad, forma jurídica o administradores del BORME → sociedad):
+-- ver radar/agente/autonomos.py.
+alter table busqueda_resultados add column if not exists autonomo_ia boolean;

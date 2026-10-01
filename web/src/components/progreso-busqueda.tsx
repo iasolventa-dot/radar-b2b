@@ -32,6 +32,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   UserRound,
+  UserX,
   type LucideIcon,
 } from "lucide-react";
 import { EstadoVacio, TarjetaCifra } from "@/components/encabezado-pagina";
@@ -106,6 +107,10 @@ function resumenRonda(ronda: RondaEstadistica): string {
   }
   if (ronda.herramienta === "enriquecer_borme") {
     return `${r.empresas_revisadas ?? 0} sociedades buscadas en el BORME: ${r.encontradas_en_borme ?? 0} encontradas, ${r.unidas ?? 0} actos añadidos (administradores, hoja registral)`;
+  }
+  if (ronda.herramienta === "filtrar_autonomos") {
+    if (typeof r.motivo_parada === "string") return r.motivo_parada;
+    return `${r.revisadas ?? 0} revisadas: ${r.omitidos ?? 0} autónomos omitidos (recuperables en la Cola de revisión)`;
   }
   if (ronda.herramienta === "completar_identidad") {
     if (typeof r.motivo_parada === "string") return r.motivo_parada;
@@ -437,7 +442,7 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
       {/* Cifras clave */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <TarjetaCifra icono={Building2} etiqueta="Empresas encontradas" valor={resultados.length} tono="marca"
-          detalle={descartadas > 0 ? `${descartadas} descartadas por no ser del sector` : undefined} />
+          detalle={descartadas > 0 ? `${descartadas} descartadas (sector o filtros)` : undefined} />
         <TarjetaCifra icono={BadgeCheck} etiqueta="Fichas completas (5/5)" valor={completas} tono="verde"
           detalle={`CIF ${pct(conCif)} · contacto ${pct(conContacto)} · tel. ${pct(conTelefono)} · email ${pct(conEmail)}`} />
         <TarjetaCifra icono={Euro} etiqueta="Coste" valor={`${busqueda.coste_eur.toFixed(2)} €`} tono="cian"
@@ -587,7 +592,7 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
             </h2>
             {descartadas > 0 && (
               <Link href="/cola-revision" className="mt-1 inline-block text-sm text-slate-500 hover:text-brand-600 hover:underline">
-                {descartadas} descartadas por no ser del sector — ver en la Cola de revisión
+                {descartadas} descartadas (otro sector o filtros de la búsqueda) — ver en la Cola de revisión
               </Link>
             )}
           </div>
@@ -604,24 +609,23 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
         </div>
         <div className="card overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="tabla-panel">
+            <table className="tabla-panel tabla-compacta">
               <thead>
                 <tr>
-                  <th className="th-panel">Completa</th>
+                  <th className="th-panel w-0 pr-2">Completa</th>
                   <th className="th-panel">Empresa</th>
                   <th className="th-panel">Contacto</th>
-                  <th className="th-panel">Teléfono y email</th>
-                  <th className="th-panel">Web</th>
+                  <th className="th-panel">Teléfono, email y web</th>
                   <th className="th-panel">Confianza y fuente</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {resultados.map((r) => (
                   <tr key={r.empresa_id} className="group">
-                    <td className="td-panel">
+                    <td className="td-panel w-0 pr-2">
                       <Completitud valor={r.completitud} />
                     </td>
-                    <td className="td-panel min-w-[220px]">
+                    <td className="td-panel min-w-[190px]">
                       <Link
                         href={`/empresas/${r.empresa_id}?desde=${id}`}
                         className="font-semibold text-slate-900 transition group-hover:text-brand-700 hover:underline"
@@ -656,7 +660,7 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
                         )}
                       </div>
                     </td>
-                    <td className="td-panel min-w-[150px] max-w-[220px]">
+                    <td className="td-panel min-w-[130px] max-w-[200px]">
                       {r.contacto ? (
                         <span className="flex items-start gap-2 text-slate-700">
                           <UserRound className="mt-0.5 h-4 w-4 shrink-0 text-violet-500" />
@@ -677,36 +681,33 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
                         {r.email ? (
                           <a href={`mailto:${r.email}`} className="flex items-center gap-2 text-slate-600 hover:text-brand-700">
                             <Mail className="h-4 w-4 text-brand-400" />
-                            <span className="max-w-[200px] truncate">{r.email}</span>
+                            <span className="max-w-[180px] truncate 2xl:max-w-[240px]">{r.email}</span>
                           </a>
                         ) : null}
-                        {!r.telefono && !r.email && <span className="text-slate-300">—</span>}
+                        {r.dominio_web ? (
+                          <a
+                            href={`https://${r.dominio_web}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2 text-sm text-slate-500 hover:text-brand-700"
+                            title={r.dominio_web}
+                          >
+                            <Globe className="h-4 w-4 shrink-0 text-violet-400" />
+                            <span className="max-w-[180px] truncate 2xl:max-w-[240px]">{r.dominio_web}</span>
+                          </a>
+                        ) : null}
+                        {!r.telefono && !r.email && !r.dominio_web && <span className="text-slate-300">—</span>}
                       </div>
                     </td>
                     <td className="td-panel">
-                      {r.dominio_web ? (
-                        <a
-                          href={`https://${r.dominio_web}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-slate-50 px-2.5 py-1 text-sm font-medium text-slate-700 ring-1 ring-inset ring-slate-200 transition hover:bg-brand-50 hover:text-brand-700 hover:ring-brand-200"
-                        >
-                          <Globe className="h-3.5 w-3.5" />
-                          {r.dominio_web}
-                        </a>
-                      ) : (
-                        <span className="text-slate-300">—</span>
-                      )}
-                    </td>
-                    <td className="td-panel">
                       <BarraConfianza valor={r.confianza_global} />
-                      <p className="mt-1 max-w-[180px] text-xs leading-snug text-slate-500">{etiquetaFuenteResultado(r.motivo)}</p>
+                      <p className="mt-1 max-w-[150px] text-xs leading-snug text-slate-500">{etiquetaFuenteResultado(r.motivo)}</p>
                     </td>
                   </tr>
                 ))}
                 {resultados.length === 0 && (
                   <tr>
-                    <td colSpan={6}>
+                    <td colSpan={5}>
                       <EstadoVacio icono={activa ? Radar : Building2}>
                         {activa
                           ? "El agente todavía no ha encontrado empresas. Irán apareciendo aquí en cuanto las encuentre."
@@ -728,10 +729,10 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
 function Completitud({ valor }: { valor: number }) {
   const color = valor === 5 ? "bg-emerald-500" : valor >= 3 ? "bg-brand-500" : "bg-amber-400";
   return (
-    <div className="flex items-center gap-1.5" title={`${valor} de 5: contacto, nombre, CIF, teléfono y email`}>
+    <div className="flex flex-col items-start gap-1" title={`${valor} de 5: contacto, nombre, CIF, teléfono y email`}>
       <div className="flex gap-0.5">
         {[0, 1, 2, 3, 4].map((i) => (
-          <span key={i} className={`h-2.5 w-2.5 rounded-full ${i < valor ? color : "bg-slate-200"}`} />
+          <span key={i} className={`h-2 w-2 rounded-full ${i < valor ? color : "bg-slate-200"}`} />
         ))}
       </div>
       <span className="text-xs font-semibold tabular-nums text-slate-500">{valor}/5</span>
@@ -764,6 +765,7 @@ function iconoHerramienta(herramienta: string): LucideIcon {
   if (herramienta === "resolver_dudas") return Sparkles;
   if (herramienta === "conciliar_costes_apify") return Euro;
   if (herramienta === "completar_identidad") return Fingerprint;
+  if (herramienta === "filtrar_autonomos") return UserX;
   if (herramienta === "finalizar_busqueda") return Flag;
   if (herramienta === "preguntar_usuario") return HelpCircle;
   if (herramienta === "descubrir_apify_maps" || herramienta === "descubrir_places") return MapPinned;

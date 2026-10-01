@@ -27,11 +27,12 @@ export default function PaginaColaRevision() {
             <span className="icono-seccion">
               <Filter className="h-4 w-4" />
             </span>
-            Resultados dudosos o descartados por no ser del sector
+            Resultados dudosos o descartados (sector o filtros de la búsqueda)
           </h2>
           <p className="mt-1.5 max-w-3xl text-sm text-slate-500">
             La IA revisa cada empresa encontrada (categoría de Google Maps, descripción de su web, objeto social). Las
-            descartadas no salen en los resultados ni en el CSV; las dudosas salen marcadas.
+            descartadas no salen en los resultados ni en el CSV; las dudosas salen marcadas. Aquí también llegan los autónomos
+            omitidos cuando la búsqueda pide solo sociedades.
           </p>
         </div>
         <ListaRelevancia />

@@ -38,7 +38,7 @@ export function describirFiltros(f: FiltrosBusqueda): string[] {
   }
 
   if (f.formas_juridicas.length) lineas.push(`Forma jurídica: ${f.formas_juridicas.join(", ")}`);
-  lineas.push(`Autónomos: ${f.incluir_autonomos ? "incluidos" : "no incluidos"}`);
+  lineas.push(`Autónomos: ${f.incluir_autonomos ? "incluidos" : "omitidos (solo sociedades)"}`);
   lineas.push(`Estados de la empresa: ${f.estados.join(", ")}`);
 
   const requisitos: string[] = [];

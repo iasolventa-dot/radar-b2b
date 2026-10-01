@@ -214,6 +214,12 @@ body {
   .td-panel {
     @apply px-5 py-4 align-middle;
   }
+  /* Tablas anchas (resultados de una búsqueda): menos relleno lateral para que
+     quepan sin desplazamiento horizontal en portátiles de 1280 px. */
+  .tabla-compacta .th-panel,
+  .tabla-compacta .td-panel {
+    @apply px-3.5 2xl:px-5;
+  }
 
   /* ---- Tipografía de secciones ---------------------------------------- */
   .titulo-seccion {

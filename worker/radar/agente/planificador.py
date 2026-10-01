@@ -522,6 +522,7 @@ async def planificar(
     (`_bucle_llm`) con el presupuesto restante; 3) `completar_contacto` sobre
     todo lo encontrado. `on_ronda`/`debe_cancelar`: ver docstring del módulo
     -- se aplican igual a las rondas de las fases 1 y 3."""
+    from radar.agente.autonomos import filtrar_autonomos
     from radar.agente.completar_contacto import completar_contacto
     from radar.agente.completar_identidad import completar_identidad
     from radar.agente.costes_apify import conciliar_costes_apify
@@ -653,6 +654,12 @@ async def planificar(
         enriquecer_con_borme, conn, busqueda_id, telefonos_compartidos=contexto.telefonos_compartidos
     )
     if await registrar("enriquecer_borme", {}, resultado_borme):
+        return cerrar()
+
+    # --- Fase 4c-bis: omitir autónomos si la búsqueda lo pide (gratis) -------
+    # Al final, con los CIF ya localizados y los administradores del BORME.
+    resultado_autonomos = await asyncio.to_thread(filtrar_autonomos, conn, filtros, busqueda_id)
+    if await registrar("filtrar_autonomos", {}, resultado_autonomos):
         return cerrar()
 
     # --- Fase 4d: resolución de dudas --------------------------------------------
