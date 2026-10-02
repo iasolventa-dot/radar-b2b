@@ -41,6 +41,7 @@ DOMINIOS_PLATAFORMA = {
     "pinterest.es", "tricantinos.com", "todoestaentrescantos.com",
     # 2026-09-24 (reformas, Alcobendas): directorio de contratistas cuya ficha se tomó por la web de la empresa.
     "profymarket.com",
+    "portaldetuciudad.com",
     # 2026-10-01 (ingeniería, Sevilla): prensa y directorios leídos como si fueran la empresa
     # (cincodias.elpais.com/directorio-empresas/... dio a Ingesur el email dpo@prisa.com).
     "elpais.com", "expansion.com", "elmundo.es", "abc.es", "20minutos.es", "europapress.es", "diariodesevilla.es",
@@ -104,6 +105,11 @@ def normalizar_email(email: object) -> dict:
     if not re.fullmatch(r"[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}", e):
         return r
     local, dom = e.split("@")
+    partes = dom.split(".")
+    if len(partes) >= 3 and partes[-1] == partes[-2]:
+        # "fontaneria-sevilla.com.com" (2026-10-02): errata de la fuente; no se
+        # corrige (sería suponer), se descarta como no válido.
+        return r
     r.update(email=e, valido=True, dominio=dom, proveedor_gratuito=dom in PROVEEDORES_GRATUITOS)
     base = re.split(r"[.\-_+0-9]", local)[0]
     # Genérico si el prefijo está en la lista. Si no, se trata como POSIBLE

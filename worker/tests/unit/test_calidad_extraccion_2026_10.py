@@ -67,3 +67,22 @@ def test_razon_social_del_proveedor_web() -> None:
     assert es_proveedor_web("Telefónica Soluciones De Informática Y Comunicaciones De España S A U", "carpinteriametalicaensevilla.es")
     assert not es_proveedor_web("Telefónica de España SAU", "telefonica.es")
     assert not es_proveedor_web("Puertas Metalicas Castillo Carmona SL", "casticarmo.com")
+
+
+def test_email_con_dominio_duplicado_no_es_valido() -> None:
+    from radar.normalizacion.dominio import normalizar_email
+
+    assert not normalizar_email("info@fontaneria-sevilla.com.com")["valido"]
+    assert normalizar_email("info@empresa.com.es")["valido"]
+
+
+def test_mismo_telefono_y_misma_raiz_del_nombre_se_unen_con_duda() -> None:
+    from radar.normalizacion.registro import normalizar_registro
+    from radar.resolucion.scoring import UMBRAL_REVISION, comparar
+
+    a = normalizar_registro({"nombre_comercial": "Fontanería y desatascos Robeterres", "telefonos": ["+34625160134"]})
+    b = normalizar_registro({"nombre_comercial": "Robeterreservicios 24h", "telefonos": ["+34625160134"]})
+    assert comparar(a, b, set())["puntuacion"] >= UMBRAL_REVISION
+    c = normalizar_registro({"nombre_comercial": "Robles Fontaneros", "telefonos": ["+34625160134"]})
+    d = normalizar_registro({"nombre_comercial": "Robetex Climatización", "telefonos": ["+34999999999"]})
+    assert comparar(c, d, set())["puntuacion"] < UMBRAL_REVISION

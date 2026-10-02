@@ -41,6 +41,24 @@ PESOS = {
 }
 
 
+RAIZ_MINIMA = 7
+
+
+def raiz_distintiva_comun(a: dict, b: dict) -> bool:
+    """Alguna palabra distintiva de un nombre empieza por otra del otro (o
+    comparten raíz de >= 7 letras): «robeterres» / «robeterreservicios»
+    (2026-10-02: mismo teléfono, quedaban como dos empresas). Solo se usa junto
+    con un teléfono propio en común."""
+    ta = set().union(*(tokens_distintivos(x) for x in (a.get("nombre_norm"), a.get("comercial_norm")) if x))
+    tb = set().union(*(tokens_distintivos(x) for x in (b.get("nombre_norm"), b.get("comercial_norm")) if x))
+    for x in ta:
+        for y in tb:
+            corto, largo = sorted((x, y), key=len)
+            if len(corto) >= RAIZ_MINIMA and largo.startswith(corto[:RAIZ_MINIMA]):
+                return True
+    return False
+
+
 def _mejor_similitud(a: dict, b: dict) -> tuple[float, bool]:
     """Máxima similitud entre las combinaciones de nombres y si comparten palabras distintivas."""
     na = [x for x in (a.get("nombre_norm"), a.get("comercial_norm")) if x]
@@ -207,7 +225,7 @@ def comparar(a: dict, b: dict, telefonos_compartidos: set | None = None) -> dict
     # nombre en común: como mínimo, unir con duda (2026-09-24). Antes
     # "Zultrax Obras" (OSM) con el teléfono de "Zultrax" quedaba en 0,50 y se
     # creaba como empresa aparte.
-    if tel_comunes and distintivas:
+    if tel_comunes and (distintivas or raiz_distintiva_comun(a, b)):
         p = max(p, UMBRAL_REVISION)
 
     # --- Series numeradas (2026-09-21) ---
