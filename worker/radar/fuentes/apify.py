@@ -20,6 +20,7 @@ import httpx
 
 URL_BASE = "https://api.apify.com/v2"
 ESTADOS_FINALES = {"SUCCEEDED", "FAILED", "TIMED-OUT", "ABORTED"}
+ESTADOS_CON_RESULTADOS_PARCIALES = {"TIMED-OUT", "ABORTED", "ABORTING", "RUNNING", "READY"}
 # Los Actors de pago por evento (Google Maps, Google Search...) rechazan con un
 # 400 cualquier `maxTotalChargeUsd` inferior a este mínimo ("Maximum cost per
 # run is less than the allowed minimum of $0.50", `pricingInfo.minimalMaxTotalChargeUsd`,
@@ -41,6 +42,9 @@ class ResultadoActor:
     coste_usd: float = 0.0
     items: list[dict[str, Any]] = field(default_factory=list)
     error: str | None = None
+    # Terminó por tiempo (o se abortó) pero se leyeron los resultados que ya
+    # había obtenido: están pagados y sirven (2026-10-02).
+    parcial: bool = False
 
 
 def _mensaje_error(status: int, cuerpo: Any) -> str:
@@ -176,7 +180,8 @@ async def ejecutar_actor(
     resultado.coste_usd = float(run.get("usageTotalUsd") or 0.0)
     if resultado.estado != "SUCCEEDED":
         resultado.error = f"la ejecución terminó en estado {resultado.estado}"
-        return resultado
+        if resultado.estado not in ESTADOS_CON_RESULTADOS_PARCIALES or not run.get("defaultDatasetId"):
+            return resultado
 
     dataset_id = run.get("defaultDatasetId")
     try:
@@ -193,6 +198,11 @@ async def ejecutar_actor(
         return resultado
     datos = ri.json()
     resultado.items = datos if isinstance(datos, list) else []
+    if resultado.estado != "SUCCEEDED" and resultado.items:
+        # Visto 2026-10-02: dos ejecuciones de Google "TIMED-OUT" se cobraron y
+        # sus resultados se tiraban; ahora se aprovechan.
+        resultado.parcial = True
+        resultado.error = None
     resultado.coste_usd = max(resultado.coste_usd, await _coste_asentado(cliente, cab, run_id, intervalo_s))
     return resultado
 

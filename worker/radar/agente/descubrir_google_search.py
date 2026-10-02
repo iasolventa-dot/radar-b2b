@@ -16,6 +16,8 @@ Cada URL de resultado orgánico se clasifica:
 
 from __future__ import annotations
 
+import asyncio
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
@@ -40,6 +42,67 @@ _DOMINIOS_LINKEDIN = {"linkedin.com"}
 _RUTAS_NO_PAGINA_FACEBOOK = ("/groups/", "/posts/", "/events/", "/watch", "/photo", "/story.php", "/permalink.php", "/share/")
 # Idem LinkedIn: solo /company/ (ofertas de empleo, perfiles personales y posts no).
 _RUTA_EMPRESA_LINKEDIN = "/company/"
+
+
+# Apify procesa las consultas de una ejecución una tras otra (~20-35 s cada
+# una): con 9 consultas y 180 s de espera, la ejecución se cortaba por tiempo
+# (2026-10-02). Se reparten en lotes que corren en paralelo, con una espera
+# proporcional a cada lote.
+LOTE_CONSULTAS = 4
+SEGUNDOS_POR_CONSULTA = 45
+
+
+@dataclass
+class ResultadoGoogle:
+    por_consulta: dict[str, dict[str, Any]] = field(default_factory=dict)
+    coste_usd: float = 0.0
+    error: str | None = None
+    estado: str | None = None
+
+
+async def google_en_lotes(
+    conn: psycopg.Connection,
+    cliente_http: httpx.AsyncClient,
+    token: str,
+    consultas: list[str],
+    *,
+    tope_usd: float,
+    paginas_por_consulta: int = 1,
+    detalle: dict[str, Any] | None = None,
+) -> ResultadoGoogle:
+    """Ejecuta las consultas en lotes paralelos y devuelve, por consulta, su
+    item de Apify (con `organicResults`). Registra cada ejecución en `uso_apify`."""
+    lotes = [consultas[i : i + LOTE_CONSULTAS] for i in range(0, len(consultas), LOTE_CONSULTAS)]
+    if not lotes:
+        return ResultadoGoogle()
+
+    async def uno(lote: list[str]) -> Any:
+        return await ejecutar_actor(
+            cliente_http, token, ACTOR_GOOGLE_SEARCH,
+            {"queries": "\n".join(lote), "maxPagesPerQuery": paginas_por_consulta, "countryCode": "es", "languageCode": "es"},
+            max_coste_usd=tope_usd / len(lotes), max_items=len(lote) * paginas_por_consulta,
+            timeout_s=60 + SEGUNDOS_POR_CONSULTA * len(lote) * paginas_por_consulta,
+        )
+
+    resultados = await asyncio.gather(*(uno(lote) for lote in lotes))
+    salida = ResultadoGoogle()
+    errores = []
+    for lote, res in zip(lotes, resultados, strict=True):
+        bd.registrar_uso_apify(ACTOR_GOOGLE_SEARCH, res.run_id, res.estado, res.coste_usd, {**(detalle or {}), "consultas": lote}, conn)
+        salida.coste_usd += res.coste_usd
+        salida.estado = res.estado if salida.estado in (None, "SUCCEEDED") else salida.estado
+        if res.error:
+            errores.append(res.error)
+        por_termino = {(it.get("searchQuery") or {}).get("term"): it for it in res.items}
+        for i, consulta in enumerate(lote):
+            # Por término; si Apify lo devuelve con otro formato, por orden dentro del lote.
+            item = por_termino.get(consulta) or (res.items[i] if i < len(res.items) and not res.parcial else None)
+            if item:
+                salida.por_consulta[consulta] = item
+    conn.commit()
+    if errores and not salida.por_consulta:
+        salida.error = errores[0]
+    return salida
 
 
 def es_pagina_facebook(url: str) -> bool:
@@ -70,14 +133,7 @@ async def descubrir_google_search(
     if not consultas:
         return {"motivo_parada": "presupuesto_insuficiente_para_apify", "coste_eur": 0.0}
 
-    entrada = {"queries": "\n".join(consultas), "maxPagesPerQuery": paginas_por_consulta, "countryCode": "es", "languageCode": "es"}
-    res = await ejecutar_actor(
-        cliente_http, token, ACTOR_GOOGLE_SEARCH, entrada,
-        max_coste_usd=tope, max_items=len(consultas) * paginas_por_consulta, timeout_s=120,
-    )
-
-    bd.registrar_uso_apify(ACTOR_GOOGLE_SEARCH, res.run_id, res.estado, res.coste_usd, {"consultas": consultas}, conn)
-    conn.commit()
+    res = await google_en_lotes(conn, cliente_http, token, consultas, tope_usd=tope, paginas_por_consulta=paginas_por_consulta)
 
     contadores = {
         "consultas_ejecutadas": len(consultas), "urls_encontradas": 0, "urls_no_legibles": 0, "urls_descartadas": 0,
@@ -87,7 +143,7 @@ async def descubrir_google_search(
     candidatos_linkedin: list[str] = []
 
     urls_web: list[str] = []
-    for item in res.items:
+    for item in res.por_consulta.values():
         for organico in item.get("organicResults") or []:
             url = organico.get("url")
             if not url:

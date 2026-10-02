@@ -43,7 +43,6 @@ from radar.agente.descubrir_apify_maps import (
 )
 from radar.agente.interpretacion import FiltrosBusqueda
 from radar.extraccion import enriquecer_desde_web
-from radar.fuentes.apify import ejecutar_actor
 from radar.fuentes.apify_maps import lugar_a_registro
 from radar.fuentes.base import RegistroBruto
 from radar.fuentes.buscador_web import COSTE_POR_BUSQUEDA_EUR, buscar
@@ -241,9 +240,9 @@ async def _buscar_con_google_apify(
     tope_usd: float, busqueda_id: str, compartidos: set[str] | None, contadores: dict[str, int],
 ) -> float:
     from radar.agente.descubrir_google_search import (
-        ACTOR_GOOGLE_SEARCH,
         COSTE_ARRANQUE_USD,
         COSTE_POR_PAGINA_USD,
+        google_en_lotes,
     )
 
     token = obtener_token_apify(conn)
@@ -252,17 +251,9 @@ async def _buscar_con_google_apify(
     if not token or not empresas:
         return 0.0
     consultas = [f'"{nombre_para_buscar(e.nombre)}" {e.municipio or zona or ""}'.strip() for e in empresas]
-    res = await ejecutar_actor(
-        cliente_http, token, ACTOR_GOOGLE_SEARCH,
-        {"queries": "\n".join(consultas), "maxPagesPerQuery": 1, "countryCode": "es", "languageCode": "es"},
-        max_coste_usd=tope_usd, max_items=len(consultas), timeout_s=120,
-    )
-    bd.registrar_uso_apify(ACTOR_GOOGLE_SEARCH, res.run_id, res.estado, res.coste_usd, {"fase": "completar_contacto", "consultas": consultas}, conn)
-    conn.commit()
-    por_consulta = {(it.get("searchQuery") or {}).get("term"): it for it in res.items}
-    for i, (empresa, consulta) in enumerate(zip(empresas, consultas, strict=True)):
-        # Por término; si Apify lo devuelve con otro formato, por orden.
-        item = por_consulta.get(consulta) or (res.items[i] if i < len(res.items) else {})
+    res = await google_en_lotes(conn, cliente_http, token, consultas, tope_usd=tope_usd, detalle={"fase": "completar_contacto"})
+    for empresa, consulta in zip(empresas, consultas, strict=True):
+        item = res.por_consulta.get(consulta) or {}
         urls = [o.get("url") for o in item.get("organicResults") or [] if _web_propia(o.get("url"))][:3]
         for url in urls:
             if await _leer_web(conn, cliente_http, empresa, url, busqueda_id, compartidos, contadores, exigir_coincidencia=True):

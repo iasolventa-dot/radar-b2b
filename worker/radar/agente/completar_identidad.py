@@ -37,17 +37,16 @@ import psycopg
 
 from radar.agente.completar_contacto import coincide, nombre_para_buscar
 from radar.agente.descubrir_google_search import (
-    ACTOR_GOOGLE_SEARCH,
     COSTE_ARRANQUE_USD,
     COSTE_POR_PAGINA_USD,
+    google_en_lotes,
 )
 from radar.extraccion.reglas import RX_NIF
-from radar.fuentes.apify import ejecutar_actor
 from radar.fuentes.base import CamposExtraidos, RegistroBruto
 from radar.fuentes.buscador_web import consultar_con_busqueda
 from radar.normalizacion.nif import forma_compatible_con_nif, validar_nif
 from radar.normalizacion.nombre import extraer_forma_juridica
-from radar.orquestador import bd, procesar_registro
+from radar.orquestador import procesar_registro
 from radar.secretos import gasto_mes_apify_usd, obtener_token_apify, presupuesto_mensual_apify_usd
 
 MAX_EMPRESAS = 20
@@ -194,19 +193,12 @@ async def _propuestas_apify(
     if not token or not empresas:
         return {}, 0.0
     consultas = [f'"{nombre_limpio(e.nombre)}" {e.municipio or ""} CIF'.strip() for e in empresas]
-    res = await ejecutar_actor(
-        cliente_http, token, ACTOR_GOOGLE_SEARCH,
-        {"queries": "\n".join(consultas), "maxPagesPerQuery": 1, "countryCode": "es", "languageCode": "es"},
-        max_coste_usd=tope_usd, max_items=len(consultas), timeout_s=180,
-    )
-    bd.registrar_uso_apify(ACTOR_GOOGLE_SEARCH, res.run_id, res.estado, res.coste_usd, {"fase": "completar_identidad", "consultas": consultas}, conn)
-    conn.commit()
+    res = await google_en_lotes(conn, cliente_http, token, consultas, tope_usd=tope_usd, detalle={"fase": "completar_identidad"})
     if res.error:
         contadores["error"] = res.error
-    por_consulta = {(it.get("searchQuery") or {}).get("term"): it for it in res.items}
     propuestas: dict[str, CifPropuesto] = {}
-    for i, (e, consulta) in enumerate(zip(empresas, consultas, strict=True)):
-        item = por_consulta.get(consulta) or (res.items[i] if i < len(res.items) else {})
+    for e, consulta in zip(empresas, consultas, strict=True):
+        item = res.por_consulta.get(consulta) or {}
         p = elegir_de_resultados(nombre_para_verificar(e.nombre, e.municipio), item.get("organicResults") or [], e.lugares())
         if p:
             propuestas[e.id] = p

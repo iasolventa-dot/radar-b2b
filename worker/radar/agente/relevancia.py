@@ -45,7 +45,8 @@ Empresas (lo que sabemos de cada una):
 Para cada empresa decide:
 - "relevante": su actividad principal es la del sector buscado o una muy cercana que lo incluye (p. ej. "instalaciones" de fontanería y calefacción, o una empresa de reformas que hace fontanería, para "fontanería"). La categoría de Google Maps es una buena señal.
 - "descartado": solo si claramente NO es del sector: otra actividad (tienda o distribuidor de material, ferretería, persianas, aseguradora, agencia de marketing...), un organismo público, un directorio o portal de empresas, un medio de comunicación, una app o software, un marketplace, o un lugar que no es una empresa. También si consta que está en OTRA PROVINCIA.
-- "dudoso": no hay información suficiente sobre su actividad, o es del sector pero consta en otro municipio de la misma provincia (dilo en el motivo; no la descartes por eso). También si parece una web de captación de clientes: dominio genérico de "servicio + ciudad" (p. ej. reformasintegralesmadrid.com) cuyo titular es una agencia de marketing, publicidad o captación de leads en vez de una empresa del sector.
+- "dudoso": no hay información suficiente sobre su actividad, o es del sector pero consta en otro municipio de la misma provincia (dilo en el motivo; no la descartes por eso). También si parece una web de captación de clientes (dominio genérico "servicio + ciudad", p. ej. desatascos-ciudad.es) y no consta quién es el titular.
+- Pero "descartado" si esa web de captación es de una agencia de marketing/SEO/publicidad, de una plataforma o red que deriva clientes a profesionales de muchas ciudades, o de una empresa extranjera (SARL, GmbH, Ltd...), o si su teléfono es de otra provincia (el prefijo fijo indica la provincia: 954/955 Sevilla, 91 Madrid, 943 Gipuzkoa...): no es una empresa del sector en la zona.
 Además, "autonomo": true si parece una persona física que trabaja por su cuenta, sin sociedad (el nombre es el de una persona, o se presenta como autónomo/profesional independiente); false si es una empresa o sociedad (SL, SA, cooperativa, "Grupo", marca comercial con equipo...); null si no se puede saber.
 No inventes: decide solo con los datos dados. "motivo": una frase corta en español.
 
@@ -76,7 +77,8 @@ select e.id::text,
           where rb.empresa_id = e.id and rb.campos->'extra'->>'titulo_web' is not null limit 1),
        (select rb.campos->'extra'->>'descripcion_web' from registros_brutos rb
           where rb.empresa_id = e.id and rb.campos->'extra'->>'descripcion_web' is not null limit 1),
-       br.motivo
+       br.motivo,
+       (select c.valor from canales_contacto c where c.empresa_id = e.id and c.tipo = 'telefono' limit 1)
 from busqueda_resultados br join empresas e on e.id = br.empresa_id
 where br.busqueda_id = %s and br.clasificacion is null and not br.relevancia_revisada and e.fusionada_en is null
 """
@@ -84,8 +86,8 @@ where br.busqueda_id = %s and br.clasificacion is null and not br.relevancia_rev
 
 def perfil_para_prompt(fila: tuple) -> dict[str, Any]:
     claves = ("id", "nombre", "nombre_comercial", "web", "objeto_social", "cnae", "municipio",
-              "categoria_google_maps", "titulo_web", "descripcion_web", "encontrada_por")
-    return {k: v for k, v in zip(claves, fila, strict=True) if v}
+              "categoria_google_maps", "titulo_web", "descripcion_web", "encontrada_por", "telefono")
+    return {k: v for k, v in zip(claves, fila, strict=False) if v}  # filas antiguas sin teléfono: se toleran
 
 
 def construir_prompt(filtros: FiltrosBusqueda, perfiles: list[dict[str, Any]]) -> str:
