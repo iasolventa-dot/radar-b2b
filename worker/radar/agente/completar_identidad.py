@@ -248,7 +248,7 @@ async def completar_identidad(
     *,
     busqueda_id: str,
     max_coste_eur: float,
-    usar_google_apify: bool,
+    usar_google_apify: bool | None = None,
     telefonos_compartidos: set[str] | None = None,
 ) -> dict[str, Any]:
     contadores: dict[str, Any] = {
@@ -261,7 +261,10 @@ async def completar_identidad(
     if not empresas or max_coste_eur <= 0:
         return {**contadores, "motivo_parada": None if empresas else "todas tienen CIF", "coste_eur": 0.0}
 
-    if usar_google_apify and obtener_token_apify(conn):
+    # Google (Apify) siempre que haya token, aunque la casilla no esté marcada
+    # (decisión del usuario 2026-10-02): medido, ~0,005 € y 5 de 12 CIF
+    # verificados frente a ~0,02 € y 0 de 3 por la vía del modelo con búsqueda.
+    if usar_google_apify is not False and obtener_token_apify(conn):
         tope = min(max_coste_eur, presupuesto_mensual_apify_usd(conn) - gasto_mes_apify_usd(conn))
         propuestas, coste = await _propuestas_apify(conn, cliente_http, empresas, tope, contadores)
         contadores["metodo"] = "Google (Apify)"

@@ -609,11 +609,22 @@ async def planificar(
     if llm.error or llm.motivo_fin == "cancelada_por_usuario" or busqueda_id is None:
         return cerrar()
 
-    # --- Fase 3: completar contacto --------------------------------------
+    # --- Fase 3: relevancia (IA), ANTES de completar contacto -----------------
+    # Así no se gasta (Maps/Google por nombre, LinkedIn, Facebook, rastreo,
+    # CIF, BORME) en empresas que no son del sector pedido (2026-10-02).
     motivo_llm = total.motivo_fin
+    reserva_posterior = reserva_ia + reserva_fase_redes + reserva_identidad
+    resultado_relevancia = await asyncio.to_thread(
+        evaluar_relevancia, conn, filtros, busqueda_id,
+        max_coste_eur=max(0.005, (contexto.presupuesto_restante_eur - reserva_posterior) / 2),
+    )
+    if await registrar("evaluar_relevancia", {}, resultado_relevancia):
+        return cerrar()
+
+    # --- Fase 3b: completar contacto (solo las no descartadas) --------------
     resultado_contacto = await completar_contacto(
         conn, cliente_http, filtros, busqueda_id=busqueda_id,
-        max_coste_eur=max(0.0, contexto.presupuesto_restante_eur - reserva_ia - reserva_fase_redes - reserva_identidad),
+        max_coste_eur=max(0.0, contexto.presupuesto_restante_eur - reserva_posterior),
         apify_actores=actores,
         telefonos_compartidos=contexto.telefonos_compartidos,
     )
@@ -629,21 +640,20 @@ async def planificar(
         if await registrar(nombre_fuente, args_fuente, resultado_fuente):
             return cerrar()
 
-    # --- Fase 4: relevancia (IA) ---------------------------------------------
-    # Antes que identificar, el BORME y las dudas: no se gasta en empresas que
-    # no son del sector pedido.
-    resultado_relevancia = await asyncio.to_thread(
+    # --- Fase 4: relevancia de las empresas nuevas de las fases 3b/3c --------
+    # Solo evalúa las que aún no tienen clasificación (sin ellas no llama al LLM).
+    resultado_relevancia_2 = await asyncio.to_thread(
         evaluar_relevancia, conn, filtros, busqueda_id,
-        max_coste_eur=max(0.005, (contexto.presupuesto_restante_eur - reserva_identidad) / 2),
+        max_coste_eur=max(0.005, (contexto.presupuesto_restante_eur - reserva_identidad) / 4),
     )
-    if await registrar("evaluar_relevancia", {}, resultado_relevancia):
+    if resultado_relevancia_2.get("evaluadas") and await registrar("evaluar_relevancia", {}, resultado_relevancia_2):
         return cerrar()
 
     # --- Fase 4b: CIF y razón social de las que no lo tienen -------------------
     resultado_identidad = await completar_identidad(
         conn, cliente_http, busqueda_id=busqueda_id,
         max_coste_eur=max(0.0, contexto.presupuesto_restante_eur - reserva_ia),
-        usar_google_apify="google_search" in actores, telefonos_compartidos=contexto.telefonos_compartidos,
+        telefonos_compartidos=contexto.telefonos_compartidos,
     )
     if await registrar("completar_identidad", {}, resultado_identidad):
         return cerrar()

@@ -74,6 +74,7 @@ select e.id::text, coalesce(e.razon_social, e.nombre_comercial), e.nif, e.domini
 from busqueda_resultados br
 join empresas e on e.id = br.empresa_id
 where br.busqueda_id = %s and e.fusionada_en is null and (e.estado is null or e.estado not in ('extinguida', 'disuelta'))
+  and coalesce(br.clasificacion, '') not in ('descartado', 'rechazado')
 """
 
 

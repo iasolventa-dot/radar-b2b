@@ -161,7 +161,8 @@ function resumenRonda(ronda: RondaEstadistica): string {
       (typeof r.error_procesado === "number" ? r.error_procesado : 0) +
       (typeof r.error_busqueda === "number" ? r.error_busqueda : 0);
     if (errores) partes.push(`${errores} con error`);
-    return partes.length ? partes.join(", ") : "sin resultados nuevos";
+    const via = typeof r.via === "string" ? ` (vía ${r.via})` : "";
+    return (partes.length ? partes.join(", ") : "sin resultados nuevos") + via;
   }
   if (ronda.herramienta === "preguntar_usuario") return String(r.pregunta ?? "");
   if (ronda.herramienta === "finalizar_busqueda") return String(r.resumen ?? "");

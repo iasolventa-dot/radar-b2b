@@ -150,8 +150,9 @@ HERRAMIENTAS: list[Herramienta] = [
         descripcion=(
             "Busca en la base de datos propia empresas que cumplen los filtros y devuelve un recuento, "
             "estadísticas de calidad (confianza media, % con teléfono no inválido, % con NIF válido) y una "
-            "muestra de hasta 10 empresas. Úsala al principio de cada búsqueda y tras cada ronda para medir "
-            "el progreso. No devuelve la lista completa."
+            "muestra de hasta 10 empresas. No la uses para ver el progreso: cada resultado de herramienta ya "
+            "trae 'progreso_busqueda' (empresas, con teléfono, email, web y NIF de ESTA búsqueda). Úsala solo si "
+            "necesitas ver una muestra de empresas. No devuelve la lista completa."
         ),
         parametros={
             "type": "object",
@@ -1108,9 +1109,48 @@ class ContextoHerramientas:
     # `_HERRAMIENTAS_APIFY` -- un valor por Actor de Apify habilitado.
     usar_places: bool = False
     apify_actores: frozenset[str] = frozenset()
+    # Llamadas a OpenStreetMap que no aportaron nada (error/timeout de Overpass
+    # o sin empresas): tras `MAX_OSM_SIN_FRUTO` se deja de llamar en esta búsqueda
+    # (2026-10-02: hasta 8 llamadas con esperas de ~95 s sin un solo resultado).
+    osm_sin_fruto: int = 0
+
+
+MAX_OSM_SIN_FRUTO = 2
+
+
+def progreso_busqueda(conn: psycopg.Connection, busqueda_id: str) -> dict[str, int]:
+    """Lo que lleva ESTA búsqueda; se añade a cada resultado de herramienta
+    para que el planificador no gaste turnos en `consultar_bd` solo para verlo."""
+    fila = conn.execute(
+        """
+        select count(*),
+               count(*) filter (where exists (select 1 from canales_contacto c where c.empresa_id = br.empresa_id and c.tipo = 'telefono')),
+               count(*) filter (where exists (select 1 from canales_contacto c where c.empresa_id = br.empresa_id and c.tipo = 'email')),
+               count(*) filter (where e.dominio_web is not null),
+               count(*) filter (where e.nif is not null)
+        from busqueda_resultados br join empresas e on e.id = br.empresa_id
+        where br.busqueda_id = %s and e.fusionada_en is null
+        """,
+        (busqueda_id,),
+    ).fetchone()
+    conn.commit()
+    if not fila:
+        return {}
+    return {"empresas": fila[0], "con_telefono": fila[1], "con_email": fila[2], "con_web": fila[3], "con_nif": fila[4]}
 
 
 async def ejecutar_herramienta(nombre: str, argumentos: dict[str, Any], contexto: ContextoHerramientas) -> dict[str, Any]:
+    resultado = await _ejecutar_herramienta(nombre, argumentos, contexto)
+    busqueda_id = getattr(contexto, "busqueda_id", None)
+    if busqueda_id and nombre not in ("consultar_bd", "finalizar_busqueda", "preguntar_usuario"):
+        try:
+            resultado["progreso_busqueda"] = progreso_busqueda(contexto.conn, busqueda_id)
+        except Exception:  # noqa: BLE001 -- el progreso es informativo, nunca rompe la ronda
+            contexto.conn.rollback()
+    return resultado
+
+
+async def _ejecutar_herramienta(nombre: str, argumentos: dict[str, Any], contexto: ContextoHerramientas) -> dict[str, Any]:
     """Punto de entrada único del bucle de tool use
     (`radar.agente.planificador`, siguiente entrega): recibe el nombre y
     los argumentos tal como los manda el LLM, y devuelve SIEMPRE un `dict`
@@ -1144,6 +1184,28 @@ async def ejecutar_herramienta(nombre: str, argumentos: dict[str, Any], contexto
         max_coste_eur = argumentos.get("max_coste_eur")
         if max_coste_eur is None:
             raise ValueError("buscar_web requiere 'max_coste_eur'")
+        # Con token de Apify, las consultas van por Google (Apify): ~0,0045 $ y
+        # ~10 resultados por consulta frente a 0,01 € y ~5 URLs del buscador del
+        # modelo (decisión del usuario 2026-10-02). Si Apify falla, buscador del modelo.
+        from radar.secretos import (
+            gasto_mes_apify_usd,
+            obtener_token_apify,
+            presupuesto_mensual_apify_usd,
+        )
+
+        if obtener_token_apify(contexto.conn) and (
+            presupuesto_mensual_apify_usd(contexto.conn) - gasto_mes_apify_usd(contexto.conn) > 0.01
+        ):
+            from radar.agente.descubrir_google_search import descubrir_google_search
+
+            via_apify = await descubrir_google_search(
+                contexto.conn, contexto.cliente_http, consultas=[str(c) for c in consultas], max_paginas_por_consulta=1,
+                max_coste_eur=min(float(max_coste_eur), contexto.presupuesto_restante_eur),
+                telefonos_compartidos=contexto.telefonos_compartidos, busqueda_id=contexto.busqueda_id,
+                provincias_zona=provincias_de_zona(contexto.filtros, contexto.conn),
+            )
+            if not via_apify.get("error"):
+                return {**via_apify, "via": "Google (Apify)"}
         return await buscar_web(
             contexto.conn, contexto.cliente_http, contexto.cliente_llm,
             consultas=list(consultas), max_resultados_por_consulta=argumentos.get("max_resultados_por_consulta", 5),
@@ -1153,12 +1215,20 @@ async def ejecutar_herramienta(nombre: str, argumentos: dict[str, Any], contexto
         )
 
     if nombre == "descubrir_osm":
-        return await descubrir_osm(
+        if contexto.osm_sin_fruto >= MAX_OSM_SIN_FRUTO:
+            return {
+                "motivo_parada": "OpenStreetMap no ha aportado nada en esta búsqueda: no se vuelve a consultar",
+                "coste_eur": 0.0,
+            }
+        resultado_osm = await descubrir_osm(
             contexto.conn, contexto.cliente_http, contexto.filtros,
             municipios=argumentos.get("municipios"), provincia=argumentos.get("provincia"),
             desplazamiento=int(argumentos.get("desplazamiento", 0)),
             telefonos_compartidos=contexto.telefonos_compartidos, busqueda_id=contexto.busqueda_id,
         )
+        if resultado_osm.get("error_overpass") or not (resultado_osm.get("nueva_empresa") or resultado_osm.get("vinculado")):
+            contexto.osm_sin_fruto += 1
+        return resultado_osm
 
     if nombre == "descubrir_places":
         from radar.agente.descubrir_places import descubrir_places
