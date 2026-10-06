@@ -69,3 +69,35 @@ def test_buscar_web_sin_token_usa_el_buscador_del_modelo(monkeypatch) -> None:
     monkeypatch.setattr(h, "buscar_web", modelo)
     r = asyncio.run(h.ejecutar_herramienta("buscar_web", {"consultas": ["x"], "max_coste_eur": 0.05}, _contexto()))
     assert "via" not in r and r["nueva_empresa"] == 1
+
+
+def test_tope_de_empresas_por_busqueda(monkeypatch) -> None:
+    """2026-10-06: una búsqueda nacional llegó a 1.740 empresas y no pudo verificarlas."""
+    monkeypatch.setattr(h, "progreso_busqueda", lambda _c, _b: {"empresas": h.MAX_EMPRESAS_BUSQUEDA})
+
+    async def no_debe(*_a: Any, **_k: Any) -> dict[str, Any]:
+        raise AssertionError("no debería descubrir más")
+
+    monkeypatch.setattr(h, "descubrir_osm", no_debe)
+    ctx = _contexto()
+    ctx.busqueda_id = "b"
+    r = asyncio.run(h.ejecutar_herramienta("descubrir_osm", {}, ctx))
+    assert "tope" in r["motivo_parada"] and r["coste_eur"] == 0.0
+
+
+def test_empresas_extranjeras_fuera_de_zona() -> None:
+    from radar.agente.herramientas import en_zona
+
+    assert not en_zona(None, set(), telefonos=["+56227550549"], web="bielco.cl")
+    assert not en_zona(None, set(), telefonos=[], web="https://constructora.com.co")
+    assert en_zona(None, set(), telefonos=["+34954000000"], web="constructora.es")
+    assert en_zona(None, set(), telefonos=["954000000"], web=None)
+    assert en_zona("41001", {"41"}, telefonos=None, web="obras.com")
+
+
+def test_formatos_de_telefono_espanol() -> None:
+    from radar.agente.herramientas import parece_extranjera
+
+    for t in ("(+34) 954 12 34 56", "954 12 34 56", "0034954123456", "+34-954-123-456"):
+        assert not parece_extranjera([t], None), t
+    assert parece_extranjera(["+57 310 425 8421"], None)

@@ -46,7 +46,6 @@ import {
   ETIQUETA_CARGO,
   ETIQUETA_HERRAMIENTA,
   etiquetaFuenteResultado,
-  PRIORIDAD_CARGO,
   type BusquedaFila,
   type RondaEstadistica,
 } from "@/lib/tipos";
@@ -83,6 +82,70 @@ interface EmpresaResultado {
   // busqueda_resultados.relevancia (migración 202609251000, radar/agente/relevancia.py)
   relevancia: string | null;
   motivo_relevancia: string | null;
+}
+
+const POR_PAGINA = 100;
+
+interface ResumenResultados {
+  total: number;
+  descartadas: number;
+  completas: number;
+  con_nif: number;
+  con_contacto: number;
+  con_telefono: number;
+  con_email: number;
+}
+const RESUMEN_VACIO: ResumenResultados = {
+  total: 0, descartadas: 0, completas: 0, con_nif: 0, con_contacto: 0, con_telefono: 0, con_email: 0,
+};
+
+// Fila de la función `resultados_busqueda` (migración 202610061000).
+interface FilaRpc {
+  empresa_id: string;
+  motivo: string | null;
+  clasificacion: string | null;
+  motivo_relevancia: string | null;
+  razon_social: string | null;
+  nombre_comercial: string | null;
+  nif: string | null;
+  estado: string | null;
+  confianza_global: number | null;
+  dominio_web: string | null;
+  telefono: string | null;
+  email: string | null;
+  contacto_nombre: string | null;
+  contacto_cargo: string | null;
+  sin_contrastar: number;
+  en_revision: number;
+  completitud: number;
+}
+
+function filaAResultado(f: FilaRpc): EmpresaResultado {
+  const cargo =
+    f.contacto_cargo === "titular_autonomo"
+      ? "Titular (autónomo)"
+      : f.contacto_cargo
+        ? (ETIQUETA_CARGO[f.contacto_cargo] ?? f.contacto_cargo)
+        : null;
+  return {
+    empresa_id: f.empresa_id,
+    motivo: f.motivo,
+    razon_social: f.razon_social ?? f.nombre_comercial ?? "(sin nombre)",
+    nif: f.nif,
+    estado: f.estado,
+    confianza_global: f.confianza_global != null ? Number(f.confianza_global) : null,
+    dominio_web: f.dominio_web,
+    telefono: f.telefono,
+    email: f.email,
+    contacto: f.contacto_nombre ? `${f.contacto_nombre} (${cargo})` : null,
+    contacto_nombre: f.contacto_nombre,
+    contacto_cargo: cargo,
+    completitud: f.completitud,
+    sin_contrastar: f.sin_contrastar,
+    en_revision: f.en_revision,
+    relevancia: f.clasificacion,
+    motivo_relevancia: f.motivo_relevancia,
+  };
 }
 
 const HERRAMIENTAS_DESCUBRIMIENTO = new Set([
@@ -178,9 +241,11 @@ function resumenRonda(ronda: RondaEstadistica): string {
 export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: BusquedaFila }) {
   const [busqueda, setBusqueda] = useState<BusquedaFila>(inicial);
   const [resultados, setResultados] = useState<EmpresaResultado[]>([]);
-  // Descartadas por el filtro de relevancia (IA) o por una persona: no se
-  // muestran ni se exportan; se pueden recuperar en la Cola de revisión.
-  const [descartadas, setDescartadas] = useState(0);
+  // Totales sobre TODOS los resultados (no solo la página que se ve): los
+  // calcula la base de datos (`resumen_resultados_busqueda`, migración 202610061000).
+  const [resumen, setResumen] = useState<ResumenResultados>(RESUMEN_VACIO);
+  const [pagina, setPagina] = useState(0);
+  const [exportando, setExportando] = useState(false);
   const [confirmando, setConfirmando] = useState(false);
   const [errorConfirmar, setErrorConfirmar] = useState<string | null>(null);
   const [cancelando, setCancelando] = useState(false);
@@ -199,117 +264,19 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
       if (cancelado || !fila) return;
       setBusqueda(fila as unknown as BusquedaFila);
 
-      const { data: filas } = await supabase
-        .from("busqueda_resultados")
-        .select("empresa_id, motivo, clasificacion, motivo_relevancia, empresas(razon_social, nombre_comercial, nif, estado, confianza_global, dominio_web, es_persona_fisica)")
-        .eq("busqueda_id", id)
-        .limit(200);
-      if (cancelado || !filas) return;
-
-      const empresaIds = filas.map((f: Record<string, unknown>) => f.empresa_id as string);
-      // Dos consultas planas aparte (no anidadas dentro de la de arriba):
-      // el cliente de Supabase no tiene tipos generados (createBrowserClient
-      // sin <Database>), y su inferencia de tipos por plantillas de texto
-      // no soporta un embed de dos niveles -- rompía la compilación con
-      // GenericStringError. Con consultas de un solo nivel cada una, no
-      // hay ese problema (mismo motivo que separó teléfono/email).
-      const { data: canales } = empresaIds.length
-        ? await supabase.from("canales_contacto").select("empresa_id, tipo, valor, estado").in("empresa_id", empresaIds)
-        : { data: [] as { empresa_id: string; tipo: string; valor: string; estado: string }[] };
-      const { data: cargos } = empresaIds.length
-        ? await supabase
-            .from("cargos")
-            .select("empresa_id, cargo, personas(nombre)")
-            .in("empresa_id", empresaIds)
-        : { data: [] as { empresa_id: string; cargo: string; personas: { nombre: string } | { nombre: string }[] | null }[] };
-      const { data: conflictos } = empresaIds.length
-        ? await supabase.from("conflictos_datos").select("empresa_id, tipo").eq("estado", "pendiente").in("empresa_id", empresaIds)
-        : { data: [] as { empresa_id: string; tipo: string }[] };
+      // Antes: `busqueda_resultados ... limit(200)` SIN orden y ordenado en el
+      // navegador -- con 1.740 resultados cada refresco traía otros 200 al azar.
+      // Ahora la base de datos ordena (completitud, confianza) y pagina.
+      const [{ data: filas }, { data: totales }] = await Promise.all([
+        supabase.rpc("resultados_busqueda", {
+          p_busqueda: id, p_limite: POR_PAGINA, p_desplazamiento: pagina * POR_PAGINA,
+        }),
+        supabase.rpc("resumen_resultados_busqueda", { p_busqueda: id }),
+      ]);
       if (cancelado) return;
-
-      const conflictosPorEmpresa = new Map<string, { sin_contrastar: number; en_revision: number }>();
-      for (const c of conflictos ?? []) {
-        const actual = conflictosPorEmpresa.get(c.empresa_id) ?? { sin_contrastar: 0, en_revision: 0 };
-        if (c.tipo === "sin_contrastar") actual.sin_contrastar += 1;
-        else actual.en_revision += 1;
-        conflictosPorEmpresa.set(c.empresa_id, actual);
-      }
-
-      const canalesPorEmpresa = new Map<string, { tipo: string; valor: string; estado: string }[]>();
-      for (const c of canales ?? []) {
-        const lista = canalesPorEmpresa.get(c.empresa_id) ?? [];
-        lista.push(c);
-        canalesPorEmpresa.set(c.empresa_id, lista);
-      }
-
-      const cargosPorEmpresa = new Map<string, { nombre: string; cargo: string }[]>();
-      for (const c of cargos ?? []) {
-        const personaRaw = c.personas as { nombre: string } | { nombre: string }[] | null;
-        const persona = Array.isArray(personaRaw) ? personaRaw[0] : personaRaw;
-        if (!persona) continue;
-        const lista = cargosPorEmpresa.get(c.empresa_id) ?? [];
-        lista.push({ nombre: persona.nombre, cargo: c.cargo });
-        cargosPorEmpresa.set(c.empresa_id, lista);
-      }
-
-      const filasTodas: EmpresaResultado[] = (
-        filas.map((f: Record<string, unknown>) => {
-          type Empresa = {
-            razon_social: string | null; nombre_comercial: string | null; nif: string | null; estado: string | null;
-            confianza_global: number | null; dominio_web: string | null; es_persona_fisica: boolean | null;
-          };
-          const empresaRaw = f.empresas as Empresa | Empresa[] | null;
-          const empresa = Array.isArray(empresaRaw) ? empresaRaw[0] : empresaRaw;
-          const empresaId = f.empresa_id as string;
-          const canalesEmpresa = canalesPorEmpresa.get(empresaId) ?? [];
-          // Si hay varios, el primero no marcado como inválido -- para una
-          // tabla compacta de leads basta con uno; el resto sigue estando
-          // en canales_contacto para quien necesite verlos todos.
-          const telefono = canalesEmpresa.find((c) => c.tipo === "telefono" && c.estado !== "invalido");
-          const email = canalesEmpresa.find((c) => c.tipo === "email" && c.estado !== "invalido");
-          // Igual con los cargos: si la misma empresa tiene varios (p. ej.
-          // presidente Y consejero delegado, o son personas distintas),
-          // se muestra el de mayor prioridad -- el resto sigue estando en
-          // `cargos`/`personas` para quien necesite verlos todos.
-          const cargosEmpresa = cargosPorEmpresa.get(empresaId) ?? [];
-          cargosEmpresa.sort((a, b) => PRIORIDAD_CARGO.indexOf(a.cargo) - PRIORIDAD_CARGO.indexOf(b.cargo));
-          const principal = cargosEmpresa[0];
-          // Autónomo: la persona de contacto es el propio titular.
-          const titular = !principal && empresa?.es_persona_fisica && empresa.razon_social ? empresa.razon_social : null;
-          const contactoNombre = principal?.nombre ?? titular;
-          const contactoCargo = principal ? (ETIQUETA_CARGO[principal.cargo] ?? principal.cargo) : titular ? "Titular (autónomo)" : null;
-          const contacto = contactoNombre ? `${contactoNombre} (${contactoCargo})` : null;
-          const nombreEmpresa = empresa?.razon_social ?? empresa?.nombre_comercial ?? null;
-          const completitud = [contactoNombre, nombreEmpresa, empresa?.nif, telefono, email].filter(Boolean).length;
-          return {
-            empresa_id: empresaId,
-            motivo: f.motivo as string | null,
-            razon_social: empresa?.razon_social ?? empresa?.nombre_comercial ?? "(sin nombre)",
-            nif: empresa?.nif ?? null,
-            estado: empresa?.estado ?? null,
-            confianza_global: empresa?.confianza_global ?? null,
-            dominio_web: empresa?.dominio_web ?? null,
-            telefono: telefono?.valor ?? null,
-            email: email?.valor ?? null,
-            contacto,
-            contacto_nombre: contactoNombre,
-            contacto_cargo: contactoCargo,
-            completitud,
-            sin_contrastar: conflictosPorEmpresa.get(empresaId)?.sin_contrastar ?? 0,
-            en_revision: conflictosPorEmpresa.get(empresaId)?.en_revision ?? 0,
-            relevancia: (f.clasificacion as string | null) ?? null,
-            motivo_relevancia: (f.motivo_relevancia as string | null) ?? null,
-          };
-        })
-      );
-      const ocultas = new Set(["descartado", "rechazado"]);
-      // Primero las fichas más completas (la lista ideal: contacto, nombre, CIF, teléfono y email).
-      setResultados(
-        filasTodas
-          .filter((r) => !ocultas.has(r.relevancia ?? ""))
-          .sort((a, b) => b.completitud - a.completitud || (b.confianza_global ?? 0) - (a.confianza_global ?? 0)),
-      );
-      setDescartadas(filasTodas.filter((r) => ocultas.has(r.relevancia ?? "")).length);
+      setResultados(((filas ?? []) as FilaRpc[]).map(filaAResultado));
+      const t = ((totales ?? []) as ResumenResultados[])[0];
+      if (t) setResumen(t);
     }
 
     sondear();
@@ -319,7 +286,20 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
       cancelado = true;
       clearInterval(intervalo);
     };
-  }, [id, busqueda.estado]);
+  }, [id, busqueda.estado, pagina]);
+
+  async function exportarTodo() {
+    // El CSV lleva TODOS los resultados, en el mismo orden que la tabla.
+    setExportando(true);
+    try {
+      const { data } = await crearClienteNavegador().rpc("resultados_busqueda", {
+        p_busqueda: id, p_limite: 100000, p_desplazamiento: 0,
+      });
+      exportarResultadosCsv(((data ?? []) as FilaRpc[]).map(filaAResultado), busqueda.peticion);
+    } finally {
+      setExportando(false);
+    }
+  }
 
   async function confirmar() {
     setConfirmando(true);
@@ -357,12 +337,12 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
   const maxRondas = busqueda.estadisticas?.max_rondas ?? null;
   const presupuesto = busqueda.presupuesto_eur != null ? Number(busqueda.presupuesto_eur) : null;
   const pctGasto = presupuesto ? Math.min(100, (busqueda.coste_eur / presupuesto) * 100) : 0;
-  const conTelefono = resultados.filter((r) => r.telefono).length;
-  const conEmail = resultados.filter((r) => r.email).length;
-  const conCif = resultados.filter((r) => r.nif).length;
-  const conContacto = resultados.filter((r) => r.contacto_nombre).length;
-  const completas = resultados.filter((r) => r.completitud === 5).length;
-  const pct = (n: number) => (resultados.length ? `${Math.round((n / resultados.length) * 100)} %` : "—");
+  const total = resumen.total;
+  const descartadas = resumen.descartadas;
+  const pct = (n: number) => (total ? `${Math.round((n / total) * 100)} %` : "—");
+  const paginas = Math.max(1, Math.ceil(total / POR_PAGINA));
+  const desde = total ? pagina * POR_PAGINA + 1 : 0;
+  const hasta = Math.min(total, (pagina + 1) * POR_PAGINA);
 
   return (
     <div className="entrada space-y-7">
@@ -442,10 +422,10 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
 
       {/* Cifras clave */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <TarjetaCifra icono={Building2} etiqueta="Empresas encontradas" valor={resultados.length} tono="marca"
+        <TarjetaCifra icono={Building2} etiqueta="Empresas encontradas" valor={total} tono="marca"
           detalle={descartadas > 0 ? `${descartadas} descartadas (sector o filtros)` : undefined} />
-        <TarjetaCifra icono={BadgeCheck} etiqueta="Fichas completas (5/5)" valor={completas} tono="verde"
-          detalle={`CIF ${pct(conCif)} · contacto ${pct(conContacto)} · tel. ${pct(conTelefono)} · email ${pct(conEmail)}`} />
+        <TarjetaCifra icono={BadgeCheck} etiqueta="Fichas completas (5/5)" valor={resumen.completas} tono="verde"
+          detalle={`CIF ${pct(resumen.con_nif)} · contacto ${pct(resumen.con_contacto)} · tel. ${pct(resumen.con_telefono)} · email ${pct(resumen.con_email)}`} />
         <TarjetaCifra icono={Euro} etiqueta="Coste" valor={`${busqueda.coste_eur.toFixed(2)} €`} tono="cian"
           detalle={presupuesto != null ? `de ${presupuesto.toFixed(2)} € de presupuesto` : undefined}>
           {presupuesto != null && (
@@ -589,7 +569,7 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
                 <Building2 className="h-4 w-4" />
               </span>
               Empresas encontradas
-              <span className="badge bg-brand-50 text-brand-700">{resultados.length}</span>
+              <span className="badge bg-brand-50 text-brand-700">{total}</span>
             </h2>
             {descartadas > 0 && (
               <Link href="/cola-revision" className="mt-1 inline-block text-sm text-slate-500 hover:text-brand-600 hover:underline">
@@ -597,14 +577,10 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
               </Link>
             )}
           </div>
-          {resultados.length > 0 && (
-            <button
-              type="button"
-              onClick={() => exportarResultadosCsv(resultados, busqueda.peticion)}
-              className="btn-secondary"
-            >
-              <Download className="h-4 w-4" />
-              Exportar CSV
+          {total > 0 && (
+            <button type="button" onClick={exportarTodo} disabled={exportando} className="btn-secondary">
+              {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              Exportar CSV ({total})
             </button>
           )}
         </div>
@@ -720,6 +696,25 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
               </tbody>
             </table>
           </div>
+          {total > POR_PAGINA && (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-5 py-3 text-sm text-slate-600">
+              <span>
+                Mostrando <strong className="tabular-nums">{desde}–{hasta}</strong> de{" "}
+                <strong className="tabular-nums">{total}</strong> · ordenadas de más a menos completas
+              </span>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={() => setPagina((n) => Math.max(0, n - 1))} disabled={pagina === 0} className="btn-secondary py-1.5">
+                  Anterior
+                </button>
+                <span className="tabular-nums">
+                  {pagina + 1} / {paginas}
+                </span>
+                <button type="button" onClick={() => setPagina((n) => Math.min(paginas - 1, n + 1))} disabled={pagina >= paginas - 1} className="btn-secondary py-1.5">
+                  Siguiente
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </section>
     </div>

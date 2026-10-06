@@ -62,6 +62,7 @@ existen (ver `radar/agente/__init__.py` y el mensaje del agente en
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
@@ -583,12 +584,40 @@ def provincias_de_zona(filtros: FiltrosBusqueda, conn: psycopg.Connection) -> se
         return {f[0] for f in cur.fetchall()}
 
 
-def en_zona(codigo_postal: str | None, provincias: set[str]) -> bool:
+# Dominios de primer nivel de otros países hispanohablantes que aparecen en
+# búsquedas en español (2026-10-06: constructoras de Chile, Colombia,
+# Argentina y Costa Rica en una búsqueda de toda España).
+_TLD_EXTRANJEROS = {
+    "cl", "co", "ar", "mx", "pe", "ec", "ve", "uy", "py", "bo", "cr", "pa", "gt", "hn", "sv", "ni", "do", "cu", "pr",
+    "us", "uk", "fr", "it", "de", "pt", "br",
+}
+
+
+def parece_extranjera(telefonos: list[str] | None, web: str | None) -> bool:
+    """Teléfonos y ninguno español, o web con dominio de otro país."""
+    digitos = [re.sub(r"\D", "", t) for t in (telefonos or []) if t]
+    digitos = [d for d in digitos if d]
+
+    def espanol(d: str) -> bool:
+        return len(d) == 9 or (len(d) == 11 and d.startswith("34")) or (len(d) == 13 and d.startswith("0034"))
+
+    if digitos and not any(espanol(d) for d in digitos):
+        return True
+    dominio = extraer_dominio(web) if web else None
+    return bool(dominio and dominio.rsplit(".", 1)[-1] in _TLD_EXTRANJEROS)
+
+
+def en_zona(
+    codigo_postal: str | None, provincias: set[str], *, telefonos: list[str] | None = None, web: str | None = None
+) -> bool:
     """Una web encontrada por un buscador pertenece a la búsqueda si su
     código postal es de una provincia de la zona. Sin CP o sin zona no se
-    puede afirmar que esté fuera, así que se acepta. Visto en vivo
-    2026-09-23: "fontanería San Sebastián de los Reyes" traía empresas de
-    Valencia o Ciudad Real que solo mencionaban el municipio."""
+    puede afirmar que esté fuera, así que se acepta -- salvo que sea claramente
+    de otro país (teléfono/dominio). Visto en vivo 2026-09-23: "fontanería San
+    Sebastián de los Reyes" traía empresas de Valencia o Ciudad Real que solo
+    mencionaban el municipio."""
+    if parece_extranjera(telefonos, web):
+        return False
     cp = (codigo_postal or "").strip()
     return not provincias or len(cp) != 5 or not cp.isdigit() or cp[:2] in provincias
 
@@ -949,13 +978,22 @@ async def descubrir_osm(
 
     lote = codigos[desplazamiento : desplazamiento + LOTE_MUNICIPIOS_OSM]
     sector, palabras = _sector_osm(filtros)
-    contadores = {"elementos": 0, "vinculado": 0, "nueva_empresa": 0, "en_revision": 0, "ya_procesado": 0, "error": 0}
+    contadores = {
+        "elementos": 0, "vinculado": 0, "nueva_empresa": 0, "en_revision": 0, "ya_procesado": 0, "error": 0,
+        "sin_contacto_omitidos": 0,
+    }
     conector = ConectorOSM(cliente_http)
     try:
         async for registro in conector.descubrir(
             {"codigos_ine_municipio": lote, "sector": sector, "palabras_clave": palabras}, max_coste_eur=0.0
         ):
             contadores["elementos"] += 1
+            if not (registro.campos.telefonos or registro.campos.web):
+                # 2026-10-06 («construcción en toda España»): OSM aportó 1.510
+                # negocios, solo el 33 % con teléfono y casi ninguno con CIF; sin
+                # ningún contacto no sirven para la lista y ahogaban la búsqueda.
+                contadores["sin_contacto_omitidos"] += 1
+                continue
             try:
                 resultado = procesar_registro(registro, conn, busqueda_id=busqueda_id, telefonos_compartidos=telefonos_compartidos)
                 if busqueda_id and resultado.empresa_id:
@@ -1038,7 +1076,10 @@ async def buscar_web(
             if registro is None:
                 contadores["urls_no_legibles"] += 1
                 continue
-            if not en_zona(registro.campos.codigo_postal, provincias_zona or set()):
+            if not en_zona(
+                registro.campos.codigo_postal, provincias_zona or set(),
+                telefonos=registro.campos.telefonos, web=registro.campos.web,
+            ):
                 contadores["fuera_de_zona"] += 1
                 continue
             try:
@@ -1116,6 +1157,14 @@ class ContextoHerramientas:
 
 
 MAX_OSM_SIN_FRUTO = 2
+# Más empresas no es mejor lista: a partir de aquí las herramientas de
+# descubrimiento no se ejecutan y el presupuesto queda para verificar (sector,
+# CIF, administradores, contacto). 2026-10-06: una búsqueda nacional llegó a
+# 1.740 empresas y solo pudo revisar 425.
+MAX_EMPRESAS_BUSQUEDA = 300
+_HERRAMIENTAS_DESCUBRIMIENTO = {
+    "descubrir_borme", "buscar_web", "descubrir_osm", "descubrir_places", "descubrir_apify_maps", "descubrir_google_search",
+}
 
 
 def progreso_busqueda(conn: psycopg.Connection, busqueda_id: str) -> dict[str, int]:
@@ -1140,8 +1189,19 @@ def progreso_busqueda(conn: psycopg.Connection, busqueda_id: str) -> dict[str, i
 
 
 async def ejecutar_herramienta(nombre: str, argumentos: dict[str, Any], contexto: ContextoHerramientas) -> dict[str, Any]:
-    resultado = await _ejecutar_herramienta(nombre, argumentos, contexto)
     busqueda_id = getattr(contexto, "busqueda_id", None)
+    if busqueda_id and nombre in _HERRAMIENTAS_DESCUBRIMIENTO:
+        try:
+            ya = progreso_busqueda(contexto.conn, busqueda_id).get("empresas", 0)
+        except Exception:  # noqa: BLE001
+            contexto.conn.rollback()
+            ya = 0
+        if ya >= MAX_EMPRESAS_BUSQUEDA:
+            return {
+                "motivo_parada": f"la búsqueda ya tiene {ya} empresas (tope {MAX_EMPRESAS_BUSQUEDA}): termina para verificarlas",
+                "coste_eur": 0.0,
+            }
+    resultado = await _ejecutar_herramienta(nombre, argumentos, contexto)
     if busqueda_id and nombre not in ("consultar_bd", "finalizar_busqueda", "preguntar_usuario"):
         try:
             resultado["progreso_busqueda"] = progreso_busqueda(contexto.conn, busqueda_id)

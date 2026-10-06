@@ -544,7 +544,11 @@ async def planificar(
     # ... y para localizar el CIF de las empresas que no lo tienen
     # (`radar.agente.completar_identidad`).
     reserva_identidad = min(0.08, presupuesto_eur * 0.2)
-    reserva_final = reserva_ia * 2 + reserva_fase_redes + reserva_identidad
+    # ... y para que el filtro de sector revise TODAS (≈0,0001 € por empresa;
+    # con el tope de 300 empresas, ~0,03 €). 2026-10-06: sin esto, 1.311 de
+    # 1.740 empresas se quedaron sin revisar por falta de presupuesto.
+    reserva_relevancia = min(0.04, presupuesto_eur * 0.1)
+    reserva_final = reserva_ia * 2 + reserva_fase_redes + reserva_identidad + reserva_relevancia
 
     contexto = ContextoHerramientas(
         conn=conn, cliente_http=cliente_http, filtros=filtros, presupuesto_restante_eur=presupuesto_eur,
@@ -616,7 +620,7 @@ async def planificar(
     reserva_posterior = reserva_ia + reserva_fase_redes + reserva_identidad
     resultado_relevancia = await asyncio.to_thread(
         evaluar_relevancia, conn, filtros, busqueda_id,
-        max_coste_eur=max(0.005, (contexto.presupuesto_restante_eur - reserva_posterior) / 2),
+        max_coste_eur=max(reserva_relevancia, (contexto.presupuesto_restante_eur - reserva_posterior) / 2),
     )
     if await registrar("evaluar_relevancia", {}, resultado_relevancia):
         return cerrar()

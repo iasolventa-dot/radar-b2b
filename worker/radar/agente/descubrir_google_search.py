@@ -170,7 +170,10 @@ async def descubrir_google_search(
         if registro is None:
             contadores["urls_no_legibles"] += 1
             continue
-        if not en_zona(registro.campos.codigo_postal, provincias_zona or set()):
+        if not en_zona(
+            registro.campos.codigo_postal, provincias_zona or set(),
+            telefonos=registro.campos.telefonos, web=registro.campos.web,
+        ):
             contadores["fuera_de_zona"] += 1
             continue
         try:

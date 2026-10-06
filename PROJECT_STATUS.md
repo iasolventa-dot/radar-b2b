@@ -283,4 +283,12 @@ Verificado desde el panel (4 búsquedas, 1,07 € en total): «fontanería en Ut
 
 Pendiente: verificar estos cambios con una búsqueda real desde el panel (el cupo de 5 pruebas de esta sesión se agotó).
 
+### 13e. Búsquedas grandes (2026-10-06, «construcción en toda España», 1.740 empresas)
+
+- **Panel**: cargaba `busqueda_resultados ... limit 200` sin orden y ordenaba en el navegador: cada refresco traía otros 200 al azar (empresas que aparecían y desaparecían; «183» = 200 menos las descartadas). Ahora `resultados_busqueda()` y `resumen_resultados_busqueda()` (migración 202610061000) ordenan por completitud/confianza y calculan los totales en la BD; el panel pagina de 100 en 100 y el CSV exporta todos.
+- **OpenStreetMap** aportó 1.510 de las 1.740 (33 % con teléfono, 1 con CIF, muchas de otro sector): ahora no se guarda un negocio de OSM sin teléfono ni web.
+- **Tope de 300 empresas por búsqueda** (`MAX_EMPRESAS_BUSQUEDA`): las herramientas de descubrimiento dejan de ejecutarse y el presupuesto queda para verificar; reserva propia para el filtro de sector (1.311 se quedaron sin revisar).
+- **Empresas extranjeras** (Chile, Colombia, Argentina, Costa Rica) en búsquedas de España: `en_zona` descarta teléfonos no españoles y dominios de otro país.
+- El filtro «de 10 a 200 empleados» sigue sin efecto: ninguna fuente conectada da el número de empleados.
+
 Pendiente conocido: una identificación previa a la verificación de localidad («Construcciones Guerrero» → sociedad de CIF malagueño) quedó en la BD de pruebas. `consultar_bd` informa al planificador de "0 empresas que cumplen los filtros" (confianza/frescura) aunque la búsqueda tenga 25, lo que le confunde; el coste del planificador LLM es ~50 % del gasto en búsquedas sin Maps; ampliar el índice del BORME a más provincias/años cuando se busque fuera de Madrid/Sevilla.
