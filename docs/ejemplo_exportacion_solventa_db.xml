@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<exportacion origen="Radar B2B" formato="solventa-db" version="1" generado="2026-10-06T12:00:00+00:00">
+  <lista radar-busqueda-id="00000000-0000-4000-8000-000000000000" nombre="fontaneros en Dos Hermanas" creada="2026-10-02T06:40:05+00:00" total="3">
+    <descripcion>Zona: Dos Hermanas · Sector: Fontanería</descripcion>
+  </lista>
+  <clientes>
+    <cliente radar-id="11111111-1111-4111-8111-111111111111" completitud="5" clasificacion="relevante" confianza="0.82">
+      <campo nombre="Razón Social">FONTANERIA EJEMPLO SUR SL</campo>
+      <campo nombre="NIF">B00000000</campo>
+      <campo nombre="Contacto">Luis Ejemplo</campo>
+      <campo nombre="Cargo">Gerente</campo>
+      <campo nombre="TELEFONO 1">955000001</campo>
+      <campo nombre="TELEFONO 2">600000001</campo>
+      <campo nombre="Email">ana@fontaneria-ejemplo.es</campo>
+      <campo nombre="E-MAIL CORPORATIVO">info@fontaneria-ejemplo.es</campo>
+      <campo nombre="Web">https://fontaneria-ejemplo.es</campo>
+      <campo nombre="Dirección">Calle Inventada 12</campo>
+      <campo nombre="CP">41700</campo>
+      <campo nombre="Población">Dos Hermanas</campo>
+      <campo nombre="Provincia">Sevilla</campo>
+      <campo nombre="CNAE">4322</campo>
+      <campo nombre="ACTIVIDAD">Instalaciones de fontanería, calefacción y climatización.</campo>
+      <campo nombre="SECTORES">FONTANERÍA</campo>
+      <campo nombre="Estado">Lead</campo>
+      <campo nombre="Origen Cliente">RADAR B2B</campo>
+      <campo nombre="Observaciones">Importado de Radar B2B el 2026-10-06 (búsqueda «fontaneros en Dos Hermanas»). Completitud 5/5, confianza 0.82. Nombre comercial: Fontanería Ejemplo.</campo>
+      <contactos-adicionales>
+        <contacto>
+          <nombre>GARCIA PRUEBA ANA</nombre>
+          <cargo>Administrador único</cargo>
+          <telefono />
+          <email />
+        </contacto>
+      </contactos-adicionales>
+      <evidencias>
+        <evidencia campo="NIF" fuente="Directorio de empresas (CIF localizado por búsqueda)" url="https://ejemplo.invalid/ficha" fecha="2026-10-02" />
+        <evidencia campo="Razón Social" fuente="BORME (Boletín Oficial del Registro Mercantil)" url="https://www.boe.es/" fecha="2026-10-02" />
+      </evidencias>
+    </cliente>
+    <cliente radar-id="22222222-2222-4222-8222-222222222222" completitud="4" clasificacion="relevante" confianza="0.64">
+      <campo nombre="Razón Social">Pedro Inventado Ruiz</campo>
+      <campo nombre="NIF">00000000T</campo>
+      <campo nombre="Contacto">Pedro Inventado Ruiz</campo>
+      <campo nombre="Cargo">Propietario</campo>
+      <campo nombre="TELEFONO 1">600000002</campo>
+      <campo nombre="Población">Dos Hermanas</campo>
+      <campo nombre="Provincia">Sevilla</campo>
+      <campo nombre="SECTORES">FONTANERÍA</campo>
+      <campo nombre="Estado">Lead</campo>
+      <campo nombre="Origen Cliente">RADAR B2B</campo>
+      <campo nombre="Observaciones">Importado de Radar B2B el 2026-10-06 (búsqueda «fontaneros en Dos Hermanas»). Completitud 4/5, confianza 0.64. Nombre comercial: Fontanero Pedro.</campo>
+    </cliente>
+    <cliente radar-id="33333333-3333-4333-8333-333333333333" completitud="2" clasificacion="dudoso" confianza="0.19">
+      <campo nombre="Razón Social">Desatascos Ficticio</campo>
+      <campo nombre="TELEFONO 1">600000003</campo>
+      <campo nombre="SECTORES">FONTANERÍA</campo>
+      <campo nombre="Estado">Lead</campo>
+      <campo nombre="Origen Cliente">RADAR B2B</campo>
+      <campo nombre="Observaciones">Importado de Radar B2B el 2026-10-06 (búsqueda «fontaneros en Dos Hermanas»). Completitud 2/5, confianza 0.19. Nombre comercial: Desatascos Ficticio. Radar no pudo confirmar que sea del sector buscado.</campo>
+    </cliente>
+  </clientes>
+</exportacion>

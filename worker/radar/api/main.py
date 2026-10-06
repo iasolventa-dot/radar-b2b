@@ -43,7 +43,7 @@ from typing import cast
 
 import httpx
 import psycopg
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from radar.agente.interpretacion import FiltrosBusqueda, interpretar_peticion
@@ -84,6 +84,7 @@ from radar.api.esquemas import (
 )
 from radar.api.estado import EstadoBusqueda, estado_final_de
 from radar.config import get_settings
+from radar.exportacion import exportar_busqueda_solventa
 from radar.fuentes.apify import probar_token as probar_token_apify
 from radar.fuentes.places import probar_clave
 from radar.orquestador import bd
@@ -277,6 +278,22 @@ async def obtener(busqueda_id: str) -> BusquedaOut:
         id=busqueda.id, peticion=busqueda.peticion, filtros=FiltrosBusqueda.model_validate(busqueda.filtros),
         presupuesto_eur=busqueda.presupuesto_eur, estado=busqueda.estado, rondas=busqueda.rondas,
         estadisticas=busqueda.estadisticas, coste_eur=busqueda.coste_eur, creado_en=busqueda.creado_en, finalizado_en=busqueda.finalizado_en,
+    )
+
+
+@app.get("/busquedas/{busqueda_id}/exportar/solventa-db")
+async def exportar_solventa(busqueda_id: str) -> Response:
+    """XML para importar los resultados en Solventa DB (formato «solventa-db»
+    v1, ver radar/exportacion/solventa.py y docs/formato_exportacion_solventa_db.md)."""
+    db_url = _requerir_db_url()
+    with psycopg.connect(db_url) as conn:
+        try:
+            xml, nombre = await asyncio.to_thread(exportar_busqueda_solventa, conn, busqueda_id)
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return Response(
+        content=xml, media_type="application/xml; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
     )
 
 

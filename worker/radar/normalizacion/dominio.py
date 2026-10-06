@@ -17,6 +17,7 @@ PREFIJOS_GENERICOS = {
     "empleo", "recepcion", "atencioncliente", "clientes", "soporte", "support", "general", "gerencia",
     "direccion", "compras", "proyectos", "obras", "tecnico", "marketing", "prensa", "secretaria", "calidad",
     "logistica", "almacen", "taller", "reservas", "consultas", "correo", "mail", "web", "estudio", "central",
+    "legal", "juridico", "contabilidad", "facturas", "proveedores", "atencion",
 }
 PROVEEDORES_GRATUITOS = {
     "gmail.com", "hotmail.com", "hotmail.es", "outlook.com", "outlook.es", "yahoo.com", "yahoo.es", "live.com",

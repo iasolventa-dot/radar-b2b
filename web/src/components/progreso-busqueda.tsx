@@ -16,6 +16,7 @@ import {
   Database,
   Download,
   Euro,
+  FileCode2,
   Filter,
   Fingerprint,
   Flag,
@@ -39,7 +40,7 @@ import { EstadoVacio, TarjetaCifra } from "@/components/encabezado-pagina";
 import { EstadoBusqueda } from "@/components/estado-busqueda";
 import { FuentesMarcadas } from "@/components/fuentes-marcadas";
 import { crearClienteNavegador } from "@/lib/supabase/client";
-import { cancelarBusqueda, confirmarBusqueda } from "@/lib/api";
+import { cancelarBusqueda, confirmarBusqueda, descargarXmlSolventa } from "@/lib/api";
 import { describirFiltros } from "@/lib/filtros";
 import { exportarResultadosCsv } from "@/lib/exportar-csv";
 import {
@@ -246,6 +247,8 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
   const [resumen, setResumen] = useState<ResumenResultados>(RESUMEN_VACIO);
   const [pagina, setPagina] = useState(0);
   const [exportando, setExportando] = useState(false);
+  const [exportandoXml, setExportandoXml] = useState(false);
+  const [errorXml, setErrorXml] = useState<string | null>(null);
   const [confirmando, setConfirmando] = useState(false);
   const [errorConfirmar, setErrorConfirmar] = useState<string | null>(null);
   const [cancelando, setCancelando] = useState(false);
@@ -287,6 +290,18 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
       clearInterval(intervalo);
     };
   }, [id, busqueda.estado, pagina]);
+
+  async function exportarXml() {
+    setExportandoXml(true);
+    setErrorXml(null);
+    try {
+      await descargarXmlSolventa(id, busqueda.peticion);
+    } catch (err) {
+      setErrorXml(err instanceof Error ? err.message : String(err));
+    } finally {
+      setExportandoXml(false);
+    }
+  }
 
   async function exportarTodo() {
     // El CSV lleva TODOS los resultados, en el mismo orden que la tabla.
@@ -578,10 +593,17 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
             )}
           </div>
           {total > 0 && (
-            <button type="button" onClick={exportarTodo} disabled={exportando} className="btn-secondary">
-              {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-              Exportar CSV ({total})
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              {errorXml && <span className="text-sm text-rose-600">{errorXml}</span>}
+              <button type="button" onClick={exportarXml} disabled={exportandoXml} className="btn-secondary" title="XML para importar como lista aparte en Solventa DB">
+                {exportandoXml ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileCode2 className="h-4 w-4" />}
+                Exportar a Solventa DB
+              </button>
+              <button type="button" onClick={exportarTodo} disabled={exportando} className="btn-secondary">
+                {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                Exportar CSV ({total})
+              </button>
+            </div>
           )}
         </div>
         <div className="card overflow-hidden">

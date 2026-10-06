@@ -135,3 +135,25 @@ export function borrarTokenApify(): Promise<EstadoApify> {
 export function probarTokenApify(): Promise<ProbarPlacesOut> {
   return peticionJson<ProbarPlacesOut>("/configuracion/apify/probar", { method: "POST" });
 }
+
+/** Descarga el XML para importar los resultados de una búsqueda en Solventa DB
+ * (formato «solventa-db» v1: worker/radar/exportacion/solventa.py). */
+export async function descargarXmlSolventa(busquedaId: string, peticion: string): Promise<void> {
+  let respuesta: Response;
+  try {
+    respuesta = await fetch(`${urlBase()}/busquedas/${encodeURIComponent(busquedaId)}/exportar/solventa-db`);
+  } catch {
+    throw new Error("No se pudo contactar con el worker — ¿está arrancado?");
+  }
+  if (!respuesta.ok) throw new Error(`No se pudo generar el XML (${respuesta.status})`);
+  const blob = await respuesta.blob();
+  const nombre = `radar-${peticion.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "busqueda"}.xml`;
+  const url = URL.createObjectURL(blob);
+  const enlace = document.createElement("a");
+  enlace.href = url;
+  enlace.download = nombre;
+  document.body.appendChild(enlace);
+  enlace.click();
+  enlace.remove();
+  URL.revokeObjectURL(url);
+}
