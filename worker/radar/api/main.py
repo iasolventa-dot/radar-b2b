@@ -12,7 +12,9 @@ endpoints escriben, tres leen:
    (cooperativo, entre rondas — no interrumpe una llamada ya en curso) o
    cierra directamente una que esté `esperando_respuesta` (migración
    202609141400, ver docstring de la función `cancelar`).
-4. ``GET /busquedas/{id}`` / ``GET /busquedas`` / ``GET /salud`` — lectura.
+4. ``POST /busquedas/empresa`` — búsqueda de UNA empresa concreta
+   (`radar.agente.empresa_concreta`): sin interpretar ni confirmar, se lanza ya.
+5. ``GET /busquedas/{id}`` / ``GET /busquedas`` / ``GET /salud`` — lectura.
 
 Simplificación conocida (documentada también en `PeticionBusquedaIn.usuario_id`):
 sin autenticación todavía — `usuario_id` se guarda tal cual lo manda la web,
@@ -46,6 +48,13 @@ import psycopg
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 
+from radar.agente.empresa_concreta import (
+    EmpresaObjetivo,
+    buscar_empresa_concreta,
+    filtros_de,
+    nif_valido,
+    peticion_de,
+)
 from radar.agente.interpretacion import FiltrosBusqueda, interpretar_peticion
 from radar.agente.planificador import (
     HERRAMIENTAS_QUE_CONSUMEN_PRESUPUESTO,
@@ -67,6 +76,7 @@ from radar.api.bd_busquedas import (
     solicitar_cancelacion,
 )
 from radar.api.esquemas import (
+    BuscarEmpresaIn,
     BusquedaInterpretadaOut,
     BusquedaOut,
     ConfirmarBusquedaIn,
@@ -226,11 +236,19 @@ async def _ejecutar_planificador_en_fondo(busqueda_id: str, max_rondas: int) -> 
         # pueden combinar en un solo `async with` (mypy lo marca, y de hecho no funcionaría en runtime).
         async with httpx.AsyncClient() as cliente_http:
             with psycopg.connect(db_url, autocommit=False) as conn_trabajo:
-                resultado = await planificar(
-                    conn_trabajo, cliente_http, filtros, presupuesto_eur=presupuesto_eur, max_rondas=max_rondas_reales,
-                    on_ronda=on_ronda, debe_cancelar=debe_cancelar, busqueda_id=busqueda_id,
-                    usar_places=bool(opciones.get("usar_google_places")), apify_actores=set(opciones.get("apify_actores") or []),
-                )
+                if opciones.get("empresa_objetivo"):
+                    resultado = await buscar_empresa_concreta(
+                        conn_trabajo, cliente_http, EmpresaObjetivo.desde_dict(opciones["empresa_objetivo"]),
+                        presupuesto_eur=presupuesto_eur, busqueda_id=busqueda_id,
+                        usar_places=bool(opciones.get("usar_google_places")), apify_actores=set(opciones.get("apify_actores") or []),
+                        on_ronda=on_ronda, debe_cancelar=debe_cancelar,
+                    )
+                else:
+                    resultado = await planificar(
+                        conn_trabajo, cliente_http, filtros, presupuesto_eur=presupuesto_eur, max_rondas=max_rondas_reales,
+                        on_ronda=on_ronda, debe_cancelar=debe_cancelar, busqueda_id=busqueda_id,
+                        usar_places=bool(opciones.get("usar_google_places")), apify_actores=set(opciones.get("apify_actores") or []),
+                    )
     except Exception as exc:  # noqa: BLE001 — nunca dejar la búsqueda en 'en_curso' colgada para siempre
         resultado_error = ResultadoPlanificador(error=str(exc))
         with psycopg.connect(db_url) as conn:
@@ -264,6 +282,28 @@ async def confirmar(busqueda_id: str, confirmar_in: ConfirmarBusquedaIn, tareas:
         )
 
     tareas.add_task(_ejecutar_planificador_en_fondo, busqueda_id, confirmar_in.max_rondas)
+    return ConfirmarBusquedaOut(id=busqueda_id, estado="en_curso")
+
+
+@app.post("/busquedas/empresa", response_model=ConfirmarBusquedaOut)
+async def buscar_empresa(entrada: BuscarEmpresaIn, tareas: BackgroundTasks) -> ConfirmarBusquedaOut:
+    """Busca UNA empresa concreta al detalle (`radar.agente.empresa_concreta`).
+    No hay nada que interpretar, así que se crea y se lanza en la misma llamada."""
+    if not nif_valido(entrada.nif):
+        raise HTTPException(status_code=422, detail=f"el CIF/NIF «{entrada.nif}» no es válido (dígito de control)")
+    objetivo = EmpresaObjetivo.desde_dict(entrada.model_dump())
+    filtros = filtros_de(objetivo)
+    db_url = _requerir_db_url()
+    with psycopg.connect(db_url) as conn:
+        busqueda_id = crear_busqueda(
+            conn, peticion=peticion_de(objetivo), filtros=filtros, presupuesto_eur=entrada.presupuesto_eur,
+            usuario_id=entrada.usuario_id,
+        )
+        marcar_en_curso(
+            conn, busqueda_id, filtros=filtros, max_rondas=0, usar_google_places=entrada.usar_google_places,
+            apify_actores=entrada.apify_actores, empresa_objetivo=objetivo.a_dict(),
+        )
+    tareas.add_task(_ejecutar_planificador_en_fondo, busqueda_id, 0)
     return ConfirmarBusquedaOut(id=busqueda_id, estado="en_curso")
 
 

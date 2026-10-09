@@ -222,7 +222,12 @@ export interface BusquedaFila {
   creado_en: string;
   finalizado_en: string | null;
   // fuentes de pago marcadas al confirmar (busquedas.opciones)
-  opciones?: { apify_actores?: string[]; usar_google_places?: boolean } | null;
+  opciones?: {
+    apify_actores?: string[];
+    usar_google_places?: boolean;
+    // Solo en la búsqueda de una empresa concreta (worker: radar/agente/empresa_concreta.py).
+    empresa_objetivo?: EmpresaObjetivo | null;
+  } | null;
 }
 
 export const ETIQUETA_ESTADO_BUSQUEDA: Record<string, string> = {
@@ -247,6 +252,8 @@ export const COLOR_ESTADO_BUSQUEDA: Record<string, string> = {
 
 export const ETIQUETA_HERRAMIENTA: Record<string, string> = {
   consultar_bd: "Consultar base de datos",
+  localizar_en_bd: "Buscar la empresa en la base de datos",
+  identificar_empresa: "Identificar la empresa buscada",
   estimar_cobertura: "Estimar cobertura (INE)",
   descubrir_borme: "Descubrir en el BORME",
   buscar_web: "Buscar en la web",
@@ -280,6 +287,7 @@ export const ETIQUETA_HERRAMIENTA: Record<string, string> = {
 // a `observaciones` (todavía sin pantalla propia).
 const ETIQUETA_FUENTE_MOTIVO: Record<string, string> = {
   borme: "BORME",
+  base_datos: "Ya estaba en la base de datos",
   buscador_web: "Búsqueda web",
   osm: "OpenStreetMap",
   "google_places+web": "Google Places + web propia",
@@ -364,4 +372,11 @@ export interface EstadoApify {
 
 // worker/radar/api/esquemas.py::ConfirmarBusquedaIn.apify_actores -- un Actor
 // de Apify por checkbox en "Nueva búsqueda" (radar/agente/herramientas.py::_HERRAMIENTAS_APIFY).
+export interface EmpresaObjetivo {
+  nombre: string;
+  nif: string | null;
+  localidad: string | null;
+  web: string | null;
+}
+
 export type ApifyActor = "web_crawler" | "google_search" | "google_maps" | "linkedin" | "facebook";

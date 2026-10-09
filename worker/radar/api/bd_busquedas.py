@@ -97,17 +97,23 @@ def leer_opciones(conn: psycopg.Connection, busqueda_id: str) -> dict:
 def marcar_en_curso(
     conn: psycopg.Connection, busqueda_id: str, *, filtros: FiltrosBusqueda, max_rondas: int,
     usar_google_places: bool = False, apify_actores: Sequence[str] | None = None,
+    empresa_objetivo: dict[str, Any] | None = None,
 ) -> None:
     """Se llama al confirmar (`POST /busquedas/{id}/confirmar`), antes de
     lanzar el planificador en segundo plano. Si `filtros` viene editado
-    respecto a la interpretación original, se sobrescribe aquí."""
+    respecto a la interpretación original, se sobrescribe aquí.
+    `empresa_objetivo`: solo en la búsqueda de una empresa concreta
+    (`radar.agente.empresa_concreta`); el worker la lee de `opciones`."""
+    opciones: dict[str, Any] = {"usar_google_places": usar_google_places, "apify_actores": list(apify_actores or [])}
+    if empresa_objetivo:
+        opciones["empresa_objetivo"] = empresa_objetivo
     with conn.cursor() as cur:
         cur.execute(
             "update busquedas set estado = 'en_curso', filtros = %s::jsonb, estadisticas = %s::jsonb, "
             "opciones = %s::jsonb where id = %s",
             (
                 filtros.model_dump_json(), json.dumps(serializar_estadisticas([], max_rondas=max_rondas)),
-                json.dumps({"usar_google_places": usar_google_places, "apify_actores": apify_actores or []}), busqueda_id,
+                json.dumps(opciones), busqueda_id,
             ),
         )
     conn.commit()

@@ -292,3 +292,9 @@ Pendiente: verificar estos cambios con una búsqueda real desde el panel (el cup
 - El filtro «de 10 a 200 empleados» sigue sin efecto: ninguna fuente conectada da el número de empleados.
 
 Pendiente conocido: una identificación previa a la verificación de localidad («Construcciones Guerrero» → sociedad de CIF malagueño) quedó en la BD de pruebas. `consultar_bd` informa al planificador de "0 empresas que cumplen los filtros" (confianza/frescura) aunque la búsqueda tenga 25, lo que le confunde; el coste del planificador LLM es ~50 % del gasto en búsquedas sin Maps; ampliar el índice del BORME a más provincias/años cuando se busque fuera de Madrid/Sevilla.
+
+### 13f. Búsqueda de una empresa concreta (2026-10-09)
+
+- **Panel**: selector «Varias empresas / Una empresa concreta» en Nueva búsqueda. La segunda pide nombre (y opcionalmente CIF, localidad y web), sin interpretación ni confirmación: `POST /busquedas/empresa` crea la búsqueda y la lanza. El objetivo se guarda en `busquedas.opciones.empresa_objetivo`; el resultado se ve, exporta (CSV, Solventa DB) y revisa como cualquier búsqueda.
+- **Worker** (`radar/agente/empresa_concreta.py`, sin planificador LLM): `localizar_en_bd` (mismo CIF, misma web o `word_similarity` del nombre) → Maps (5 negocios) / Places / búsqueda web dirigidas, según lo marcado → `identificar_empresa` (código: el CIF manda; sin CIF, nombre con todas sus palabras distintivas + localidad + web; ≥0,8 «relevante», 0,6-0,8 «dudoso», resto «descartado») → completar contacto, redes, CIF, BORME y dudas → se vuelve a identificar si entraron fichas nuevas.
+- Probado desde la interfaz: «Sevilla Fugas» (Alcalá de Guadaíra), 0,02 €: encontrada 5/5 y 3 empresas ajenas de la búsqueda web descartadas. Ese día el tope mensual de Apify (2 $) estaba agotado, así que la búsqueda web fue por el buscador del modelo.

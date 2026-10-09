@@ -45,6 +45,20 @@ class ConfirmarBusquedaIn(BaseModel):
     )
 
 
+class BuscarEmpresaIn(BaseModel):
+    """Búsqueda de UNA empresa concreta (radar.agente.empresa_concreta): sin
+    interpretación ni confirmación, se lanza directamente."""
+
+    nombre: str = Field(min_length=2, max_length=200, description="Nombre comercial o razón social")
+    nif: str | None = Field(default=None, max_length=20, description="CIF/NIF si se conoce")
+    localidad: str | None = Field(default=None, max_length=120, description="Municipio o provincia")
+    web: str | None = Field(default=None, max_length=300, description="Web de la empresa si se conoce")
+    presupuesto_eur: float = Field(gt=0, le=20)
+    usar_google_places: bool = False
+    apify_actores: list[Literal["web_crawler", "google_search", "google_maps", "linkedin", "facebook"]] = Field(default_factory=list)
+    usuario_id: str | None = None
+
+
 class ConfirmarBusquedaOut(BaseModel):
     id: str
     estado: EstadoBusqueda

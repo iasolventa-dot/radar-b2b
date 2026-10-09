@@ -59,6 +59,33 @@ export function interpretarBusqueda(
   });
 }
 
+/** POST /busquedas/empresa — busca UNA empresa concreta al detalle (worker:
+ * radar/agente/empresa_concreta.py). Sin interpretar ni confirmar: se lanza ya. */
+export function buscarEmpresaConcreta(datos: {
+  nombre: string;
+  nif: string | null;
+  localidad: string | null;
+  web: string | null;
+  presupuestoEur: number;
+  usarGooglePlaces: boolean;
+  apifyActores: ApifyActor[];
+  usuarioId: string | null;
+}): Promise<ConfirmarBusquedaOut> {
+  return peticionJson<ConfirmarBusquedaOut>("/busquedas/empresa", {
+    method: "POST",
+    body: JSON.stringify({
+      nombre: datos.nombre,
+      nif: datos.nif,
+      localidad: datos.localidad,
+      web: datos.web,
+      presupuesto_eur: datos.presupuestoEur,
+      usar_google_places: datos.usarGooglePlaces,
+      apify_actores: datos.apifyActores,
+      usuario_id: datos.usuarioId,
+    }),
+  });
+}
+
 /** POST /busquedas/{id}/confirmar — lanza el planificador en segundo plano en el worker. */
 export function confirmarBusqueda(
   id: string,

@@ -162,6 +162,12 @@ function resumenRonda(ronda: RondaEstadistica): string {
     const pct = r.pct_cobertura != null ? `${r.pct_cobertura}%` : "sin estimación";
     return `${r.empresas_propias ?? 0} de ~${r.estimado_dirce ?? "?"} según el INE (${pct} de cobertura, ${r.anyo_dirce ?? "?"})`;
   }
+  if (ronda.herramienta === "localizar_en_bd") {
+    return `${r.candidatas_revisadas ?? 0} empresas parecidas en la base de datos: ${r.ya_en_bd ?? 0} podrían ser la buscada`;
+  }
+  if (ronda.herramienta === "identificar_empresa") {
+    return `${r.revisadas ?? 0} encontradas: ${r.relevante ?? 0} es la buscada, ${r.dudoso ?? 0} dudosas, ${r.descartado ?? 0} descartadas (otras empresas)`;
+  }
   if (ronda.herramienta === "completar_contacto") {
     const antes = (r.antes ?? {}) as Record<string, number>;
     const despues = (r.despues ?? {}) as Record<string, number>;
@@ -350,6 +356,8 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
   const activa = busqueda.estado === "en_curso";
   const rondas = busqueda.estadisticas?.rondas ?? [];
   const maxRondas = busqueda.estadisticas?.max_rondas ?? null;
+  // Búsqueda de una empresa concreta: sin planificador LLM, así que se cuentan pasos, no rondas.
+  const empresaObjetivo = busqueda.opciones?.empresa_objetivo ?? null;
   const presupuesto = busqueda.presupuesto_eur != null ? Number(busqueda.presupuesto_eur) : null;
   const pctGasto = presupuesto ? Math.min(100, (busqueda.coste_eur / presupuesto) * 100) : 0;
   const total = resumen.total;
@@ -405,8 +413,8 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
                 <Loader2 className="h-4 w-4 animate-spin" /> El agente está trabajando…
               </span>
               <span className="tabular-nums">
-                Ronda {busqueda.rondas}
-                {maxRondas ? ` de ${maxRondas}` : ""}
+                {empresaObjetivo ? `Paso ${rondas.length}` : `Ronda ${busqueda.rondas}`}
+                {!empresaObjetivo && maxRondas ? ` de ${maxRondas}` : ""}
               </span>
             </div>
             <div className="relative h-2.5 overflow-hidden rounded-full bg-slate-100">
@@ -449,7 +457,11 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
             </div>
           )}
         </TarjetaCifra>
-        <TarjetaCifra icono={Clock3} etiqueta="Rondas" valor={`${busqueda.rondas} / ${maxRondas ?? "—"}`} tono="ambar" />
+        {empresaObjetivo ? (
+          <TarjetaCifra icono={Clock3} etiqueta="Pasos" valor={rondas.length} tono="ambar" detalle="búsqueda de una empresa concreta" />
+        ) : (
+          <TarjetaCifra icono={Clock3} etiqueta="Rondas" valor={`${busqueda.rondas} / ${maxRondas ?? "—"}`} tono="ambar" />
+        )}
       </div>
 
       {busqueda.estadisticas?.pregunta && (
@@ -775,7 +787,8 @@ function BarraConfianza({ valor }: { valor: number | null }) {
 // Icono de cada tipo de ronda en la línea de tiempo.
 function iconoHerramienta(herramienta: string): LucideIcon {
   if (herramienta === "planificador_llm") return Brain;
-  if (herramienta === "consultar_bd") return Database;
+  if (herramienta === "consultar_bd" || herramienta === "localizar_en_bd") return Database;
+  if (herramienta === "identificar_empresa") return Fingerprint;
   if (herramienta === "estimar_cobertura") return PieChart;
   if (herramienta === "completar_contacto") return Phone;
   if (herramienta === "enriquecer_borme" || herramienta === "descubrir_borme") return Landmark;

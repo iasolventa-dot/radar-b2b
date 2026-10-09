@@ -6,10 +6,12 @@ import {
   AlertTriangle,
   ArrowRight,
   Briefcase,
+  Building2,
   Check,
   CheckCircle2,
   Coins,
   Euro,
+  Fingerprint,
   Globe,
   Lightbulb,
   Loader2,
@@ -22,14 +24,20 @@ import {
   Users,
   type LucideIcon,
 } from "lucide-react";
-import { confirmarBusqueda, estadoApify, estadoPlaces, interpretarBusqueda } from "@/lib/api";
+import { buscarEmpresaConcreta, confirmarBusqueda, estadoApify, estadoPlaces, interpretarBusqueda } from "@/lib/api";
 import { describirFiltros } from "@/lib/filtros";
 import type { ApifyActor, BusquedaInterpretadaOut } from "@/lib/tipos";
 
-type Estado = "formulario" | "interpretando" | "revision" | "confirmando";
+type Estado = "formulario" | "interpretando" | "revision" | "confirmando" | "lanzando";
+// "sector": la búsqueda de siempre (petición en lenguaje natural). "empresa":
+// UNA empresa concreta al detalle (worker: radar/agente/empresa_concreta.py).
+type Modo = "sector" | "empresa";
 
 const PRESUPUESTO_POR_DEFECTO_EUR = 20;
 const MAX_RONDAS_POR_DEFECTO = 10;
+// Una sola empresa: las fuentes se piden con tope pequeño (Maps 5 negocios,
+// 2-3 consultas web); 1 € sobra para todas las fases.
+const PRESUPUESTO_EMPRESA_EUR = 1;
 
 export function FormularioNuevaBusqueda({
   usuarioId,
@@ -42,7 +50,10 @@ export function FormularioNuevaBusqueda({
 }) {
   const router = useRouter();
 
+  const [modo, setModo] = useState<Modo>("sector");
   const [estado, setEstado] = useState<Estado>("formulario");
+  const [empresa, setEmpresa] = useState({ nombre: "", nif: "", localidad: "", web: "" });
+  const [presupuestoEmpresaEur, setPresupuestoEmpresaEur] = useState(PRESUPUESTO_EMPRESA_EUR);
   const [peticion, setPeticion] = useState(peticionInicial ?? "");
   const [contexto, setContexto] = useState(contextoInicial ?? "");
   const [presupuestoEur, setPresupuestoEur] = useState(PRESUPUESTO_POR_DEFECTO_EUR);
@@ -108,6 +119,30 @@ export function FormularioNuevaBusqueda({
     }
   }
 
+  async function buscarEmpresa(e: React.FormEvent) {
+    e.preventDefault();
+    if (empresa.nombre.trim().length < 2 || estado === "lanzando") return;
+    setEstado("lanzando");
+    setError(null);
+    try {
+      const limpio = (v: string) => v.trim() || null;
+      const r = await buscarEmpresaConcreta({
+        nombre: empresa.nombre.trim(),
+        nif: limpio(empresa.nif),
+        localidad: limpio(empresa.localidad),
+        web: limpio(empresa.web),
+        presupuestoEur: presupuestoEmpresaEur,
+        usarGooglePlaces: usarPlaces && placesConfigurado === true,
+        apifyActores: apifyConfigurado === true ? Array.from(apifyActores) : [],
+        usuarioId,
+      });
+      router.push(`/busquedas/${r.id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setEstado("formulario");
+    }
+  }
+
   function empezarDeNuevo() {
     setInterpretacion(null);
     setEstado("formulario");
@@ -118,9 +153,151 @@ export function FormularioNuevaBusqueda({
 
   return (
     <div className="space-y-6">
-      <Pasos actual={enRevision ? 2 : 1} />
-
       {!enRevision && (
+        <SelectorModo
+          modo={modo}
+          onCambio={(m) => {
+            setModo(m);
+            setError(null);
+          }}
+          deshabilitado={estado !== "formulario"}
+        />
+      )}
+
+      {modo === "sector" && <Pasos actual={enRevision ? 2 : 1} />}
+
+      {!enRevision && modo === "empresa" && (
+        <form onSubmit={buscarEmpresa} className="space-y-6">
+          <div className="rounded-[1.35rem] bg-gradient-to-br from-brand-400/60 via-violet-400/40 to-senal-400/50 p-px shadow-elevada">
+            <div className="rounded-[1.3rem] bg-white p-6 sm:p-7">
+              <label htmlFor="empresa-nombre" className="flex items-center gap-2 font-display text-lg font-bold text-slate-900">
+                <Building2 className="h-5 w-5 text-violet-500" />
+                ¿Qué empresa buscas?
+              </label>
+              <input
+                id="empresa-nombre"
+                required
+                minLength={2}
+                placeholder="nombre comercial o razón social, p. ej. Sevilla Fugas"
+                value={empresa.nombre}
+                onChange={(e) => setEmpresa({ ...empresa, nombre: e.target.value })}
+                className="mt-3 w-full rounded-xl border-0 bg-slate-50 px-4 py-3.5 text-lg text-slate-900 outline-none ring-1 ring-inset ring-slate-200 transition placeholder:text-slate-400 focus:bg-white focus:ring-2 focus:ring-brand-400"
+                disabled={estado === "lanzando"}
+              />
+              <p className="mt-2 text-sm text-slate-500">
+                Cuantos más datos des, más fácil es no confundirla con otra del mismo nombre. Con el CIF, la
+                identificación es segura.
+              </p>
+
+              <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
+                <div>
+                  <label htmlFor="empresa-nif" className="label-field">
+                    CIF / NIF <span className="font-normal text-slate-400">(opcional)</span>
+                  </label>
+                  <input
+                    id="empresa-nif"
+                    placeholder="B12345678"
+                    value={empresa.nif}
+                    onChange={(e) => setEmpresa({ ...empresa, nif: e.target.value })}
+                    className="input-field uppercase"
+                    disabled={estado === "lanzando"}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="empresa-localidad" className="label-field">
+                    Localidad <span className="font-normal text-slate-400">(opcional)</span>
+                  </label>
+                  <input
+                    id="empresa-localidad"
+                    placeholder="municipio o provincia"
+                    value={empresa.localidad}
+                    onChange={(e) => setEmpresa({ ...empresa, localidad: e.target.value })}
+                    className="input-field"
+                    disabled={estado === "lanzando"}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="empresa-web" className="label-field">
+                    Web <span className="font-normal text-slate-400">(opcional)</span>
+                  </label>
+                  <input
+                    id="empresa-web"
+                    placeholder="empresa.es"
+                    value={empresa.web}
+                    onChange={(e) => setEmpresa({ ...empresa, web: e.target.value })}
+                    className="input-field"
+                    disabled={estado === "lanzando"}
+                  />
+                </div>
+              </div>
+
+              <div className="mt-5 max-w-[240px]">
+                <label htmlFor="presupuesto-empresa" className="label-field">
+                  Presupuesto
+                </label>
+                <div className="relative">
+                  <input
+                    id="presupuesto-empresa"
+                    type="number"
+                    min={0.1}
+                    step={0.01}
+                    required
+                    value={presupuestoEmpresaEur}
+                    onChange={(e) => setPresupuestoEmpresaEur(Number(e.target.value))}
+                    className="input-field pr-10 font-display text-lg font-bold tabular-nums"
+                    disabled={estado === "lanzando"}
+                  />
+                  <Euro className="pointer-events-none absolute right-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+                </div>
+                <p className="mt-1.5 text-xs text-slate-500">Para una sola empresa suele bastar con menos de 1 €.</p>
+              </div>
+            </div>
+          </div>
+
+          <SelectorFuentes
+            prefijo="emp"
+            deshabilitado={estado === "lanzando"}
+            usarPlaces={usarPlaces}
+            setUsarPlaces={setUsarPlaces}
+            placesConfigurado={placesConfigurado}
+            apifyActores={apifyActores}
+            alternarApifyActor={alternarApifyActor}
+            apifyConfigurado={apifyConfigurado}
+          />
+
+          {error && (
+            <div className="aviso-error">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+              <p>{error}</p>
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-4">
+            <button
+              type="submit"
+              disabled={estado === "lanzando" || empresa.nombre.trim().length < 2}
+              className="btn-primary px-7 py-3.5 text-base"
+            >
+              {estado === "lanzando" ? (
+                <>
+                  <Loader2 className="h-5 w-5 animate-spin" /> Lanzando búsqueda…
+                  <span className="destello" />
+                </>
+              ) : (
+                <>
+                  <Fingerprint className="h-5 w-5" /> Buscar esta empresa
+                </>
+              )}
+            </button>
+            <p className="max-w-xl text-sm text-slate-500">
+              Mira primero en la base de datos y luego en las fuentes marcadas. Se queda solo con esa empresa y
+              completa CIF, contacto, teléfono, email y administradores.
+            </p>
+          </div>
+        </form>
+      )}
+
+      {!enRevision && modo === "sector" && (
         <form onSubmit={interpretar} className="space-y-6">
           <div className="rounded-[1.35rem] bg-gradient-to-br from-brand-400/60 via-violet-400/40 to-senal-400/50 p-px shadow-elevada">
             <div className="rounded-[1.3rem] bg-white p-6 sm:p-7">
@@ -372,6 +549,56 @@ export function FormularioNuevaBusqueda({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Tipo de búsqueda: varias empresas por sector y zona, o una empresa concreta.
+function SelectorModo({
+  modo,
+  onCambio,
+  deshabilitado,
+}: {
+  modo: Modo;
+  onCambio: (m: Modo) => void;
+  deshabilitado: boolean;
+}) {
+  const opciones: { valor: Modo; titulo: string; detalle: string; icono: LucideIcon }[] = [
+    { valor: "sector", titulo: "Varias empresas", detalle: "por sector, zona y tamaño", icono: Search },
+    { valor: "empresa", titulo: "Una empresa concreta", detalle: "al detalle, por nombre o CIF", icono: Building2 },
+  ];
+  return (
+    <div role="tablist" aria-label="Tipo de búsqueda" className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      {opciones.map(({ valor, titulo, detalle, icono: Icono }) => {
+        const activo = modo === valor;
+        return (
+          <button
+            key={valor}
+            type="button"
+            role="tab"
+            aria-selected={activo}
+            disabled={deshabilitado}
+            onClick={() => onCambio(valor)}
+            className={`flex items-center gap-3.5 rounded-2xl border p-4 text-left transition duration-200 disabled:cursor-not-allowed disabled:opacity-60 ${
+              activo
+                ? "border-brand-300 bg-gradient-to-br from-brand-50 via-white to-violet-50 shadow-elevada ring-1 ring-brand-200"
+                : "border-slate-200 bg-white shadow-sm hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-suave"
+            }`}
+          >
+            <span
+              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition ${
+                activo ? "bg-gradient-to-br from-brand-500 to-violet-600 text-white shadow-brillo" : "bg-slate-100 text-slate-500"
+              }`}
+            >
+              <Icono className="h-5 w-5" />
+            </span>
+            <span className="min-w-0">
+              <span className="block font-semibold text-slate-900">{titulo}</span>
+              <span className="block text-sm text-slate-500">{detalle}</span>
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
