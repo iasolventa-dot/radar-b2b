@@ -298,3 +298,14 @@ Pendiente conocido: una identificación previa a la verificación de localidad (
 - **Panel**: selector «Varias empresas / Una empresa concreta» en Nueva búsqueda. La segunda pide nombre (y opcionalmente CIF, localidad y web), sin interpretación ni confirmación: `POST /busquedas/empresa` crea la búsqueda y la lanza. El objetivo se guarda en `busquedas.opciones.empresa_objetivo`; el resultado se ve, exporta (CSV, Solventa DB) y revisa como cualquier búsqueda.
 - **Worker** (`radar/agente/empresa_concreta.py`, sin planificador LLM): `localizar_en_bd` (mismo CIF, misma web o `word_similarity` del nombre) → Maps (5 negocios) / Places / búsqueda web dirigidas, según lo marcado → `identificar_empresa` (código: el CIF manda; sin CIF, nombre con todas sus palabras distintivas + localidad + web; ≥0,8 «relevante», 0,6-0,8 «dudoso», resto «descartado») → completar contacto, redes, CIF, BORME y dudas → se vuelve a identificar si entraron fichas nuevas.
 - Probado desde la interfaz: «Sevilla Fugas» (Alcalá de Guadaíra), 0,02 €: encontrada 5/5 y 3 empresas ajenas de la búsqueda web descartadas. Ese día el tope mensual de Apify (2 $) estaba agotado, así que la búsqueda web fue por el buscador del modelo.
+
+### 13g. Exportación a Solventa DB, formato v2 (2026-10-14)
+
+- Petición del usuario: la exportación no debe llevar la estructura de Radar (los 5 datos «destacados», que solo sirven para filtrar búsquedas), sino la ficha de Solventa DB tal cual. Ahora cada `<cliente>` lleva los 37 campos de `lib/campos.ts::BLOQUES` en su orden, vacíos incluidos, con los formatos y vocabularios perfilados en los 1.079 clientes reales:
+  - `TELEFONO 1` = móvil y `TELEFONO 2` = fijo; `Web` como `www.`;
+  - razón social en mayúsculas;
+  - `Cargo` (`DIRECTOR GRAL`…) y `SECTORES` (`FONTANERIA`…) traducidos a los valores de Solventa;
+  - la provincia se deduce del CP si falta.
+- Lo que no tiene campo en Solventa va en `Observaciones`: nombre comercial, forma jurídica, constitución, cargos exactos del BORME, otros teléfonos, emails y direcciones.
+- Se quitan completitud, confianza, clasificación y evidencias.
+- Instrucciones para el proyecto Solventa DB, como modificación de la importación v1 ya implementada allí: `docs/solventa_db_importacion_v2.md`.

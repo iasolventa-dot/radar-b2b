@@ -1,5 +1,9 @@
 # Prompt para Claude Code en el proyecto Solventa DB — importar listas XML de Radar B2B
 
+> **SUSTITUIDO (2026-10-14)**: este prompt describe el formato v1, ya implementado en Solventa DB. El formato vigente
+> es el v2: ver `docs/solventa_db_importacion_v2.md` (cambios a aplicar sobre esa implementación) y
+> `docs/formato_exportacion_solventa_db.md`. Se conserva como historia.
+
 > Copia todo lo que hay debajo de la línea y pégalo en Claude Code dentro de `C:\Users\32759\solventa-db`.
 
 ---
