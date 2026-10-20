@@ -79,6 +79,10 @@ def test_campos_desde_llm_conserva_lo_que_el_llm_deja_en_null():
 def test_se_lee_la_portada_y_no_el_articulo():
     assert raiz_de("https://madeplax.com/reformas-hoteleras-sin-retrasos/") == "https://madeplax.com/"
     assert raiz_de("https://www.x.es") is None and raiz_de("https://www.x.es/") is None
+    # webs por idiomas: la portada del idioma, no el selector de país de la raíz
+    assert raiz_de("https://kronospan.com/es_ES/products/x") == "https://kronospan.com/es_ES/"
+    assert raiz_de("https://www.martinezotero.com/en/projects/retail") == "https://www.martinezotero.com/en/"
+    assert raiz_de("https://x.com/es/") is None
 
 
 def test_telefonos_extranjeros_fuera_si_hay_espanoles():

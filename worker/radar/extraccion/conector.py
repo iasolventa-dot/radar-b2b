@@ -119,11 +119,18 @@ async def leer_texto_web(cliente: httpx.AsyncClient, url_portada: str) -> str:
 
 
 def raiz_de(url: str) -> str | None:
-    """'https://x.es/blog/articulo?a=1' -> 'https://x.es/' (None si ya es la raíz)."""
+    """'https://x.es/blog/articulo?a=1' -> 'https://x.es/' (None si ya es la raíz).
+    Si la web va por idiomas ('/es/', '/es_ES/', '/es-es/'), la portada de ese
+    idioma: la raíz de una multinacional suele ser un selector de país."""
     partes = urlsplit(url if "://" in url else f"https://{url}")
     if not partes.netloc or partes.path in ("", "/"):
         return None
-    return f"{partes.scheme or 'https'}://{partes.netloc}/"
+    base = f"{partes.scheme or 'https'}://{partes.netloc}/"
+    primero = partes.path.strip("/").split("/")[0]
+    if re.fullmatch(r"[a-z]{2}(?:[_-][a-zA-Z]{2})?", primero):
+        portada_idioma = f"{base}{primero}/"
+        return None if partes.path.rstrip("/") == f"/{primero}" else portada_idioma
+    return base
 
 
 async def _texto_relevante(
