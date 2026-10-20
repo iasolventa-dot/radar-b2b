@@ -324,3 +324,8 @@ Pendiente conocido: una identificación previa a la verificación de localidad (
   - **Contacto principal:** se elige por relevancia del cargo (`prioridad_cargo()`): BORME y dirección primero, «Contacto» al final. Antes cualquier cargo de la web («Arquitecta», «Contacto») pasaba delante del gerente.
   - **Exportador a Solventa DB:** un «Directora» a secas ya no es `DIRECTOR GRAL`.
 - Pendiente: los teléfonos y personas ya guardados de búsquedas anteriores se leyeron con el método antiguo. Solo se corrigen los cargos de nombre roto y lo que se muestra; la limpieza completa es releer esas webs.
+- **Relectura de webs ya guardadas (2026-10-20)**, con `worker/scripts/releer_webs.py` y el criterio de `radar/extraccion/relectura.py`.
+  - Se releyeron 617 empresas con datos sacados de su web; 36 webs no se pudieron leer y no se tocaron.
+  - Se retiraron 49 teléfonos, 28 emails y 47 cargos (no se borran: canal `invalido` y `vigente = false`). Solo se retiró lo que respaldaba únicamente la web y la relectura ya no encuentra.
+  - Lo nuevo de la relectura se añadió como evidencia.
+  - En «reformas hoteleras» ya no queda ningún teléfono extranjero como principal.
