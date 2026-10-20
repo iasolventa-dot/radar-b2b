@@ -49,6 +49,8 @@ Reglas:
 - Si aparecen datos de varias empresas (agencia que hizo la web, empresa del grupo, clientes), identifica cuál es la titular y explica por qué.
 - Un NIF solo es de la titular si el texto lo asocia claramente a ella.
 - "personas": gerentes, directores, fundadores, responsables o personas de contacto DE LA TITULAR que aparezcan con su nombre en el texto, con su puesto tal como lo dice el texto (si solo figura como contacto, cargo "Contacto"). No incluyas clientes, testimonios, autores de reseñas, el responsable del tratamiento de datos si es una empresa, ni personal de la agencia web. No inventes nombres ni cargos.
+- En "personas", "nombre" es SOLO el nombre y apellidos (sin el puesto ni otras palabras) y "cargo" es el puesto que figura JUNTO a ese nombre. En fichas de equipo (nombre y puesto en líneas seguidas), no emparejes un nombre con el puesto de la persona de al lado; si no está claro qué puesto es de quién, no incluyas a esa persona.
+- "telefonos" y "emails": solo los de la titular. No incluyas los de clientes, proyectos, hoteles o empresas que la web mencione.
 
 Responde SOLO con JSON:
 {{"titular": {{"razon_social": null, "nombre_comercial": null, "nif": null, "domicilio": null, "codigo_postal": null, "municipio": null,

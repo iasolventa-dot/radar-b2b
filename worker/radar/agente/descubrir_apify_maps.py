@@ -28,7 +28,7 @@ from typing import Any
 import httpx
 import psycopg
 
-from radar.agente.consultas import zona_texto
+from radar.agente.consultas import zona_o_espana
 from radar.agente.interpretacion import FiltrosBusqueda
 from radar.extraccion import enriquecer_varias
 from radar.fuentes.apify import ejecutar_actor
@@ -151,9 +151,7 @@ async def descubrir_apify_maps(
     if not obtener_token_apify(conn):
         return {"soportado": False, "motivo": "Apify no está configurado (falta el token en Ajustes)", "coste_eur": 0.0}
 
-    zona = zona_texto(filtros)
-    if not zona:
-        return {"error": "la búsqueda no tiene ninguna zona (municipio/provincia/CCAA)", "coste_eur": 0.0}
+    zona = zona_o_espana(filtros)
     palabras = [p.strip() for p in palabras_clave if p and p.strip()][:5]
     if not palabras:
         return {"error": "sin palabras clave para buscar en Maps", "coste_eur": 0.0}

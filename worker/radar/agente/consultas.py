@@ -36,6 +36,14 @@ def zona_texto(filtros: FiltrosBusqueda) -> str | None:
     return f"{zonas[0]}, España" if zonas else None
 
 
+def zona_o_espana(filtros: FiltrosBusqueda) -> str:
+    """Como `zona_texto`, pero una búsqueda sin zona («en toda España») busca en
+    España. Para las fuentes que el usuario ha MARCADO: antes se saltaban sin
+    avisar en las búsquedas nacionales (2026-10-20: Maps, Places y Google
+    marcados y «no se usó»)."""
+    return zona_texto(filtros) or "España"
+
+
 def generar_consultas(filtros: FiltrosBusqueda, *, max_consultas: int = 6, max_zonas: int = 3, max_palabras: int = 3) -> list[str]:
     """Hasta `max_consultas` consultas distintas, intercalando patrones y
     palabras clave para maximizar la variedad de resultados con pocas

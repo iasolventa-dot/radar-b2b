@@ -37,10 +37,12 @@ def test_sin_token_no_soportado(monkeypatch, modulo):
     assert r["soportado"] is False and r["coste_eur"] == 0.0
 
 
-def test_maps_sin_zona_en_filtros_da_error(monkeypatch):
+def test_maps_sin_zona_busca_en_espana(monkeypatch):
+    # 2026-10-20: en una búsqueda «en toda España» Maps marcado no se usaba.
+    # Ahora busca en España (aquí para antes, por falta de presupuesto, no de zona).
     _con_token_sin_presupuesto(monkeypatch, "descubrir_apify_maps")
     r = asyncio.run(descubrir_apify_maps(None, None, FiltrosBusqueda(), palabras_clave=["fontanería"], max_coste_eur=1.0))
-    assert "zona" in r["error"]
+    assert "error" not in r and r["motivo_parada"] == "presupuesto_insuficiente_para_apify"
 
 
 def test_maps_presupuesto_mensual_agotado(monkeypatch):

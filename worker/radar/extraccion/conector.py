@@ -16,6 +16,8 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import re
+import unicodedata
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -116,13 +118,32 @@ async def leer_texto_web(cliente: httpx.AsyncClient, url_portada: str) -> str:
     return texto
 
 
+def raiz_de(url: str) -> str | None:
+    """'https://x.es/blog/articulo?a=1' -> 'https://x.es/' (None si ya es la raíz)."""
+    partes = urlsplit(url if "://" in url else f"https://{url}")
+    if not partes.netloc or partes.path in ("", "/"):
+        return None
+    return f"{partes.scheme or 'https'}://{partes.netloc}/"
+
+
 async def _texto_relevante(
     cliente: httpx.AsyncClient, url_portada: str
 ) -> tuple[str, list[str], dict[str, str | list[str] | None]]:
     """Descarga la portada y hasta `MAX_PAGINAS_LEGALES` páginas legales
     enlazadas desde ella; devuelve el texto visible concatenado, las URLs que
-    sí se pudieron leer (evidencia, doc 04 §3) y los metadatos de la portada."""
-    portada = await descargar(url_portada, cliente)
+    sí se pudieron leer (evidencia, doc 04 §3) y los metadatos de la portada.
+
+    Si la URL es una página interior (lo normal cuando viene de Google: un
+    artículo del blog, un proyecto), se lee la PORTADA de esa web en su lugar
+    (2026-10-20: un artículo de madeplax.com dio teléfonos de hoteles de la
+    República Dominicana y México, y uno de zorrozua.es el de otra empresa). La
+    página interior solo se usa si la portada no se puede leer."""
+    raiz = raiz_de(url_portada)
+    portada = await descargar(raiz, cliente) if raiz else None
+    if portada is not None and raiz:
+        url_portada = raiz
+    else:
+        portada = await descargar(url_portada, cliente)
     if portada is None:
         return "", [], {}
     textos = [_texto_de_pagina(portada.html)]
@@ -135,6 +156,52 @@ async def _texto_relevante(
     return "\n\n".join(textos), urls, metadatos_portada(portada.html)
 
 
+def telefonos_de_la_empresa(telefonos: list[str]) -> list[str]:
+    """Si hay algún teléfono español, los extranjeros se descartan: en la web de
+    una empresa española suelen ser de clientes, proyectos u oficinas fuera."""
+    espanoles = [t for t in telefonos if t.startswith("+34")]
+    return espanoles or list(telefonos)
+
+
+def _plano(texto: str) -> str:
+    return re.sub(r"\s+", " ", unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode().lower()).strip()
+
+
+# Palabras de cargo o de sección que NO pueden formar parte de un nombre: si
+# aparecen, el modelo ha leído mal una ficha de equipo ("Arquitecto / Pol Puig /
+# Arquitecto" en tres líneas, visto 2026-10-20) y el cargo emparejado tampoco es fiable.
+_PALABRAS_NO_NOMBRE = {
+    "arquitecto", "arquitecta", "director", "directora", "socio", "socia", "fundador", "fundadora", "gerente", "ceo",
+    "administracion", "obra", "procurement", "manager", "ingeniero", "ingeniera", "tecnico", "tecnica", "co",
+    "diseno", "departamento", "dpto", "responsable", "contacto", "equipo", "proyectos", "comercial", "presidente",
+}
+
+
+def nombre_de_persona(nombre: str) -> bool:
+    """Solo un nombre: 2-5 palabras en una línea, sin cifras ni palabras de cargo."""
+    if not nombre or "\n" in nombre or re.search(r"[\d@|/]", nombre):
+        return False
+    palabras = _plano(nombre).replace(".", " ").split()
+    return 2 <= len(palabras) <= 5 and not any(p in _PALABRAS_NO_NOMBRE for p in palabras)
+
+
+def persona_valida(nombre: str, cargo: str, texto: str) -> bool:
+    """El LLM juzga, el código verifica: el nombre es solo un nombre (2-5
+    palabras, sin saltos de línea ni palabras de cargo) y aparece tal cual en
+    el texto leído; el cargo, si no es «Contacto», aparece cerca del nombre."""
+    if "\n" in cargo or not nombre_de_persona(nombre):
+        return False
+    plano = _plano(texto)
+    if _plano(nombre) not in plano:
+        return False
+    clave_cargo = next((p for p in re.findall(r"[a-z]{4,}", _plano(cargo)) if p not in {"contacto", "persona"}), None)
+    if clave_cargo is None:
+        return True
+    # El cargo debe estar junto a ESE nombre (no a 1.000 caracteres): si no,
+    # el modelo lo ha emparejado con otra persona de la página.
+    return any(clave_cargo in plano[max(0, m.start() - 120) : m.end() + 120] for m in re.finditer(re.escape(_plano(nombre)), plano))
+
+
 def campos_desde_reglas(r: reglas.DatosLegalesExtraidos, dominio: str | None) -> CamposExtraidos:
     razon = r.razones_sociales[0] if r.razones_sociales else None
     cp = r.codigos_postales[0] if r.codigos_postales else None
@@ -143,7 +210,7 @@ def campos_desde_reglas(r: reglas.DatosLegalesExtraidos, dominio: str | None) ->
         razon_social=razon,
         nif=r.nif_titular,
         codigo_postal=cp,
-        telefonos=list(r.telefonos),
+        telefonos=telefonos_de_la_empresa(list(r.telefonos)),
         # Doc 04 §2 (tabla resumen): "Email... Evitar como única fuente:
         # adivinar patrones (info@...)" — no adivinamos nada, pero si hay
         # varios emails preferimos el del propio dominio como principal.
@@ -153,13 +220,13 @@ def campos_desde_reglas(r: reglas.DatosLegalesExtraidos, dominio: str | None) ->
             "hoja_registral": r.registro_mercantil.hoja if r.registro_mercantil else None,
             "registro_mercantil": dataclasses.asdict(r.registro_mercantil) if r.registro_mercantil else None,
             "avisos": r.avisos,
-            "personas_contacto": list(r.personas),
+            "personas_contacto": [p for p in r.personas if nombre_de_persona(p["nombre"])],
             "fuente_dato": "reglas",
         },
     )
 
 
-def campos_desde_llm(base: CamposExtraidos, llm_resp: RespuestaExtraccionLLM) -> CamposExtraidos:
+def campos_desde_llm(base: CamposExtraidos, llm_resp: RespuestaExtraccionLLM, texto: str | None = None) -> CamposExtraidos:
     """Fusiona la respuesta del LLM sobre `base` (lo que ya habían
     encontrado las reglas): si el LLM da un valor para un campo, GANA —
     precisamente se le llamó porque las reglas tenían dudas en algún campo
@@ -174,6 +241,8 @@ def campos_desde_llm(base: CamposExtraidos, llm_resp: RespuestaExtraccionLLM) ->
     vistos = {p["nombre"].lower() for p in personas}
     for p in llm_resp.personas:
         nombre = (p.nombre or "").strip()
+        if texto is not None and not persona_valida(nombre, p.cargo or "", texto):
+            continue
         if len(nombre.split()) >= 2 and nombre.lower() not in vistos and len(personas) < MAX_PERSONAS_POR_WEB:
             vistos.add(nombre.lower())
             personas.append({"nombre": nombre, "cargo": (p.cargo or "Contacto").strip()[:MAX_LONGITUD_CARGO]})
@@ -184,7 +253,7 @@ def campos_desde_llm(base: CamposExtraidos, llm_resp: RespuestaExtraccionLLM) ->
         domicilio=t.domicilio or base.domicilio,
         codigo_postal=t.codigo_postal or base.codigo_postal,
         municipio=t.municipio or base.municipio,
-        telefonos=t.telefonos or base.telefonos,
+        telefonos=telefonos_de_la_empresa(t.telefonos) if t.telefonos else base.telefonos,
         emails=t.emails or base.emails,
         web=base.web,
         extra={
@@ -209,6 +278,8 @@ async def enriquecer_desde_web(
     texto, urls, meta = await _texto_relevante(cliente, url_portada)
     if not texto:
         return None
+    # La evidencia es la página que se leyó de verdad (la portada, no el artículo).
+    url_portada = urls[0]
     # En un hilo: puede llamar al LLM (síncrono) y no debe bloquear las otras
     # webs que se están leyendo en paralelo (`enriquecer_varias`).
     registro = await asyncio.to_thread(registro_desde_texto, texto, urls, url_portada, dominio)
@@ -280,7 +351,7 @@ def registro_desde_texto(texto: str, urls: list[str], url_portada: str, dominio:
     if resultado_reglas.necesita_llm:
         resultado = extraer_con_llm(texto, dominio, resultado_reglas)
         if resultado.respuesta:
-            campos = campos_desde_llm(campos, resultado.respuesta)
+            campos = campos_desde_llm(campos, resultado.respuesta, texto)
             resultado_llm_dict = resultado.respuesta.model_dump()
 
     if es_organismo_publico(campos.razon_social) or es_organismo_publico(campos.nombre_comercial):

@@ -63,6 +63,10 @@ def test_vocabulario_de_cargos_y_sectores() -> None:
     assert cargo_solventa("Dpto. Facturación") == "Admon."
     assert cargo_solventa("Arquitecto Técnico") == "TECNICO"
     assert cargo_solventa("vocal") == "Vocal"
+    # un «Directora» a secas (de arte, de proyectos) no es la dirección general
+    assert cargo_solventa("Directora") == "Directora"
+    assert cargo_solventa("Dirección General") == "DIRECTOR GRAL"
+    assert cargo_solventa("Contacto") == "" and cargo_solventa("Persona de contacto") == ""
     assert sector_solventa("Fontanería") == "FONTANERIA"
     assert sector_solventa("construcción") == "CONSTRUCCIÓN"
     assert sector_solventa("reformas integrales") == "CONSTRUCCIÓN"

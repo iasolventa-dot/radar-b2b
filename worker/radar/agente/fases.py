@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from radar.agente.consultas import zona_texto
+from radar.agente.consultas import zona_o_espana
 from radar.agente.herramientas import ContextoHerramientas, ejecutar_herramienta
 from radar.agente.interpretacion import FiltrosBusqueda
 
@@ -65,9 +65,7 @@ SITIOS_EXCLUIDOS_GOOGLE = (
 
 
 def consultas_google(filtros: FiltrosBusqueda, maximo: int = 3) -> list[str]:
-    zona = (zona_texto(filtros) or "").removesuffix(", España")
-    if not zona:
-        return []
+    zona = zona_o_espana(filtros).removesuffix(", España")
     exclusiones = " ".join(f"-site:{s}" for s in SITIOS_EXCLUIDOS_GOOGLE)
     return [f"{p} {zona} {exclusiones}" for p in palabras_para_mapas(filtros, maximo)]
 
@@ -81,20 +79,17 @@ def planes_fuentes_marcadas(
     filtros: FiltrosBusqueda, *, usar_places: bool, apify_actores: frozenset[str] | set[str]
 ) -> list[tuple[str, dict[str, Any]]]:
     """Qué se lanza en la fase inicial y con qué argumentos (sin tope de coste,
-    que se añade al ejecutar según lo que quede). Pura, para poder testearla."""
-    if not zona_texto(filtros):
-        return []
+    que se añade al ejecutar según lo que quede). Pura, para poder testearla.
+    Sin zona en la petición, se busca en toda España (`zona_o_espana`)."""
     palabras = palabras_para_mapas(filtros)
     planes: list[tuple[str, dict[str, Any]]] = []
     if "google_maps" in apify_actores:
         planes.append(("descubrir_apify_maps", {"palabras_clave": palabras}))
     if usar_places:
-        zona = zona_texto(filtros) or ""
-        planes.append(("descubrir_places", {"consultas": [f"{p} en {zona.removesuffix(', España')}" for p in palabras]}))
+        zona = zona_o_espana(filtros).removesuffix(", España")
+        planes.append(("descubrir_places", {"consultas": [f"{p} en {zona}" for p in palabras]}))
     if "google_search" in apify_actores:
-        consultas = consultas_google(filtros)
-        if consultas:
-            planes.append(("descubrir_google_search", {"consultas": consultas}))
+        planes.append(("descubrir_google_search", {"consultas": consultas_google(filtros)}))
     return planes
 
 

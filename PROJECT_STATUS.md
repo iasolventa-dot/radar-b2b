@@ -309,3 +309,18 @@ Pendiente conocido: una identificación previa a la verificación de localidad (
 - Lo que no tiene campo en Solventa va en `Observaciones`: nombre comercial, forma jurídica, constitución, cargos exactos del BORME, otros teléfonos, emails y direcciones.
 - Se quitan completitud, confianza, clasificación y evidencias.
 - Instrucciones para el proyecto Solventa DB, como modificación de la importación v1 ya implementada allí: `docs/solventa_db_importacion_v2.md`.
+
+### 13h. Fuentes marcadas sin usar, teléfonos y cargos erróneos (2026-10-20, «reformas hoteleras y diseño de restaurantes», toda España)
+
+- **Fuentes marcadas «no se usó»**: la fase que lanza Maps, Places y Google exigía una zona, así que en una búsqueda sin zona se saltaba sin avisar. Ahora se busca en España (`consultas.zona_o_espana`). El panel cuenta la búsqueda web del agente por Google (Apify) como uso de «Búsqueda en Google».
+- **Teléfonos que no eran de la empresa**: se leía la página que daba Google (un artículo, un proyecto) en vez de la web de la empresa. Se tomaban sus teléfonos, que incluían hoteles de la República Dominicana, Jamaica y México, y el número de otra empresa. Cambios:
+  - Ahora se lee la portada, más el aviso legal, el contacto y el equipo.
+  - Si hay teléfonos españoles, se descartan los extranjeros.
+  - En los resultados y en la exportación, nunca un teléfono que aparece en 3 o más webs distintas (el 901 100 099 estaba en 5), y primero los españoles y los no compartidos (`webs_con_telefono()`, migración 202610201000).
+- **Cargos erróneos**:
+  - **Extractor por reglas:** su patrón de nombre aceptaba saltos de línea y en las fichas de equipo juntaba «Arquitecto / Pol Puig / Arquitecto» con el puesto de la persona de al lado. Ahora nombre y cargo deben estar en la misma línea.
+  - **IA:** el prompt pide no emparejar dudosos, y el código comprueba que el nombre aparece tal cual en la web y el cargo junto a él (`conector.persona_valida`).
+  - **Datos ya guardados:** los 22 cargos mal leídos quedan como no vigentes.
+  - **Contacto principal:** se elige por relevancia del cargo (`prioridad_cargo()`): BORME y dirección primero, «Contacto» al final. Antes cualquier cargo de la web («Arquitecta», «Contacto») pasaba delante del gerente.
+  - **Exportador a Solventa DB:** un «Directora» a secas ya no es `DIRECTOR GRAL`.
+- Pendiente: los teléfonos y personas ya guardados de búsquedas anteriores se leyeron con el método antiguo. Solo se corrigen los cargos de nombre roto y lo que se muestra; la limpieza completa es releer esas webs.

@@ -21,8 +21,17 @@ export interface OpcionesBusqueda {
 
 type Estado = { tono: "ok" | "error" | "vacio" | "pendiente" | "no_usada"; texto: string };
 
+// La búsqueda web del agente (buscar_web) también va por Google vía Apify cuando
+// hay token: cuenta como uso de «Búsqueda en Google» (2026-10-20: salía «no se
+// usó» con cinco rondas de Google hechas).
+function esDeLaFuente(r: RondaEstadistica, herramienta: string): boolean {
+  if (r.herramienta === herramienta) return true;
+  const via = String((r.resultado as Record<string, unknown>)?.via ?? "");
+  return herramienta === "descubrir_google_search" && r.herramienta === "buscar_web" && via.includes("Apify");
+}
+
 function estadoFuente(rondas: RondaEstadistica[], herramienta: string, activa: boolean): Estado {
-  const suyas = rondas.filter((r) => r.herramienta === herramienta);
+  const suyas = rondas.filter((r) => esDeLaFuente(r, herramienta));
   if (suyas.length === 0) {
     return activa ? { tono: "pendiente", texto: "pendiente" } : { tono: "no_usada", texto: "no se usó" };
   }

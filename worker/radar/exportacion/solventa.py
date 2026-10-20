@@ -110,7 +110,7 @@ _REGLAS_CARGO = (
     (r"recursos humanos|\brrhh\b|people", CARGO_RRHH),
     (
         (r"director(a)? (general|gerente|ejecutiv)|\bceo\b|managing director|consejero delegado|presidente|"
-         r"administrador|\bdirector(a)?$|representante legal"),
+         r"administrador|direccion general|representante legal"),
         CARGO_DIRECCION,
     ),
     (r"propietari|titular", CARGO_PROPIETARIO),
@@ -119,9 +119,11 @@ _REGLAS_CARGO = (
     (r"administraci|administrativ|facturaci|contab|financ|tesorer|secretari", CARGO_ADMON),
     (r"tecnic|ingenier|arquitect|jefe de obra|jefa de obra|produccion|delineante|encargado", CARGO_TECNICO),
 )
-# Cargos que no describen a una persona de la empresa ("Contacto", el
-# responsable del tratamiento de datos de un aviso legal...): no son contacto.
-_CARGO_SIN_VALOR = re.compile(r"^contacto$|responsable del tratamiento|nuestros|colaborador", re.IGNORECASE)
+# Cargos que no describen a una persona de la empresa (el responsable del
+# tratamiento de datos de un aviso legal...): no son contacto.
+_CARGO_SIN_VALOR = re.compile(r"responsable del tratamiento|nuestros|colaborador", re.IGNORECASE)
+# «Contacto» no es un cargo: la persona se exporta, pero sin cargo y la última.
+_SOLO_CONTACTO = re.compile(r"^(persona de )?contacto$", re.IGNORECASE)
 
 # SECTORES (valores existentes en clientes.json). Palabras del sector de la
 # búsqueda -> sector de Solventa; el primero que encaja gana.
@@ -257,9 +259,13 @@ def web_solventa(dominio: str | None) -> str:
 
 def cargo_solventa(cargo: str) -> str:
     """Cargo de Radar -> vocabulario de Solventa DB. Si no encaja en ninguno, se
-    deja el original con mayúscula inicial (Solventa admite valores nuevos)."""
+    deja el original con mayúscula inicial (Solventa admite valores nuevos).
+    Un «Director/a» a secas (de arte, de proyectos... en una ficha de equipo) no
+    es la dirección general: se deja tal cual. «Contacto» no es cargo: vacío."""
     if cargo in PRIORIDAD_REGISTRAL:
         return CARGO_DIRECCION
+    if _SOLO_CONTACTO.match(_texto(cargo)):
+        return ""
     texto = _sin_tildes(_texto(cargo))
     for patron, valor in _REGLAS_CARGO:
         if re.search(patron, texto):
@@ -299,7 +305,7 @@ def _personas_validas(e: EmpresaExportable) -> list[PersonaCargo]:
     vistas: dict[str, PersonaCargo] = {}
     for p in e.personas:
         nombre = _texto(p.nombre)
-        if not nombre or _CARGO_SIN_VALOR.search(_texto(p.cargo)):
+        if not nombre or "\n" in p.nombre or _CARGO_SIN_VALOR.search(_texto(p.cargo)):
             continue
         clave = _sin_tildes(nombre)
         actual = vistas.get(clave)
@@ -310,7 +316,8 @@ def _personas_validas(e: EmpresaExportable) -> list[PersonaCargo]:
 
 
 def _orden_persona(p: PersonaCargo) -> tuple[int, int]:
-    return (PRIORIDAD_CARGO_SOLVENTA.get(cargo_solventa(p.cargo), 9), PRIORIDAD_REGISTRAL.get(p.cargo, 0))
+    cargo = cargo_solventa(p.cargo)
+    return (PRIORIDAD_CARGO_SOLVENTA.get(cargo, 8 if cargo else 9), PRIORIDAD_REGISTRAL.get(p.cargo, 0))
 
 
 def contacto_preferente(e: EmpresaExportable) -> tuple[str, str, list[PersonaCargo]]:
@@ -447,10 +454,15 @@ select s.empresa_id::text, s.direccion_original, s.codigo_postal, s.municipio_no
 from sedes s where s.empresa_id = any(%s)
 order by s.empresa_id, s.activa desc nulls last, (s.tipo = 'domicilio_social') desc, s.confianza desc nulls last
 """
+# Mismo criterio que resultados_busqueda() (migración 202610201000): fuera los
+# teléfonos que aparecen en 3 o más webs distintas, y primero los españoles y
+# los que no comparte ninguna otra web.
 _SQL_CANALES = """
 select c.empresa_id::text, c.tipo, c.valor, coalesce(c.es_generico, false)
-from canales_contacto c where c.empresa_id = any(%s) and c.estado is distinct from 'invalido'
-order by c.empresa_id, c.confianza desc nulls last
+from canales_contacto c
+cross join lateral (select case when c.tipo = 'telefono' then webs_con_telefono(c.valor_norm) else 1 end as webs) w
+where c.empresa_id = any(%s) and c.estado is distinct from 'invalido' and w.webs < 3
+order by c.empresa_id, (c.tipo <> 'telefono' or c.valor like '+34%%') desc, (w.webs = 1) desc, c.confianza desc nulls last
 """
 _SQL_CARGOS = """
 select c.empresa_id::text, p.nombre, c.cargo, f.nombre

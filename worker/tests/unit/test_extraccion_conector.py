@@ -2,7 +2,13 @@
 resultados de reglas/LLM a `CamposExtraidos`) — `enriquecer_desde_web` en sí
 necesita red y se prueba de forma manual/integración."""
 
-from radar.extraccion.conector import campos_desde_llm, campos_desde_reglas
+from radar.extraccion.conector import (
+    campos_desde_llm,
+    campos_desde_reglas,
+    persona_valida,
+    raiz_de,
+    telefonos_de_la_empresa,
+)
 from radar.extraccion.llm import RespuestaExtraccionLLM, TitularExtraidoLLM
 from radar.extraccion.reglas import (
     DatosLegalesExtraidos,
@@ -68,3 +74,55 @@ def test_campos_desde_llm_conserva_lo_que_el_llm_deja_en_null():
     assert campos.razon_social == "Construcciones Pérez SL"
     assert campos.codigo_postal == "41001"
     assert campos.nif == "B41123456"
+
+
+def test_se_lee_la_portada_y_no_el_articulo():
+    assert raiz_de("https://madeplax.com/reformas-hoteleras-sin-retrasos/") == "https://madeplax.com/"
+    assert raiz_de("https://www.x.es") is None and raiz_de("https://www.x.es/") is None
+
+
+def test_telefonos_extranjeros_fuera_si_hay_espanoles():
+    assert telefonos_de_la_empresa(["+34961665957", "+18095520435", "+529848040524"]) == ["+34961665957"]
+    assert telefonos_de_la_empresa(["+376650378"]) == ["+376650378"]
+
+
+TEXTO_EQUIPO = """Nuestro equipo
+Arquitecto
+Pol Puig
+Arquitecto
+Sergi Balaguer
+Socio
+Paco Lago, CEO y Dirección Creativa. Ana Albarracín - Gestión de proyectos.
+Contacto: David López"""
+
+
+def test_personas_del_llm_se_verifican_contra_el_texto():
+    assert persona_valida("Paco Lago", "CEO y Dirección Creativa", TEXTO_EQUIPO)
+    assert persona_valida("David López", "Contacto", TEXTO_EQUIPO)
+    # nombre mal leído de una ficha de equipo (con otros cargos dentro)
+    assert not persona_valida("Arquitecto\n Pol Puig\n Arquitecto", "Director de proyectos", TEXTO_EQUIPO)
+    assert not persona_valida("Arquitecto Pol Puig", "Socio", TEXTO_EQUIPO)
+    # nombre que no está en el texto (inventado) o con un cargo que no está junto a él
+    assert not persona_valida("Juan Inventado", "Gerente", TEXTO_EQUIPO)
+    assert not persona_valida("Ana Albarracín", "Directora general", TEXTO_EQUIPO)
+
+
+def test_campos_desde_llm_descarta_personas_no_verificadas():
+    from radar.extraccion.llm import PersonaLLM
+
+    llm = RespuestaExtraccionLLM(
+        titular=TitularExtraidoLLM(telefonos=["+34933034160", "+18763648888"]),
+        personas=[PersonaLLM(nombre="Paco Lago", cargo="CEO"), PersonaLLM(nombre="Arquitecto\n Pol Puig", cargo="Socio")],
+        confianza=0.8, notas="",
+    )
+    campos = campos_desde_llm(CamposExtraidos(), llm, TEXTO_EQUIPO)
+    assert [p["nombre"] for p in campos.extra["personas_contacto"]] == ["Paco Lago"]
+    assert campos.telefonos == ["+34933034160"]
+
+
+def test_reglas_no_juntan_nombres_de_lineas_distintas():
+    from radar.extraccion.reglas import extraer_personas
+
+    ficha_equipo = "Arquitecto\nSergi Balaguer\nSocio\nArquitecto\nPol Puig\nArquitecto"
+    assert extraer_personas(ficha_equipo) == []
+    assert extraer_personas("Gerente: Luis Ejemplo Pérez") == [{"nombre": "Luis Ejemplo Pérez", "cargo": "Gerente"}]

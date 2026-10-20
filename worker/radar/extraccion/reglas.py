@@ -274,11 +274,14 @@ _CARGO = (
     r"|responsable\s+(?:comercial|t[eé]cnic[oa]|de\s+(?:obra|proyectos|ventas|administraci[oó]n))|jef[ea]\s+de\s+obra"
     r"|encargad[oa]|president[ea]|t[eé]cnico\s+comercial|persona\s+de\s+contacto)"
 )
-_NOMBRE = r"([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+(?:de\s+(?:la\s+|los\s+)?|del\s+)?[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+){1,3})"
+# Nombre y cargo en la MISMA línea ([ \t], no \s): con \s, una ficha de equipo
+# («Arquitecto», «Sergi Balaguer», «Socio» en líneas seguidas) daba nombres con
+# otros cargos dentro, emparejados con el puesto de al lado (2026-10-20).
+_NOMBRE = r"([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:[ \t]+(?:de[ \t]+(?:la[ \t]+|los[ \t]+)?|del[ \t]+)?[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+){1,3})"
 _RX_PERSONAS = [
-    re.compile(rf"\b({_CARGO})\s*[:\-–—]\s*{_NOMBRE}"),
-    re.compile(rf"{_NOMBRE}\s*[,\-–—|]\s*({_CARGO})\b"),
-    re.compile(rf"{_NOMBRE}\s*\(\s*({_CARGO})\s*\)"),
+    re.compile(rf"\b({_CARGO})[ \t]*[:\-–—][ \t]*{_NOMBRE}"),
+    re.compile(rf"{_NOMBRE}[ \t]*[,\-–—|][ \t]*({_CARGO})\b"),
+    re.compile(rf"{_NOMBRE}[ \t]*\([ \t]*({_CARGO})[ \t]*\)"),
 ]
 RX_MENCION_CARGO = re.compile(
     r"\b(?:gerente|director(?:a)?\s+(?:general|comercial|t[eé]cnic[oa])|fundador(?:a)?|ceo|propietari[oa]|jef[ea]\s+de\s+obra"
