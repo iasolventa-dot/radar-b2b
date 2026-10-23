@@ -477,17 +477,10 @@ def construir_where_empresas(
         )
         parametros.append(list(filtros.sector.exclusiones))
     if filtros.tamano.empleados_min is not None:
-        # empresas.empleados_min/max están siempre a null hoy: ninguna
-        # fuente conectada da el número de empleados (BORME no lo publica
-        # en actos de constitución; la extracción web -- radar.extraccion.llm
-        # -- solo busca datos de aviso legal, no señales de tamaño de
-        # plantilla). El "or e.empleados_max is null" hace que este filtro
-        # no descarte NADA en la práctica -- se deja tal cual (no se quita,
-        # a diferencia de radio/poligono, porque sí es una fuente plausible
-        # a futuro) pero hay que ser consciente de que hoy no filtra nada
-        # real. El prompt (PROMPT_INTERPRETACION) ya avisa de esto y
-        # lib/filtros.ts lo señala en la revisión, para no depender solo
-        # de que el LLM se acuerde de decirlo en "supuestos".
+        # empresas.empleados_min/max: desde 2026-10-23 los rellenan LinkedIn
+        # (tramo) y la web propia (radar.normalizacion.plantilla). El "or ...
+        # is null" mantiene las de plantilla desconocida, igual que la fase
+        # final `radar.agente.tamano.filtrar_por_plantilla`.
         condiciones.append("(e.empleados_max is null or e.empleados_max >= %s)")
         parametros.append(filtros.tamano.empleados_min)
     if filtros.tamano.empleados_max is not None:

@@ -71,7 +71,7 @@ Los formatos y vocabularios son los que ya usan los 1.079 clientes de `data/clie
 | `CNAE` | Código de 4 cifras si se conoce. Hoy casi nunca: Radar no lo guarda. |
 | `ACTIVIDAD` | Objeto social en corto, como mucho 150 caracteres. Si es más largo, el texto completo va a `Observaciones`. |
 | `SECTORES` | Sector de la búsqueda traducido a los valores de Solventa: `FONTANERIA`, `CONSTRUCCIÓN`, `ELECTRICIDAD , ENERGIA`, `PINTURA Y DECORACION`, `CARPINTERIA`, `CARPINTERIA METALICA`, `HOSTELERIA`, `TRANSPORTES Y LOGISTICA`, `LIMPIEZA`, `AUTOMOCIÓN`, `METAL`… Si no encaja con ninguno, el sector en mayúsculas. |
-| `TRABAJADORES` | Número, si alguna fuente lo da (casi nunca). |
+| `TRABAJADORES` | Plantilla: tramo de LinkedIn o lo que diga su web («11-50», «más de 40», «120»). |
 | `FACTURACION` | Vacío: Radar no tiene facturación. |
 | `Asesoría`, `Contacto Asesoría`, `Teléfono Asesoría`, `Email Asesoría` | Vacíos. |
 | `Estado` | `Lead`; `Extinguida` si la sociedad está extinguida o disuelta; `Inactiva` si está inactiva, en liquidación o en concurso. |

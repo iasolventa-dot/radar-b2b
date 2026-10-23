@@ -593,6 +593,28 @@ def actualizar_empresa(
             )
 
 
+def categoria_tamano(minimo: int | None, maximo: int | None) -> str:
+    """Categoría UE (enum `rango_tamano`) si el rango cae entero en una:
+    micro <10, pequeña 10-49, mediana 50-249, grande >=250."""
+    limites = (("micro", 1, 9), ("pequena", 10, 49), ("mediana", 50, 249), ("grande", 250, None))
+    bajo = minimo if minimo is not None else maximo
+    alto = maximo if maximo is not None else (None if minimo is not None and minimo >= 250 else minimo)
+    for nombre, a, b in limites:
+        if bajo is not None and bajo >= a and (b is None or (alto is not None and alto <= b)):
+            return nombre
+    return "desconocido"
+
+
+def actualizar_plantilla(
+    empresa_id: str, minimo: int | None, maximo: int | None, fuente: str, *, conn: psycopg.Connection
+) -> None:
+    conn.execute(
+        "update empresas set empleados_min = %s, empleados_max = %s, tamano_fuente = %s, tamano = %s::rango_tamano "
+        "where id = %s",
+        (minimo, maximo, fuente[:200], categoria_tamano(minimo, maximo), empresa_id),
+    )
+
+
 def registrar_evento(
     empresa_id: str, tipo: str, detalle: dict, fuente_id: int | None, conn: psycopg.Connection
 ) -> None:

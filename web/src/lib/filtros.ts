@@ -29,12 +29,12 @@ export function describirFiltros(f: FiltrosBusqueda): string[] {
   if (f.tamano.empleados_min != null) tamano.push(`≥ ${f.tamano.empleados_min} empleados`);
   if (f.tamano.empleados_max != null) tamano.push(`≤ ${f.tamano.empleados_max} empleados`);
   if (tamano.length) {
-    // Ninguna fuente conectada da el número de empleados todavía (ni
-    // BORME ni la extracción web) -- empresas.empleados_min/max están
-    // siempre a null para cualquier empresa real, así que este filtro no
-    // descarta nada aunque se aplique en la consulta. Aviso siempre desde
-    // aquí, no solo confiando en que el LLM lo declare en "supuestos".
-    lineas.push(`Tamaño: ${tamano.join(" y ")} (⚠ sin efecto real: ninguna fuente da el nº de empleados todavía)`);
+    // Desde 2026-10-23 la plantilla sale de LinkedIn (tramo de su página) y de
+    // la web propia cuando lo dice (worker: radar/agente/tamano.py). Solo se
+    // descartan las de plantilla conocida fuera del rango; las demás se marcan.
+    lineas.push(
+      `Tamaño: ${tamano.join(" y ")} (se descartan las de plantilla conocida fuera del rango; marcar LinkedIn da más datos)`
+    );
   }
 
   if (f.formas_juridicas.length) lineas.push(`Forma jurídica: ${f.formas_juridicas.join(", ")}`);

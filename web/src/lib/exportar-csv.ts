@@ -27,10 +27,11 @@ interface FilaExportable {
   estado: string | null;
   confianza_global: number | null;
   motivo: string | null;
+  plantilla?: string | null;
 }
 
 const CABECERA = [
-  "Razón social", "NIF", "Persona de contacto", "Cargo", "Teléfono", "Email", "Web", "Completa (de 5)", "Estado", "Confianza", "Fuente", "Ficha",
+  "Razón social", "NIF", "Persona de contacto", "Cargo", "Teléfono", "Email", "Web", "Plantilla", "Completa (de 5)", "Estado", "Confianza", "Fuente", "Ficha",
 ];
 
 /** RFC 4180: solo hay que entrecomillar un campo si contiene coma, comilla
@@ -58,6 +59,7 @@ export function exportarResultadosCsv(filas: FilaExportable[], nombreBusqueda: s
         celda(f.telefono),
         celda(f.email),
         celda(f.dominio_web),
+        celda(f.plantilla),
         celda(f.completitud),
         celda(f.estado),
         celda(f.confianza_global?.toFixed(2)),

@@ -35,15 +35,25 @@ from radar.agente.enriquecer_apify_linkedin import MAX_EMPRESAS_POR_LLAMADA, enr
 # (tarifas del plan FREE: LinkedIn 0,005 $ + 0,00345 $/empresa; Facebook
 # 0,012 $/página; rastreo ~0,01 $/web). Ver `reserva_redes`.
 RESERVA_POR_FUENTE_EUR = {"linkedin": 0.04, "facebook": 0.08, "web_crawler": 0.06}
+# Si la búsqueda pide un número de empleados, LinkedIn es la fuente que lo da
+# (tramo de su página): más empresas y más reserva (3 llamadas de 10 ≈ 0,12 $).
+LLAMADAS_LINKEDIN_CON_PLANTILLA = 3
+RESERVA_LINKEDIN_CON_PLANTILLA_EUR = 0.12
 
+# Primero las empresas de las que aún no se sabe la plantilla (LinkedIn la da).
 _SQL_REDES = """
-select distinct red
-from busqueda_resultados br
-join registros_brutos rb on rb.empresa_id = br.empresa_id
-cross join lateral jsonb_array_elements_text(
-  case when jsonb_typeof(rb.campos->'extra'->%(clave)s) = 'array' then rb.campos->'extra'->%(clave)s else '[]'::jsonb end
-) as red
-where br.busqueda_id = %(busqueda)s and coalesce(br.clasificacion, '') not in ('descartado', 'rechazado')
+select red from (
+  select distinct on (red) red, (e.empleados_min is null and e.empleados_max is null) as sin_plantilla
+  from busqueda_resultados br
+  join empresas e on e.id = br.empresa_id
+  join registros_brutos rb on rb.empresa_id = br.empresa_id
+  cross join lateral jsonb_array_elements_text(
+    case when jsonb_typeof(rb.campos->'extra'->%(clave)s) = 'array' then rb.campos->'extra'->%(clave)s else '[]'::jsonb end
+  ) as red
+  where br.busqueda_id = %(busqueda)s and coalesce(br.clasificacion, '') not in ('descartado', 'rechazado')
+  order by red
+) x
+order by sin_plantilla desc
 limit %(limite)s
 """
 
@@ -61,15 +71,46 @@ limit %s
 """
 
 
-def reserva_redes(actores: frozenset[str] | set[str], presupuesto_eur: float) -> float:
+def _reservas(con_plantilla: bool) -> dict[str, float]:
+    if con_plantilla:
+        return {**RESERVA_POR_FUENTE_EUR, "linkedin": RESERVA_LINKEDIN_CON_PLANTILLA_EUR}
+    return RESERVA_POR_FUENTE_EUR
+
+
+def reserva_redes(actores: frozenset[str] | set[str], presupuesto_eur: float, *, con_plantilla: bool = False) -> float:
     """Presupuesto que el bucle del agente debe dejar libre para esta fase
     (como mucho el 30 % del total)."""
-    return min(presupuesto_eur * 0.3, sum(v for k, v in RESERVA_POR_FUENTE_EUR.items() if k in actores))
+    return min(presupuesto_eur * 0.3, sum(v for k, v in _reservas(con_plantilla).items() if k in actores))
 
 
 def urls_redes(conn: psycopg.Connection, busqueda_id: str, clave: str, limite: int) -> list[str]:
     filas = conn.execute(_SQL_REDES, {"clave": clave, "busqueda": busqueda_id, "limite": limite}).fetchall()
     return [f[0] for f in filas]
+
+
+async def _linkedin_por_tandas(
+    conn: psycopg.Connection, cliente_http: httpx.AsyncClient, urls: list[str], tope: float, busqueda_id: str,
+    telefonos_compartidos: set[str] | None,
+) -> dict[str, Any]:
+    """El Actor admite 10 empresas por llamada: varias tandas, sumando
+    contadores y coste, sin pasar del tope."""
+    total: dict[str, Any] = {"coste_eur": 0.0}
+    for i in range(0, len(urls), MAX_EMPRESAS_POR_LLAMADA):
+        queda = round(tope - total["coste_eur"], 4)
+        if queda <= 0:
+            break
+        res = await enriquecer_con_linkedin(
+            conn, cliente_http, urls=urls[i : i + MAX_EMPRESAS_POR_LLAMADA], max_coste_eur=queda,
+            busqueda_id=busqueda_id, telefonos_compartidos=telefonos_compartidos,
+        )
+        for clave, valor in res.items():
+            if isinstance(valor, (int, float)) and not isinstance(valor, bool):
+                total[clave] = round(total.get(clave, 0) + valor, 4)
+            elif valor is not None:
+                total[clave] = valor
+        if res.get("motivo_parada") or res.get("soportado") is False:
+            break
+    return total
 
 
 async def fuentes_marcadas_finales(
@@ -80,6 +121,7 @@ async def fuentes_marcadas_finales(
     actores: frozenset[str] | set[str],
     max_coste_eur: float,
     telefonos_compartidos: set[str] | None,
+    con_plantilla: bool = False,
 ) -> list[tuple[str, dict[str, Any], dict[str, Any]]]:
     """Ejecuta, en orden, las fuentes marcadas de esta fase y devuelve
     (herramienta, argumentos, resultado) de cada una para registrarla como
@@ -87,22 +129,21 @@ async def fuentes_marcadas_finales(
     marcadas = [f for f in ("linkedin", "facebook", "web_crawler") if f in actores]
     if not marcadas:
         return []
-    peso_total = sum(RESERVA_POR_FUENTE_EUR[f] for f in marcadas)
+    reservas = _reservas(con_plantilla)
+    peso_total = sum(reservas[f] for f in marcadas)
     rondas: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
     restante = max_coste_eur
 
     for fuente in marcadas:
-        tope = round(min(restante, max_coste_eur * RESERVA_POR_FUENTE_EUR[fuente] / peso_total), 4)
+        tope = round(min(restante, max_coste_eur * reservas[fuente] / peso_total), 4)
         if fuente == "linkedin":
-            urls = urls_redes(conn, busqueda_id, "redes_linkedin", MAX_EMPRESAS_POR_LLAMADA)
+            llamadas = LLAMADAS_LINKEDIN_CON_PLANTILLA if con_plantilla else 1
+            urls = urls_redes(conn, busqueda_id, "redes_linkedin", MAX_EMPRESAS_POR_LLAMADA * llamadas)
             args: dict[str, Any] = {"urls": urls, "max_coste_eur": tope}
             if not urls:
                 res: dict[str, Any] = {"motivo_parada": "ninguna web encontrada enlaza a su página de LinkedIn", "coste_eur": 0.0}
             else:
-                res = await enriquecer_con_linkedin(
-                    conn, cliente_http, urls=urls, max_coste_eur=tope, busqueda_id=busqueda_id,
-                    telefonos_compartidos=telefonos_compartidos,
-                )
+                res = await _linkedin_por_tandas(conn, cliente_http, urls, tope, busqueda_id, telefonos_compartidos)
             rondas.append(("enriquecer_con_linkedin", args, res))
         elif fuente == "facebook":
             urls = urls_redes(conn, busqueda_id, "redes_facebook", MAX_PAGINAS_POR_LLAMADA)

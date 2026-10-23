@@ -38,6 +38,9 @@ def empresa_a_registro(item: dict[str, Any]) -> RegistroBruto | None:
         municipio=(item.get("city") or "").strip() or None,
         provincia=(item.get("state") or "").strip() or None,
         web=web or None,
+        # Tramo declarado por la empresa («11-50 employees»). `employeeCount`
+        # son los miembros de LinkedIn que dicen trabajar allí: no es la plantilla.
+        empleados=(item.get("companySize") or "").strip() or None,
         extra={
             "linkedin_url": item.get("linkedinUrl"),
             "industria": item.get("industry"),

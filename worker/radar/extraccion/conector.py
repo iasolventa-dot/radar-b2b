@@ -218,6 +218,7 @@ def campos_desde_reglas(r: reglas.DatosLegalesExtraidos, dominio: str | None) ->
         nif=r.nif_titular,
         codigo_postal=cp,
         telefonos=telefonos_de_la_empresa(list(r.telefonos)),
+        empleados=r.plantilla,
         # Doc 04 §2 (tabla resumen): "Email... Evitar como única fuente:
         # adivinar patrones (info@...)" — no adivinamos nada, pero si hay
         # varios emails preferimos el del propio dominio como principal.
@@ -263,6 +264,7 @@ def campos_desde_llm(base: CamposExtraidos, llm_resp: RespuestaExtraccionLLM, te
         telefonos=telefonos_de_la_empresa(t.telefonos) if t.telefonos else base.telefonos,
         emails=t.emails or base.emails,
         web=base.web,
+        empleados=base.empleados,
         extra={
             **base.extra,
             "personas_contacto": personas,

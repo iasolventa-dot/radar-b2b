@@ -22,8 +22,8 @@ posteriores:
   pasada.
 - Las sedes se resuelven con "última observación gana" (`bd.upsert_sede`),
   no con la consolidación multi-fuente de NIF/nombre/teléfono/email.
-- Tamaño/empleados todavía no se procesa (ningún conector conectado hoy lo
-  aporta de forma estructurada).
+- Plantilla (desde 2026-10-23): la observación «empleados» más fiable (LinkedIn o la
+  web) se guarda en `empresas.empleados_min/max` (`_consolidar_plantilla`).
 """
 
 from __future__ import annotations
@@ -37,6 +37,7 @@ import psycopg
 from radar.fuentes.base import RegistroBruto
 from radar.fuentes.cartociudad import geocodificar
 from radar.normalizacion.dominio import normalizar_email
+from radar.normalizacion.plantilla import rango_empleados
 from radar.normalizacion.registro import normalizar_registro
 from radar.orquestador import bd
 from radar.orquestador.logica import (
@@ -79,6 +80,29 @@ def _calcular_senales_estado(registro: RegistroBruto, fuente: bd.FuenteInfo) -> 
     if fuente.codigo == "borme":
         return mapear_senales_borme(registro.campos.extra.get("tipos_acto", []))
     return SenalesEstado()  # sin señales de estado desde esta fuente (fuentes #18-20, todavía no conectadas)
+
+
+def plantilla_consolidada(observaciones: list[dict]) -> tuple[int | None, int | None, str] | None:
+    """(mínimo, máximo, fuente) de la observación de plantilla más fiable y,
+    a igualdad, la más reciente. None si ninguna se entiende."""
+    validas: list[tuple[dict, tuple[int | None, int | None]]] = []
+    for obs in observaciones:
+        rango = rango_empleados(obs.get("valor_norm") or obs.get("valor_original"))
+        if rango is not None:
+            validas.append((obs, rango))
+    if not validas:
+        return None
+    o, (minimo, maximo) = max(validas, key=lambda par: (par[0]["confianza_fuente"], par[0]["observado_en"]))
+    return minimo, maximo, f"{o['fuente_nombre']}: {o['valor_original']}"
+
+
+def _consolidar_plantilla(empresa_id: str, conn: psycopg.Connection) -> None:
+    """Plantilla (2026-10-23): de LinkedIn (tramo) o de la propia web (mención
+    explícita). Antes ningún conector la aportaba y el filtro de empleados no
+    tenía efecto."""
+    plantilla = plantilla_consolidada(bd.cargar_observaciones_vigentes(empresa_id, "empleados", conn))
+    if plantilla is not None:
+        bd.actualizar_plantilla(empresa_id, *plantilla, conn=conn)
 
 
 def _consolidar_y_actualizar_empresa(
@@ -159,6 +183,7 @@ def _consolidar_y_actualizar_empresa(
         confianza_global=confianza_global,
         conn=conn,
     )
+    _consolidar_plantilla(empresa_id, conn)
 
     if res_tel:
         for v in res_tel.multivalor:

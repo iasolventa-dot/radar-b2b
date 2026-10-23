@@ -34,6 +34,7 @@ import {
   Sparkles,
   UserRound,
   UserX,
+  Users,
   type LucideIcon,
 } from "lucide-react";
 import { EstadoVacio, TarjetaCifra } from "@/components/encabezado-pagina";
@@ -83,9 +84,20 @@ interface EmpresaResultado {
   // busqueda_resultados.relevancia (migración 202609251000, radar/agente/relevancia.py)
   relevancia: string | null;
   motivo_relevancia: string | null;
+  // Plantilla conocida ("11-50", "más de 40") y de dónde sale (migración 202610231000)
+  plantilla: string | null;
+  plantilla_fuente: string | null;
 }
 
 const POR_PAGINA = 100;
+
+function textoPlantilla(min: number | null, max: number | null): string | null {
+  if (min == null && max == null) return null;
+  if (min === max) return String(min);
+  if (max == null) return `más de ${min}`;
+  if (min == null) return `hasta ${max}`;
+  return `${min}-${max}`;
+}
 
 interface ResumenResultados {
   total: number;
@@ -119,6 +131,9 @@ interface FilaRpc {
   sin_contrastar: number;
   en_revision: number;
   completitud: number;
+  empleados_min: number | null;
+  empleados_max: number | null;
+  tamano_fuente: string | null;
 }
 
 function filaAResultado(f: FilaRpc): EmpresaResultado {
@@ -146,6 +161,8 @@ function filaAResultado(f: FilaRpc): EmpresaResultado {
     en_revision: f.en_revision,
     relevancia: f.clasificacion,
     motivo_relevancia: f.motivo_relevancia,
+    plantilla: textoPlantilla(f.empleados_min, f.empleados_max),
+    plantilla_fuente: f.tamano_fuente,
   };
 }
 
@@ -177,6 +194,10 @@ function resumenRonda(ronda: RondaEstadistica): string {
   }
   if (ronda.herramienta === "enriquecer_borme") {
     return `${r.empresas_revisadas ?? 0} sociedades buscadas en el BORME: ${r.encontradas_en_borme ?? 0} encontradas, ${r.unidas ?? 0} actos añadidos (administradores, hoja registral)`;
+  }
+  if (ronda.herramienta === "filtrar_plantilla") {
+    if (typeof r.motivo_parada === "string") return r.motivo_parada;
+    return `${r.revisadas ?? 0} revisadas: ${r.dentro ?? 0} dentro del rango, ${r.fuera ?? 0} fuera (descartadas), ${r.sin_dato ?? 0} sin dato de plantilla (se mantienen)`;
   }
   if (ronda.herramienta === "filtrar_autonomos") {
     if (typeof r.motivo_parada === "string") return r.motivo_parada;
@@ -362,6 +383,9 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
   const pctGasto = presupuesto ? Math.min(100, (busqueda.coste_eur / presupuesto) * 100) : 0;
   const total = resumen.total;
   const descartadas = resumen.descartadas;
+  // La búsqueda pide un número de empleados: las que no tienen dato se marcan.
+  const filtraPlantilla =
+    busqueda.filtros?.tamano?.empleados_min != null || busqueda.filtros?.tamano?.empleados_max != null;
   const pct = (n: number) => (total ? `${Math.round((n / total) * 100)} %` : "—");
   const paginas = Math.max(1, Math.ceil(total / POR_PAGINA));
   const desde = total ? pagina * POR_PAGINA + 1 : 0;
@@ -651,6 +675,15 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
                         ) : (
                           <span className="badge bg-amber-50 text-amber-700">sin NIF</span>
                         )}
+                        {r.plantilla ? (
+                          <span className="badge bg-violet-50 text-violet-700" title={r.plantilla_fuente ?? ""}>
+                            <Users className="h-3.5 w-3.5" /> {r.plantilla} empleados
+                          </span>
+                        ) : filtraPlantilla ? (
+                          <span className="badge bg-slate-100 text-slate-500" title="Ninguna fuente da su número de empleados: el filtro de tamaño no la ha podido comprobar">
+                            plantilla sin dato
+                          </span>
+                        ) : null}
                         {r.relevancia === "dudoso" && (
                           <span className="badge bg-slate-100 text-slate-600" title={r.motivo_relevancia ?? ""}>
                             ¿del sector?
@@ -797,6 +830,7 @@ function iconoHerramienta(herramienta: string): LucideIcon {
   if (herramienta === "conciliar_costes_apify") return Euro;
   if (herramienta === "completar_identidad") return Fingerprint;
   if (herramienta === "filtrar_autonomos") return UserX;
+  if (herramienta === "filtrar_plantilla") return Users;
   if (herramienta === "finalizar_busqueda") return Flag;
   if (herramienta === "preguntar_usuario") return HelpCircle;
   if (herramienta === "descubrir_apify_maps" || herramienta === "descubrir_places") return MapPinned;

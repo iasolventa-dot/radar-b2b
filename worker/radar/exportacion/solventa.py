@@ -52,6 +52,7 @@ import psycopg
 
 from radar.normalizacion.direccion import PROVINCIAS
 from radar.normalizacion.dominio import normalizar_email
+from radar.normalizacion.plantilla import texto_rango
 
 FORMATO = "solventa-db"
 VERSION = "2"
@@ -352,7 +353,7 @@ def empresa_a_cliente(
     corporativo = next((m for m in genericos + personales if m != email), "")
     otros_emails = [m for m, _ in e.emails if m not in (email, corporativo)]
 
-    empleados = e.empleados_max or e.empleados_min
+    empleados = texto_rango(e.empleados_min, e.empleados_max)  # «11-50», «más de 40», «120»
 
     razon = _texto(e.razon_social or e.nombre_comercial).upper()
     obs = [f"Importado de Radar B2B el {_fecha(fecha)} (búsqueda «{peticion}»)."]
@@ -401,7 +402,7 @@ def empresa_a_cliente(
         "CNAE": _texto(e.cnae),
         "ACTIVIDAD": _actividad(e.objeto_social),
         "SECTORES": sector,
-        "TRABAJADORES": str(empleados) if empleados else "",
+        "TRABAJADORES": empleados,
         "Estado": _ESTADO.get(e.estado or "", ESTADO_LEAD),
         "Origen Cliente": ORIGEN,
         "Observaciones": "\n".join(obs),

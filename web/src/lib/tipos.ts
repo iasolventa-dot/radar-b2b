@@ -267,6 +267,7 @@ export const ETIQUETA_HERRAMIENTA: Record<string, string> = {
   conciliar_costes_apify: "Coste real cobrado por Apify",
   completar_identidad: "Identificar empresas sin CIF",
   filtrar_autonomos: "Omitir autónomos",
+  filtrar_plantilla: "Filtrar por número de empleados",
   completar_contacto: "Completar contacto (web, teléfono, email)",
   enriquecer_borme: "Identidad y directivos desde el BORME",
   evaluar_relevancia: "Filtrar resultados que no son del sector (IA)",

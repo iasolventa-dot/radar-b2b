@@ -531,6 +531,7 @@ async def planificar(
     from radar.agente.redes_marcadas import fuentes_marcadas_finales, reserva_redes
     from radar.agente.relevancia import evaluar_relevancia
     from radar.agente.resolver_dudas import resolver_dudas
+    from radar.agente.tamano import filtrar_por_plantilla, tiene_filtro_de_plantilla
 
     # Parte del presupuesto reservada para los pasos finales (completar
     # contacto, relevancia con IA, resolver dudas): sin ella, el bucle LLM se
@@ -540,7 +541,8 @@ async def planificar(
     inicio = datetime.now(UTC) - timedelta(seconds=5)
     # ... y para las fuentes marcadas que se ejecutan al final (LinkedIn,
     # Facebook, rastreo de webs: `radar.agente.redes_marcadas`).
-    reserva_fase_redes = reserva_redes(actores, presupuesto_eur)
+    con_plantilla = tiene_filtro_de_plantilla(filtros)
+    reserva_fase_redes = reserva_redes(actores, presupuesto_eur, con_plantilla=con_plantilla)
     # ... y para localizar el CIF de las empresas que no lo tienen
     # (`radar.agente.completar_identidad`).
     reserva_identidad = min(0.08, presupuesto_eur * 0.2)
@@ -639,7 +641,7 @@ async def planificar(
     for nombre_fuente, args_fuente, resultado_fuente in await fuentes_marcadas_finales(
         conn, cliente_http, busqueda_id=busqueda_id, actores=actores,
         max_coste_eur=max(0.0, contexto.presupuesto_restante_eur - reserva_ia - reserva_identidad),
-        telefonos_compartidos=contexto.telefonos_compartidos,
+        telefonos_compartidos=contexto.telefonos_compartidos, con_plantilla=con_plantilla,
     ):
         if await registrar(nombre_fuente, args_fuente, resultado_fuente):
             return cerrar()
@@ -675,6 +677,13 @@ async def planificar(
     resultado_autonomos = await asyncio.to_thread(filtrar_autonomos, conn, filtros, busqueda_id)
     if await registrar("filtrar_autonomos", {}, resultado_autonomos):
         return cerrar()
+
+    # --- Fase 4c-ter: filtro de plantilla (gratis) ---------------------------
+    # Con la plantilla de LinkedIn y de las webs ya consolidada.
+    if con_plantilla:
+        resultado_plantilla = await asyncio.to_thread(filtrar_por_plantilla, conn, filtros, busqueda_id)
+        if await registrar("filtrar_plantilla", {}, resultado_plantilla):
+            return cerrar()
 
     # --- Fase 4d: resolución de dudas --------------------------------------------
     resultado_dudas = await resolver_dudas(

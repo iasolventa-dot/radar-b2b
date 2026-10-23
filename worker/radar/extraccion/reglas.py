@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 
 from radar.normalizacion.dominio import DOMINIOS_PLATAFORMA, normalizar_email
 from radar.normalizacion.nif import validar_nif
+from radar.normalizacion.plantilla import plantilla_en_texto
 from radar.normalizacion.telefono import normalizar_telefono
 
 RX_NIF = re.compile(
@@ -113,6 +114,8 @@ class DatosLegalesExtraidos:
     # La web menciona cargos (gerente, director, fundador...) aunque las
     # reglas no hayan podido emparejarlos con un nombre -> pedir al LLM.
     menciona_cargos: bool = False
+    # Mención explícita de la plantilla («más de 40 profesionales»), 2026-10-23.
+    plantilla: str | None = None
 
     @property
     def nif_titular(self) -> str | None:
@@ -261,6 +264,7 @@ def extraer(texto: str, dominio: str | None = None) -> DatosLegalesExtraidos:
     # --- Personas de contacto con su puesto (2026-09-24) ---
     res.personas = extraer_personas(texto)
     res.menciona_cargos = bool(RX_MENCION_CARGO.search(texto))
+    res.plantilla = plantilla_en_texto(texto)
     return res
 
 
