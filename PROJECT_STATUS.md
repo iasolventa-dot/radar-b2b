@@ -329,3 +329,19 @@ Pendiente conocido: una identificación previa a la verificación de localidad (
   - Se retiraron 49 teléfonos, 28 emails y 47 cargos (no se borran: canal `invalido` y `vigente = false`). Solo se retiró lo que respaldaba únicamente la web y la relectura ya no encuentra.
   - Lo nuevo de la relectura se añadió como evidencia.
   - En «reformas hoteleras» ya no queda ningún teléfono extranjero como principal.
+
+### 13i. Filtro de plantilla («de 10 a 200 empleados»), 2026-10-23
+
+**Qué se ha hecho:**
+- Plantilla consolidada en `empresas.empleados_min/max/tamano_fuente/tamano` (`radar/orquestador/procesar.py::_consolidar_plantilla`). Viene de dos fuentes:
+  - LinkedIn: el tramo «11-50 employees» que el conector recibía y tiraba. `employeeCount` no se usa, porque son los miembros de LinkedIn, no la plantilla.
+  - La web propia, cuando lo dice: «más de 40 profesionales», «350 trabajadores en plantilla» (`radar/normalizacion/plantilla.py`).
+- Fase `filtrar_plantilla` al final de la búsqueda (`radar/agente/tamano.py`): descarta las de plantilla CONOCIDA fuera del rango y mantiene las de plantilla desconocida.
+- Con filtro de tamaño y LinkedIn marcado, LinkedIn consulta hasta 30 empresas (antes 10), primero las que no tienen plantilla.
+- Panel: etiqueta «N empleados» (con la fuente) o «plantilla sin dato»; columna en el CSV; `TRABAJADORES` en el XML de Solventa DB. Migración 202610231000.
+- Recuperación: 24 empresas con el tramo de LinkedIn ya guardado (`scripts/recuperar_plantilla_linkedin.py`) y menciones en webs releídas (690 webs).
+
+**Cobertura real tras aplicarlo:**
+- 61 empresas de la base de datos tienen plantilla.
+- En la búsqueda «construcción 10-200 empleados» (1.658 empresas): 4 dentro del rango, 2 fuera y descartadas (Yeste Infraestructuras, «más de 300»; Maracof, «350 en plantilla»), y 1.652 sin dato.
+- El filtro ya funciona, pero la cobertura depende de tener una fuente con plantilla para la mayoría de empresas: no la hay entre las conectadas.
