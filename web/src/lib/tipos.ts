@@ -124,6 +124,7 @@ export interface UbicacionFiltro {
   provincias: string[];
   municipios: string[];
   ccaa: string[];
+  codigos_postales?: string[];
 }
 
 export interface SectorFiltro {
@@ -131,6 +132,9 @@ export interface SectorFiltro {
   codigos_cnae: string[];
   palabras_clave: string[];
   exclusiones: string[];
+  // Filtros avanzados dentro del sector (2026-11-10)
+  solo_si?: string[];
+  descartar_si?: string[];
 }
 
 export interface TamanoFiltro {
@@ -268,6 +272,7 @@ export const ETIQUETA_HERRAMIENTA: Record<string, string> = {
   completar_identidad: "Identificar empresas sin CIF",
   filtrar_autonomos: "Omitir autónomos",
   filtrar_plantilla: "Filtrar por número de empleados",
+  verificar_filtros: "Verificar zona y filtros en todos los resultados",
   completar_contacto: "Completar contacto (web, teléfono, email)",
   enriquecer_borme: "Identidad y directivos desde el BORME",
   evaluar_relevancia: "Filtrar resultados que no son del sector (IA)",

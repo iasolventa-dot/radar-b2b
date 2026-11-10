@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from radar.agente.consultas import zona_o_espana
+from radar.agente.consultas import zonas_busqueda
 from radar.agente.herramientas import ContextoHerramientas, ejecutar_herramienta
 from radar.agente.interpretacion import FiltrosBusqueda
 
@@ -29,10 +29,14 @@ from radar.agente.interpretacion import FiltrosBusqueda
 # Maps es la fuente con más precisión y contacto (en búsquedas reales: casi
 # todos los negocios con teléfono, más de la mitad con web); Google Search trae
 # más ruido (directorios, webs de otros sectores), así que recibe menos.
+# 2026-11-10: los topes absolutos se subieron (Maps 0,25 -> 0,60 €, Places
+# 0,15 -> 0,30 €, Google 0,04 -> 0,10 €): con ellos una búsqueda de 20 € se
+# quedaba en ~60 negocios de Maps aunque sobrara presupuesto, y el resto se lo
+# gastaba el planificador LLM en fuentes con menos contacto.
 REPARTO = {
-    "descubrir_apify_maps": (0.50, 0.25),
-    "descubrir_places": (0.30, 0.15),
-    "descubrir_google_search": (0.10, 0.04),
+    "descubrir_apify_maps": (0.50, 0.60),
+    "descubrir_places": (0.30, 0.30),
+    "descubrir_google_search": (0.10, 0.10),
     "enriquecer_con_facebook": (0.15, 0.06),
     "enriquecer_con_linkedin": (0.10, 0.04),
 }
@@ -64,10 +68,21 @@ SITIOS_EXCLUIDOS_GOOGLE = (
 )
 
 
+# Consultas como mucho por fuente en la fase inicial (palabras x zonas).
+MAX_CONSULTAS_FASE_INICIAL = 12
+
+
+def combinar(palabras: list[str], zonas: list[str], plantilla: str, maximo: int = MAX_CONSULTAS_FASE_INICIAL) -> list[str]:
+    """Palabras x zonas, intercaladas por zona para que, si hay que recortar,
+    se recorten palabras de cada zona y no zonas enteras."""
+    zonas = zonas or ["España"]
+    por_zona = max(1, maximo // len(zonas))
+    return [plantilla.format(p=p, z=z) for z in zonas for p in palabras[:por_zona]][:max(maximo, len(zonas))]
+
+
 def consultas_google(filtros: FiltrosBusqueda, maximo: int = 3) -> list[str]:
-    zona = zona_o_espana(filtros).removesuffix(", España")
     exclusiones = " ".join(f"-site:{s}" for s in SITIOS_EXCLUIDOS_GOOGLE)
-    return [f"{p} {zona} {exclusiones}" for p in palabras_para_mapas(filtros, maximo)]
+    return combinar(palabras_para_mapas(filtros, maximo), zonas_busqueda(filtros), "{p} {z} " + exclusiones)
 
 
 def presupuesto_para(herramienta: str, presupuesto_total_eur: float, restante_eur: float) -> float:
@@ -86,8 +101,7 @@ def planes_fuentes_marcadas(
     if "google_maps" in apify_actores:
         planes.append(("descubrir_apify_maps", {"palabras_clave": palabras}))
     if usar_places:
-        zona = zona_o_espana(filtros).removesuffix(", España")
-        planes.append(("descubrir_places", {"consultas": [f"{p} en {zona}" for p in palabras]}))
+        planes.append(("descubrir_places", {"consultas": combinar(palabras, zonas_busqueda(filtros), "{p} en {z}")}))
     if "google_search" in apify_actores:
         planes.append(("descubrir_google_search", {"consultas": consultas_google(filtros)}))
     return planes

@@ -9,6 +9,8 @@ export function describirFiltros(f: FiltrosBusqueda): string[] {
   const lineas: string[] = [];
 
   const ubicaciones: string[] = [];
+  const cps = f.ubicacion.codigos_postales ?? [];
+  if (cps.length) ubicaciones.push(`código${cps.length > 1 ? "s" : ""} postal${cps.length > 1 ? "es" : ""} ${cps.join(", ")}`);
   if (f.ubicacion.provincias.length) {
     ubicaciones.push(`provincia${f.ubicacion.provincias.length > 1 ? "s" : ""} ${f.ubicacion.provincias.join(", ")}`);
   }
@@ -24,6 +26,9 @@ export function describirFiltros(f: FiltrosBusqueda): string[] {
   if (f.sector.palabras_clave.length) sector.push(`palabras clave: ${f.sector.palabras_clave.join(", ")}`);
   lineas.push(`Sector: ${sector.length ? sector.join(" · ") : "sin restricción"}`);
   if (f.sector.exclusiones.length) lineas.push(`Excluye: ${f.sector.exclusiones.join(", ")}`);
+  // Filtros avanzados dentro del sector (los aplica el filtro de sector con IA a todas las fuentes).
+  if (f.sector.solo_si?.length) lineas.push(`Solo si: ${f.sector.solo_si.join("; ")}`);
+  if (f.sector.descartar_si?.length) lineas.push(`Descartar si: ${f.sector.descartar_si.join("; ")}`);
 
   const tamano: string[] = [];
   if (f.tamano.empleados_min != null) tamano.push(`≥ ${f.tamano.empleados_min} empleados`);

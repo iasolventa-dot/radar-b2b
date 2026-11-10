@@ -31,9 +31,21 @@ def zona_texto(filtros: FiltrosBusqueda) -> str | None:
     de google-search-scraper): el municipio más específico si lo hay, si no la
     provincia, si no la CCAA. `None` si la búsqueda no trae ninguna zona (no
     tiene sentido pedirle a un Actor de pago que busque "por España")."""
-    u = filtros.ubicacion
-    zonas = u.municipios or u.provincias or u.ccaa
+    zonas = zonas_busqueda(filtros, 1)
     return f"{zonas[0]}, España" if zonas else None
+
+
+def zonas_busqueda(filtros: FiltrosBusqueda, maximo: int = 8) -> list[str]:
+    """TODAS las zonas de la búsqueda como texto, de la más precisa a la menos:
+    códigos postales (con su municipio si solo hay uno), si no municipios, si
+    no provincias, si no CCAA. Antes Maps, Places y Google buscaban SOLO en la
+    primera (2026-11-10): una búsqueda en varios municipios o provincias
+    dejaba sin buscar el resto en las fuentes de pago."""
+    u = filtros.ubicacion
+    if u.codigos_postales:
+        sufijo = f" {u.municipios[0]}" if len(u.municipios) == 1 else ""
+        return [f"{cp}{sufijo}" for cp in u.codigos_postales][:maximo]
+    return list(u.municipios or u.provincias or u.ccaa)[:maximo]
 
 
 def zona_o_espana(filtros: FiltrosBusqueda) -> str:

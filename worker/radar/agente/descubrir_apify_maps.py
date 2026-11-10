@@ -28,7 +28,7 @@ from typing import Any
 import httpx
 import psycopg
 
-from radar.agente.consultas import zona_o_espana
+from radar.agente.consultas import zonas_busqueda
 from radar.agente.interpretacion import FiltrosBusqueda
 from radar.extraccion import enriquecer_varias
 from radar.fuentes.apify import ejecutar_actor
@@ -40,7 +40,7 @@ from radar.secretos import gasto_mes_apify_usd, obtener_token_apify, presupuesto
 ACTOR_MAPS = "compass/crawler-google-places"
 COSTE_POR_LUGAR_USD = 0.004
 COSTE_ARRANQUE_USD = 0.001
-MAX_LUGARES_POR_LLAMADA = 40
+MAX_LUGARES_POR_LLAMADA = 120  # antes 40: con un presupuesto normal cortaba Maps, la fuente con más contacto
 
 
 def lugares_para_presupuesto(tope_usd: float) -> int:
@@ -151,10 +151,20 @@ async def descubrir_apify_maps(
     if not obtener_token_apify(conn):
         return {"soportado": False, "motivo": "Apify no está configurado (falta el token en Ajustes)", "coste_eur": 0.0}
 
-    zona = zona_o_espana(filtros)
     palabras = [p.strip() for p in palabras_clave if p and p.strip()][:5]
     if not palabras:
         return {"error": "sin palabras clave para buscar en Maps", "coste_eur": 0.0}
+    # Una zona: búsqueda con `locationQuery` (la más precisa). Varias zonas
+    # (municipios, CP, provincias): «palabra en zona» para cada una, en la misma
+    # ejecución; antes solo se buscaba en la primera.
+    zonas = zonas_busqueda(filtros)
+    if len(zonas) <= 1:
+        zona: str | None = f"{zonas[0]}, España" if zonas else "España"
+    else:
+        zona = None
+        from radar.agente.fases import combinar
+
+        palabras = combinar(palabras, zonas, "{p} en {z}", maximo=16)
 
     restante_mes = presupuesto_mensual_apify_usd(conn) - gasto_mes_apify_usd(conn)
     tope = min(max_coste_eur, restante_mes)

@@ -38,6 +38,8 @@ Búsqueda:
 - Palabras clave: {palabras}
 - Excluir: {exclusiones}
 - Zona: {zona}
+- Solo interesan negocios que cumplan: {solo_si}
+- Descartar estos tipos de negocio aunque sean del sector: {descartar_si}
 
 Empresas (lo que sabemos de cada una):
 {empresas_json}
@@ -48,6 +50,8 @@ Para cada empresa decide:
 - "dudoso": no hay información suficiente sobre su actividad, o es del sector pero consta en otro municipio de la misma provincia (dilo en el motivo; no la descartes por eso). También si parece una web de captación de clientes (dominio genérico "servicio + ciudad", p. ej. desatascos-ciudad.es) y no consta quién es el titular.
 - Pero "descartado" si esa web de captación es de una agencia de marketing/SEO/publicidad, de una plataforma o red que deriva clientes a profesionales de muchas ciudades, o de una empresa extranjera (SARL, GmbH, Ltd...), o si su teléfono es de otra provincia (el prefijo fijo indica la provincia: 954/955 Sevilla, 91 Madrid, 943 Gipuzkoa...): no es una empresa del sector en la zona.
 Además, "autonomo": true si parece una persona física que trabaja por su cuenta, sin sociedad (el nombre es el de una persona, o se presenta como autónomo/profesional independiente); false si es una empresa o sociedad (SL, SA, cooperativa, "Grupo", marca comercial con equipo...); null si no se puede saber.
+Filtros avanzados (si los hay): "descartado" si la empresa es claramente de un tipo de "Descartar" o claramente NO cumple "Solo interesan"; "dudoso" si no hay datos para saber si los cumple (dilo en el motivo); "relevante" solo si es del sector Y no hay nada que indique que incumple esos filtros. Una cadena o franquicia conocida se reconoce por su nombre.
+Código postal: si la búsqueda pide códigos postales concretos y la empresa tiene OTRO código postal, "descartado".
 No inventes: decide solo con los datos dados. "motivo": una frase corta en español.
 
 Responde SOLO con JSON: {{"clasificaciones": [{{"id": "...", "relevancia": "relevante|dudoso|descartado", "autonomo": true|false|null, "motivo": "..."}}]}}"""
@@ -78,7 +82,9 @@ select e.id::text,
        (select rb.campos->'extra'->>'descripcion_web' from registros_brutos rb
           where rb.empresa_id = e.id and rb.campos->'extra'->>'descripcion_web' is not null limit 1),
        br.motivo,
-       (select c.valor from canales_contacto c where c.empresa_id = e.id and c.tipo = 'telefono' limit 1)
+       (select c.valor from canales_contacto c where c.empresa_id = e.id and c.tipo = 'telefono' limit 1),
+       (select s.codigo_postal from sedes s where s.empresa_id = e.id and s.codigo_postal is not null limit 1),
+       e.forma_juridica, e.empleados_min, e.empleados_max
 from busqueda_resultados br join empresas e on e.id = br.empresa_id
 where br.busqueda_id = %s and br.clasificacion is null and not br.relevancia_revisada and e.fusionada_en is null
 """
@@ -86,18 +92,23 @@ where br.busqueda_id = %s and br.clasificacion is null and not br.relevancia_rev
 
 def perfil_para_prompt(fila: tuple) -> dict[str, Any]:
     claves = ("id", "nombre", "nombre_comercial", "web", "objeto_social", "cnae", "municipio",
-              "categoria_google_maps", "titulo_web", "descripcion_web", "encontrada_por", "telefono")
+              "categoria_google_maps", "titulo_web", "descripcion_web", "encontrada_por", "telefono",
+              "codigo_postal", "forma_juridica", "empleados_min", "empleados_max")
     return {k: v for k, v in zip(claves, fila, strict=False) if v}  # filas antiguas sin teléfono: se toleran
 
 
 def construir_prompt(filtros: FiltrosBusqueda, perfiles: list[dict[str, Any]]) -> str:
     u = filtros.ubicacion
     zona = ", ".join(u.municipios or u.provincias or u.ccaa) or "sin zona"
+    if u.codigos_postales:
+        zona += f" (solo códigos postales {', '.join(u.codigos_postales)})"
     return PROMPT.format(
         sector=filtros.sector.sector_interno or "sin especificar",
         palabras=", ".join(filtros.sector.palabras_clave) or "-",
         exclusiones=", ".join(filtros.sector.exclusiones) or "-",
         zona=zona,
+        solo_si="; ".join(filtros.sector.solo_si) or "-",
+        descartar_si="; ".join(filtros.sector.descartar_si) or "-",
         empresas_json=json.dumps(perfiles, ensure_ascii=False),
     )
 

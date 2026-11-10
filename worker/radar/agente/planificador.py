@@ -526,6 +526,7 @@ async def planificar(
     from radar.agente.completar_contacto import completar_contacto
     from radar.agente.completar_identidad import completar_identidad
     from radar.agente.costes_apify import conciliar_costes_apify
+    from radar.agente.cumplimiento import verificar_filtros
     from radar.agente.enriquecer_borme import enriquecer_con_borme
     from radar.agente.fases import ejecutar_con_tope, planes_fuentes_marcadas
     from radar.agente.redes_marcadas import fuentes_marcadas_finales, reserva_redes
@@ -545,7 +546,8 @@ async def planificar(
     reserva_fase_redes = reserva_redes(actores, presupuesto_eur, con_plantilla=con_plantilla)
     # ... y para localizar el CIF de las empresas que no lo tienen
     # (`radar.agente.completar_identidad`).
-    reserva_identidad = min(0.08, presupuesto_eur * 0.2)
+    # 2026-11-10: antes min(0.08, 20 %), unas 17 empresas buscadas; ahora hasta ~55.
+    reserva_identidad = min(0.25, presupuesto_eur * 0.15)
     # ... y para que el filtro de sector revise TODAS (≈0,0001 € por empresa;
     # con el tope de 300 empresas, ~0,03 €). 2026-10-06: sin esto, 1.311 de
     # 1.740 empresas se quedaron sin revisar por falta de presupuesto.
@@ -684,6 +686,14 @@ async def planificar(
         resultado_plantilla = await asyncio.to_thread(filtrar_por_plantilla, conn, filtros, busqueda_id)
         if await registrar("filtrar_plantilla", {}, resultado_plantilla):
             return cerrar()
+
+    # --- Fase 4c-quater: verificación final de TODOS los filtros (gratis) ----
+    # Zona (CP, municipio, provincia, país), estado, forma jurídica, requisitos
+    # de contacto y que nada se quede sin pasar el filtro de sector: sea cual
+    # sea la fuente que trajo cada empresa (radar.agente.cumplimiento).
+    resultado_filtros = await asyncio.to_thread(verificar_filtros, conn, filtros, busqueda_id)
+    if await registrar("verificar_filtros", {}, resultado_filtros):
+        return cerrar()
 
     # --- Fase 4d: resolución de dudas --------------------------------------------
     resultado_dudas = await resolver_dudas(

@@ -490,7 +490,13 @@ def construir_where_empresas(
         condiciones.append("e.forma_juridica = any(%s)")
         parametros.append(list(filtros.formas_juridicas))
 
-    if filtros.ubicacion.provincias:
+    if filtros.ubicacion.codigos_postales:
+        # La zona más precisa (2026-11-10): si se piden códigos postales, manda.
+        condiciones.append(
+            "exists (select 1 from sedes s where s.empresa_id = e.id and s.activa and s.codigo_postal = any(%s))"
+        )
+        parametros.append(list(filtros.ubicacion.codigos_postales))
+    elif filtros.ubicacion.provincias:
         condiciones.append(
             "exists (select 1 from sedes s where s.empresa_id = e.id and s.activa and s.provincia = any(%s))"
         )
@@ -557,6 +563,8 @@ def provincias_de_zona(filtros: FiltrosBusqueda, conn: psycopg.Connection) -> se
     """Códigos de provincia (2 dígitos INE = 2 primeras cifras del código
     postal) que cubre la zona de la búsqueda. Vacío si no hay zona."""
     u = filtros.ubicacion
+    if u.codigos_postales:
+        return {cp[:2] for cp in u.codigos_postales}
     if u.municipios:
         return {c[:2] for c in resolver_codigos_municipio(u.municipios, conn)}
     with conn.cursor() as cur:

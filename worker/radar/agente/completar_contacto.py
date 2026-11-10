@@ -60,7 +60,9 @@ from radar.normalizacion.nombre import (
 from radar.orquestador import bd, procesar_registro
 from radar.secretos import gasto_mes_apify_usd, obtener_token_apify, presupuesto_mensual_apify_usd
 
-MAX_EMPRESAS = 25
+# 2026-11-10: antes 25 -- en búsquedas de 100-300 empresas el resto se quedaba
+# sin intentar completar (leer su web es gratis; Maps/Google, con su tope).
+MAX_EMPRESAS = 80
 UMBRAL_SIMILITUD = 0.6
 _NO_WEB_PROPIA = {"boe.es"}
 

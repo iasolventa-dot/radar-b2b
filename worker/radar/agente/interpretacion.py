@@ -73,6 +73,23 @@ class UbicacionFiltro(BaseModel):
     provincias: list[str] = []
     municipios: list[str] = []
     ccaa: list[str] = []
+    # Códigos postales (2026-11-10): la zona más precisa que se puede pedir
+    # ("empresas del 41500"). Se usan al descubrir (Maps, Places, Google) y la
+    # verificación final (radar.agente.cumplimiento) descarta las que tienen
+    # otro CP conocido. El municipio al que pertenecen va en `municipios`.
+    codigos_postales: list[str] = []
+
+    @model_validator(mode="after")
+    def _limpiar_codigos_postales(self) -> UbicacionFiltro:
+        limpios: list[str] = []
+        for cp in self.codigos_postales:
+            digitos = re.sub(r"\D", "", str(cp))
+            if len(digitos) == 4:
+                digitos = "0" + digitos  # "8001" -> "08001" (Barcelona)
+            if len(digitos) == 5 and "01" <= digitos[:2] <= "52" and digitos not in limpios:
+                limpios.append(digitos)
+        self.codigos_postales = limpios
+        return self
 
     @model_validator(mode="after")
     def _separar_provincia_del_municipio(self) -> UbicacionFiltro:
@@ -100,6 +117,15 @@ class SectorFiltro(BaseModel):
     codigos_cnae: list[str] = []
     palabras_clave: list[str] = []
     exclusiones: list[str] = []
+    # Filtros avanzados dentro del sector (2026-11-10), en lenguaje natural:
+    # «solo_si» = características que DEBE tener la empresa («supermercado
+    # pequeño de barrio o autoservicio independiente»); «descartar_si» = tipos
+    # de negocio del mismo sector que no interesan («cadena nacional de
+    # supermercados», «hipermercado», «tienda de gasolinera»). Los aplica el
+    # filtro de sector con IA (radar.agente.relevancia) a TODAS las empresas,
+    # vengan de la fuente que vengan.
+    solo_si: list[str] = []
+    descartar_si: list[str] = []
 
 
 class TamanoFiltro(BaseModel):

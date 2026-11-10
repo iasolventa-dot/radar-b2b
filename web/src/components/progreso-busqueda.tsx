@@ -195,6 +195,13 @@ function resumenRonda(ronda: RondaEstadistica): string {
   if (ronda.herramienta === "enriquecer_borme") {
     return `${r.empresas_revisadas ?? 0} sociedades buscadas en el BORME: ${r.encontradas_en_borme ?? 0} encontradas, ${r.unidas ?? 0} actos añadidos (administradores, hoja registral)`;
   }
+  if (ronda.herramienta === "verificar_filtros") {
+    const motivos = Object.entries((r.motivos ?? {}) as Record<string, number>)
+      .map(([m, n]) => `${n} ${m.toLowerCase()}`)
+      .join(", ");
+    const sinRevisar = Number(r.sin_revisar_sector ?? 0);
+    return `${r.revisadas ?? 0} revisadas: ${r.cumplen ?? 0} cumplen, ${r.descartadas ?? 0} descartadas${motivos ? ` (${motivos})` : ""}${sinRevisar ? ` · ${sinRevisar} sin revisar por el filtro de sector, marcadas como dudosas` : ""}`;
+  }
   if (ronda.herramienta === "filtrar_plantilla") {
     if (typeof r.motivo_parada === "string") return r.motivo_parada;
     return `${r.revisadas ?? 0} revisadas: ${r.dentro ?? 0} dentro del rango, ${r.fuera ?? 0} fuera (descartadas), ${r.sin_dato ?? 0} sin dato de plantilla (se mantienen)`;
@@ -831,6 +838,7 @@ function iconoHerramienta(herramienta: string): LucideIcon {
   if (herramienta === "completar_identidad") return Fingerprint;
   if (herramienta === "filtrar_autonomos") return UserX;
   if (herramienta === "filtrar_plantilla") return Users;
+  if (herramienta === "verificar_filtros") return Filter;
   if (herramienta === "finalizar_busqueda") return Flag;
   if (herramienta === "preguntar_usuario") return HelpCircle;
   if (herramienta === "descubrir_apify_maps" || herramienta === "descubrir_places") return MapPinned;

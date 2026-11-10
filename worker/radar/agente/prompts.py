@@ -15,7 +15,9 @@ PROMPT_INTERPRETACION = """Eres el módulo de interpretación de Radar B2B, un s
 
 Convierte la petición del usuario en filtros estructurados. Reglas:
 - Traduce zonas coloquiales a unidades administrativas explícitas (provincias, municipios o comunidades autónomas, con su nombre oficial). Ejemplos: "Aljarafe" → lista de municipios de la comarca; "Andalucía occidental" → Huelva, Sevilla, Cádiz, Córdoba. Si una zona no tiene límites claros, dilo en "supuestos". Solo se pueden filtrar estas tres unidades — no hay geocodificación todavía, así que un radio en km o un polígono dibujado no se puede aplicar: si el usuario pide algo así ("a 20km de Sevilla"), usa la provincia o los municipios más cercanos como aproximación y dilo explícitamente en "supuestos" (p. ej. "sin geocodificación: interpretado 'a 20km de Sevilla' como el municipio de Sevilla").
+- Códigos postales: si la petición da uno o varios ("del 41500", "CP 28001", "en el código postal 41702"), ponlos en "codigos_postales" (5 cifras) y pon también en "municipios" el municipio al que pertenecen si lo sabes con seguridad (dilo en "supuestos"). Si el usuario pide "la población X" sin código postal, usa el municipio.
 - Traduce sectores a códigos CNAE (el nivel más específico que sea seguro) + palabras clave para buscar en webs y objeto social + exclusiones (palabras clave que, si aparecen, descartan la empresa aunque case el resto).
+- Filtros avanzados dentro del sector: si la petición acota QUÉ TIPO de negocio del sector quiere o no quiere (por tamaño del local, formato, actividad concreta, clientela, independiente o de cadena, etc.), escríbelo en "solo_si" (características que DEBE tener) y "descartar_si" (tipos de negocio del mismo sector que NO quiere), como frases cortas y concretas que se puedan comprobar con lo que se sabe de cada empresa. Ejemplo: "tiendas minoristas, solo supermercados pequeños" → solo_si ["supermercado o tienda de alimentación pequeña / de barrio / autoservicio independiente"], descartar_si ["cadena nacional o regional de supermercados (Mercadona, Carrefour, Lidl, Dia...)", "hipermercado", "tienda de otro tipo (ropa, electrónica...)"]. Si no acota nada, déjalos vacíos: no los inventes.
 - Tamaño: micro <10, pequeña 10-49, mediana 50-249, grande >=250 empleados (definición UE). Si el usuario usa "mediana" coloquialmente, interprétalo y decláralo en "supuestos". La plantilla se obtiene del tramo que declara la empresa en LinkedIn (si se marca LinkedIn) y de su web cuando lo dice; las empresas cuya plantilla se conoce y queda fuera del rango se descartan, y las de plantilla desconocida se mantienen. Si el usuario pide un tamaño, rellena empleados_min/empleados_max y declara en "supuestos" que solo se descartan las de plantilla conocida fuera del rango y que marcar LinkedIn aumenta la cobertura de este dato.
 - requisitos.web/telefono: solo empresas que ya tengan ese dato guardado. requisitos.email_generico: solo empresas con un email de tipo info@/contacto@/ventas@... (no un email personal).
 - calidad.frescura_max_dias: solo empresas con al menos un dato confirmado hace menos de ese número de días.
@@ -27,8 +29,8 @@ Petición: {peticion}
 Contexto del usuario (si lo hay): {contexto}
 
 Responde SOLO con JSON con esta forma:
-{{"ubicacion": {{"tipo": "provincias|municipios|ccaa", "provincias": [], "municipios": [], "ccaa": []}},
- "sector": {{"sector_interno": "", "codigos_cnae": [], "palabras_clave": [], "exclusiones": []}},
+{{"ubicacion": {{"tipo": "provincias|municipios|ccaa", "provincias": [], "municipios": [], "ccaa": [], "codigos_postales": []}},
+ "sector": {{"sector_interno": "", "codigos_cnae": [], "palabras_clave": [], "exclusiones": [], "solo_si": [], "descartar_si": []}},
  "tamano": {{"empleados_min": null, "empleados_max": null}},
  "formas_juridicas": [], "incluir_autonomos": false,
  "estados": ["activa", "probablemente_activa"],

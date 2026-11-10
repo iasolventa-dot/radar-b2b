@@ -345,3 +345,22 @@ Pendiente conocido: una identificación previa a la verificación de localidad (
 - 61 empresas de la base de datos tienen plantilla.
 - En la búsqueda «construcción 10-200 empleados» (1.658 empresas): 4 dentro del rango, 2 fuera y descartadas (Yeste Infraestructuras, «más de 300»; Maracof, «350 en plantilla»), y 1.652 sin dato.
 - El filtro ya funciona, pero la cobertura depende de tener una fuente con plantilla para la mayoría de empresas: no la hay entre las conectadas.
+
+### 13j. Código postal, filtros avanzados y verificación final en todas las fuentes (2026-11-10)
+
+- **Código postal** (`ubicacion.codigos_postales`):
+  - El intérprete lo saca de la petición y asocia su municipio (declarado en «supuestos»).
+  - Se usa al descubrir (Maps, Places, Google: «palabra en 41500 Alcalá...»), en `consultar_bd` (CP de la sede) y en la verificación final.
+- **Filtros avanzados dentro del sector** (`sector.solo_si` / `sector.descartar_si`, en lenguaje natural): p. ej. «solo supermercados pequeños de barrio, nada de grandes cadenas». Los aplica el filtro de sector con IA (`relevancia.py`) a todas las empresas, vengan de la fuente que vengan.
+- **Todas las zonas**: Maps, Places y Google buscaban SOLO en la primera zona de la lista. Ahora recorren todos los CP, municipios o provincias (`consultas.zonas_busqueda`, `fases.combinar`).
+- **Verificación final** (`radar/agente/cumplimiento.py`, fase `verificar_filtros`, sin coste):
+  - **Qué comprueba**, con lo guardado: zona (CP, municipio, provincia, país), estado registral, forma jurídica y requisitos de contacto, en TODOS los resultados.
+  - **Lo que no cumple** se descarta con el motivo.
+  - **Lo que no se puede comprobar** se mantiene.
+  - **Lo que el filtro de sector no llegó a revisar** (presupuesto agotado) queda «dudoso» en vez de pasar como bueno.
+  - **Medido en seco** sobre búsquedas reales: en «carpintería metálica en Carmona», 7 de 10 resultados eran de otros municipios; en «Mairena del Aljarafe», 6 de 16.
+- **Cuellos de botella subidos**:
+  - topes de Maps (0,25 → 0,60 €; 40 → 120 negocios por llamada), Places (0,15 → 0,30 €) y Google (0,04 → 0,10 €);
+  - completar contacto (25 → 80 empresas);
+  - buscar CIF (20 → 60 empresas, reserva 0,08 → hasta 0,25 €).
+- **Pendiente:** OSM sin zona busca solo la primera provincia que se le indique; el coste del planificador LLM sigue siendo una parte grande del gasto en búsquedas sin Maps.
