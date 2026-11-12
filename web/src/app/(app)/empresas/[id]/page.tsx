@@ -154,12 +154,51 @@ export default async function PaginaDetalleEmpresa({
     return fuentePorId.get(fuenteId)?.nombre ?? `fuente #${fuenteId}`;
   };
 
-  const observacionesPorCampo = new Map<string, typeof observaciones>();
+  // El mismo dato de la misma fuente se registra cada vez que se vuelve a leer
+  // (relecturas de la web, búsquedas nuevas): antes salía repetido en el
+  // historial («41016 · Web corporativa» cuatro veces). Se agrupa en una sola
+  // línea con la última fecha y cuántas veces se ha confirmado. Las filas
+  // vienen ordenadas por fecha descendente: la primera de cada grupo es la última.
+  type Observacion = NonNullable<typeof observaciones>[number];
+  type Agrupada = Observacion & { veces: number; primera: string };
+  const observacionesPorCampo = new Map<string, Agrupada[]>();
+  const vistas = new Map<string, Agrupada>();
   for (const o of observaciones ?? []) {
+    const valor = String(o.valor_norm ?? o.valor_original ?? "").trim().toLowerCase();
+    const clave = `${o.campo}|${valor}|${o.fuente_id}|${o.vigente}`;
+    const ya = vistas.get(clave);
+    if (ya) {
+      ya.veces += 1;
+      ya.primera = o.observado_en;
+      continue;
+    }
+    const agrupada: Agrupada = { ...o, veces: 1, primera: o.observado_en };
+    vistas.set(clave, agrupada);
     const lista = observacionesPorCampo.get(o.campo) ?? [];
-    lista.push(o);
+    lista.push(agrupada);
     observacionesPorCampo.set(o.campo, lista);
   }
+  const datosDistintos = vistas.size;
+
+  // «Cambio de domicilio» entre la misma dirección escrita de dos formas
+  // («Pol. Ind. El Pino, C. Pino Tea, 11, 41016» / «Polígono Industrial El Pino.
+  // C/ Pino Tea, 11») no es un cambio: se oculta si no cambian el CP ni los números.
+  const huellaDireccion = (texto: unknown) =>
+    String(texto ?? "")
+      .match(/\d+/g)
+      // Solo los números de la calle: sin el CP (5 cifras) ni años.
+      ?.filter((n) => n.length < 4)
+      .sort()
+      .join("-") ?? "";
+  const eventosRelevantes = (eventos ?? []).filter((e) => {
+    if (e.tipo !== "cambio_domicilio") return true;
+    const d = (e.detalle ?? {}) as Record<string, unknown>;
+    const antes = huellaDireccion(d.antes);
+    const despues = huellaDireccion(d.despues);
+    // Pasar de «41016» a la dirección completa no es un cambio: solo cuando
+    // las dos tienen número de calle y es distinto.
+    return Boolean(antes && despues && antes !== despues);
+  });
 
   return (
     <div className="entrada space-y-6">
@@ -358,7 +397,12 @@ export default async function PaginaDetalleEmpresa({
 
       {/* Trazabilidad completa: cada dato, de dónde salió y cuándo -- el detalle
           que la tabla de resultados de una búsqueda nunca puede mostrar */}
-      <Seccion icono={Building2} titulo={`Historial de observaciones (${observaciones?.length ?? 0})`}>
+      <Seccion
+        icono={Building2}
+        titulo={`Historial de observaciones (${datosDistintos}${
+          (observaciones?.length ?? 0) > datosDistintos ? ` datos, ${observaciones?.length} lecturas` : ""
+        })`}
+      >
         {observacionesPorCampo.size > 0 ? (
           <div className="space-y-4">
             {Array.from(observacionesPorCampo.entries()).map(([campo, filas]) => (
@@ -374,8 +418,13 @@ export default async function PaginaDetalleEmpresa({
                       </span>
                       <span className="shrink-0 text-sm text-slate-400">
                         {!o.vigente && <span className="mr-1">(sustituida)</span>}
-                        {nombreFuente(o.fuente_id)} · {new Date(o.observado_en).toLocaleDateString("es-ES")} · confianza{" "}
-                        {o.confianza_fuente?.toFixed(2) ?? "—"}
+                        {nombreFuente(o.fuente_id)} · {new Date(o.observado_en).toLocaleDateString("es-ES")}
+                        {o.veces > 1 && (
+                          <span title={`Primera vez: ${new Date(o.primera).toLocaleDateString("es-ES")}`}>
+                            {" "}· confirmado {o.veces} veces
+                          </span>
+                        )}
+                        {" "}· confianza {o.confianza_fuente?.toFixed(2) ?? "—"}
                         {o.url_evidencia && (
                           <>
                             {" · "}
@@ -403,10 +452,10 @@ export default async function PaginaDetalleEmpresa({
           observaciones: esto no es "un dato más", es "algo le pasó a esta
           empresa en este momento" (cambió de estado, cambió de domicilio,
           llegó un acto nuevo del BORME). */}
-      {eventos && eventos.length > 0 && (
-        <Seccion icono={Clock3} titulo={`Historial de la empresa (${eventos.length})`}>
+      {eventosRelevantes.length > 0 && (
+        <Seccion icono={Clock3} titulo={`Historial de la empresa (${eventosRelevantes.length})`}>
           <ul className="space-y-1.5 text-sm text-slate-600">
-            {eventos.map((e, i) => (
+            {eventosRelevantes.map((e, i) => (
               <li key={i} className="flex items-start justify-between gap-3">
                 <span>
                   <span className="font-medium text-slate-700">{ETIQUETA_EVENTO[e.tipo] ?? e.tipo}</span>
