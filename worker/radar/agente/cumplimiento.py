@@ -145,7 +145,12 @@ where br.busqueda_id = %s and e.fusionada_en is null and not br.relevancia_revis
 """
 
 
-def verificar_filtros(conn: psycopg.Connection, filtros: FiltrosBusqueda, busqueda_id: str) -> dict[str, Any]:
+def verificar_filtros(
+    conn: psycopg.Connection, filtros: FiltrosBusqueda, busqueda_id: str, *, marcar_sin_revisar: bool = True
+) -> dict[str, Any]:
+    """`marcar_sin_revisar=False`: solo descarta lo que no cumple, sin marcar
+    como «dudosas» las que el filtro de sector aún no ha visto (para limpiar
+    una búsqueda antes de reanudarla y que ese filtro las revise)."""
     criterios = criterios_de(filtros, provincias_de_zona(filtros, conn))
     cuenta: dict[str, Any] = {"revisadas": 0, "cumplen": 0, "descartadas": 0, "sin_revisar_sector": 0, "motivos": {}}
     for fila in conn.execute(_SQL, (busqueda_id,)).fetchall():
@@ -167,7 +172,7 @@ def verificar_filtros(conn: psycopg.Connection, filtros: FiltrosBusqueda, busque
             )
             continue
         cuenta["cumplen"] += 1
-        if clasificacion is None:
+        if clasificacion is None and marcar_sin_revisar:
             cuenta["sin_revisar_sector"] += 1
             conn.execute(
                 "update busqueda_resultados set clasificacion = 'dudoso', motivo_relevancia = %s "

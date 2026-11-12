@@ -650,6 +650,7 @@ async def _fases_finales(
     from radar.agente.enriquecer_borme import enriquecer_con_borme
     from radar.agente.redes_marcadas import fuentes_marcadas_finales, reserva_redes
     from radar.agente.relevancia import evaluar_relevancia
+    from radar.agente.repetidos import quitar_repetidos
     from radar.agente.resolver_dudas import resolver_dudas
     from radar.agente.tamano import filtrar_por_plantilla, tiene_filtro_de_plantilla
 
@@ -743,6 +744,11 @@ async def _fases_finales(
     # Zona (CP, municipio, provincia, país), estado, forma jurídica, requisitos
     # de contacto y que nada se quede sin pasar el filtro de sector: sea cual
     # sea la fuente que trajo cada empresa (radar.agente.cumplimiento).
+    # Una sola ficha por empresa en los resultados (2026-11-12): la misma
+    # empresa traída por dos fuentes sin unir salía repetida.
+    if await fase("quitar_repetidos", en_hilo(quitar_repetidos, conn, busqueda_id)):
+        return
+
     if await fase("verificar_filtros", en_hilo(verificar_filtros, conn, filtros, busqueda_id)):
         return
 

@@ -197,6 +197,9 @@ function resumenRonda(ronda: RondaEstadistica): string {
   if (ronda.herramienta === "enriquecer_borme") {
     return `${r.empresas_revisadas ?? 0} sociedades buscadas en el BORME: ${r.encontradas_en_borme ?? 0} encontradas, ${r.unidas ?? 0} actos añadidos (administradores, hoja registral)`;
   }
+  if (ronda.herramienta === "quitar_repetidos") {
+    return `${r.revisadas ?? 0} revisadas: ${r.repetidas_quitadas ?? 0} repetidas quitadas (misma empresa en ${r.grupos ?? 0} grupos; se deja la ficha más completa)`;
+  }
   if (ronda.herramienta === "verificar_filtros") {
     const motivos = Object.entries((r.motivos ?? {}) as Record<string, number>)
       .map(([m, n]) => `${n} ${m.toLowerCase()}`)
@@ -867,7 +870,7 @@ function iconoHerramienta(herramienta: string): LucideIcon {
   if (herramienta === "completar_identidad") return Fingerprint;
   if (herramienta === "filtrar_autonomos") return UserX;
   if (herramienta === "filtrar_plantilla") return Users;
-  if (herramienta === "verificar_filtros") return Filter;
+  if (herramienta === "verificar_filtros" || herramienta === "quitar_repetidos") return Filter;
   if (herramienta === "finalizar_busqueda") return Flag;
   if (herramienta === "preguntar_usuario") return HelpCircle;
   if (herramienta === "descubrir_apify_maps" || herramienta === "descubrir_places") return MapPinned;

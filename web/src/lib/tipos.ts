@@ -273,6 +273,7 @@ export const ETIQUETA_HERRAMIENTA: Record<string, string> = {
   filtrar_autonomos: "Omitir autónomos",
   filtrar_plantilla: "Filtrar por número de empleados",
   verificar_filtros: "Verificar zona y filtros en todos los resultados",
+  quitar_repetidos: "Quitar resultados repetidos",
   completar_contacto: "Completar contacto (web, teléfono, email)",
   enriquecer_borme: "Identidad y directivos desde el BORME",
   evaluar_relevancia: "Filtrar resultados que no son del sector (IA)",
