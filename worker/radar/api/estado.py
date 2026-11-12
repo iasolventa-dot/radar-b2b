@@ -44,6 +44,11 @@ def rondas_del_agente(rondas: list[RondaPlanificador]) -> int:
     return sum(1 for r in rondas if r.herramienta == "planificador_llm")
 
 
+def ronda_desde_dict(d: dict[str, Any]) -> RondaPlanificador:
+    """Inversa de `serializar_ronda` (para reanudar una búsqueda guardada)."""
+    return RondaPlanificador(int(d.get("numero") or 0), str(d.get("herramienta") or ""), d.get("argumentos") or {}, d.get("resultado") or {})
+
+
 def serializar_ronda(ronda: RondaPlanificador) -> dict[str, Any]:
     return {
         "numero": ronda.numero,

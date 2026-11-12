@@ -61,6 +61,7 @@ from radar.agente.planificador import (
     ResultadoPlanificador,
     RondaPlanificador,
     planificar,
+    reanudar_fases_finales,
 )
 from radar.agente.profundizar import profundizar_empresa
 from radar.api.bd_busquedas import (
@@ -72,6 +73,7 @@ from radar.api.bd_busquedas import (
     leer_opciones,
     listar_busquedas,
     marcar_en_curso,
+    marcar_reanudada,
     obtener_busqueda,
     solicitar_cancelacion,
 )
@@ -92,7 +94,7 @@ from radar.api.esquemas import (
     ResolverConflictoIn,
     ResolverConflictoOut,
 )
-from radar.api.estado import EstadoBusqueda, estado_final_de
+from radar.api.estado import EstadoBusqueda, estado_final_de, ronda_desde_dict
 from radar.config import get_settings
 from radar.exportacion import exportar_busqueda_solventa
 from radar.fuentes.apify import probar_token as probar_token_apify
@@ -349,6 +351,73 @@ async def listar(limite: int = 20) -> list[BusquedaOut]:
         )
         for b in busquedas
     ]
+
+
+ESTADOS_REANUDABLES = ("error", "cancelada")
+
+
+async def _reanudar_en_fondo(busqueda_id: str) -> None:
+    """Fases finales de una búsqueda que terminó en error o cancelada, con el
+    presupuesto que le quedaba. Mismo manejo de progreso y errores que
+    `_ejecutar_planificador_en_fondo`."""
+    db_url = get_settings().supabase_db_url
+    if not db_url:
+        return
+    with psycopg.connect(db_url) as conn_lectura:
+        busqueda = obtener_busqueda(conn_lectura, busqueda_id)
+        opciones = leer_opciones(conn_lectura, busqueda_id)
+    if busqueda is None:
+        return
+    filtros = FiltrosBusqueda.model_validate(busqueda.filtros)
+    max_rondas = busqueda.estadisticas.get("max_rondas", 10)
+    previas = [ronda_desde_dict(r) for r in busqueda.estadisticas.get("rondas") or []]
+    coste_previo = busqueda.coste_eur
+    rondas_persistidas: list[RondaPlanificador] = list(previas)
+
+    async def on_ronda(ronda: RondaPlanificador) -> None:
+        rondas_persistidas.append(ronda)
+        with psycopg.connect(db_url) as conn:
+            guardar_progreso_ronda(
+                conn, busqueda_id, rondas_hasta_ahora=rondas_persistidas, max_rondas=max_rondas,
+                coste_gastado_eur=coste_previo + sum(_coste_de_ronda(r) for r in rondas_persistidas[len(previas):]),
+            )
+
+    async def debe_cancelar() -> bool:
+        with psycopg.connect(db_url) as conn:
+            return debe_cancelarse(conn, busqueda_id)
+
+    try:
+        async with httpx.AsyncClient() as cliente_http:
+            with psycopg.connect(db_url, autocommit=False) as conn_trabajo:
+                resultado = await reanudar_fases_finales(
+                    conn_trabajo, cliente_http, filtros, presupuesto_restante_eur=max(0.0, busqueda.presupuesto_eur - coste_previo),
+                    presupuesto_total_eur=busqueda.presupuesto_eur, busqueda_id=busqueda_id,
+                    usar_places=bool(opciones.get("usar_google_places")), apify_actores=set(opciones.get("apify_actores") or []),
+                    paso_inicial=len(previas), on_ronda=on_ronda, debe_cancelar=debe_cancelar,
+                )
+    except Exception as exc:  # noqa: BLE001 -- nunca dejarla 'en_curso' colgada
+        resultado = ResultadoPlanificador(error=str(exc))
+    with psycopg.connect(db_url) as conn:
+        finalizar_busqueda_db(
+            conn, busqueda_id, estado=estado_final_de(resultado), rondas=rondas_persistidas, max_rondas=max_rondas,
+            coste_gastado_eur=coste_previo + resultado.coste_gastado_eur, resultado=resultado,
+        )
+
+
+@app.post("/busquedas/{busqueda_id}/reanudar", response_model=ConfirmarBusquedaOut)
+async def reanudar(busqueda_id: str, tareas: BackgroundTasks) -> ConfirmarBusquedaOut:
+    """Reanuda una búsqueda que terminó en error o cancelada (2026-11-12): no
+    vuelve a descubrir, solo verifica y completa lo ya encontrado."""
+    db_url = _requerir_db_url()
+    with psycopg.connect(db_url) as conn:
+        busqueda = obtener_busqueda(conn, busqueda_id)
+        if busqueda is None:
+            raise HTTPException(status_code=404, detail="búsqueda no encontrada")
+        if busqueda.estado not in ESTADOS_REANUDABLES:
+            raise HTTPException(status_code=409, detail=f"solo se reanudan búsquedas con error o canceladas (está «{busqueda.estado}»)")
+        marcar_reanudada(conn, busqueda_id)
+    tareas.add_task(_reanudar_en_fondo, busqueda_id)
+    return ConfirmarBusquedaOut(id=busqueda_id, estado="en_curso")
 
 
 @app.post("/busquedas/{busqueda_id}/cancelar", response_model=ConfirmarBusquedaOut)

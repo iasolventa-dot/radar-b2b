@@ -15,6 +15,22 @@ import {
 import { crearClienteServidor } from "@/lib/supabase/server";
 import { BotonProfundizar } from "@/components/boton-profundizar";
 
+// Plantilla legible: «11-50», «más de 40», «120» (worker: radar/normalizacion/plantilla.py).
+function textoPlantilla(min: number | null, max: number | null): string | null {
+  if (min == null && max == null) return null;
+  if (min === max) return String(min);
+  if (max == null) return `más de ${min}`;
+  if (min == null) return `hasta ${max}`;
+  return `${min}-${max}`;
+}
+
+// «LinkedIn (página de empresa / perfil): 11-50 employees» -> «LinkedIn».
+function fuentePlantilla(tamanoFuente: string | null): string | null {
+  if (!tamanoFuente) return null;
+  const fuente = tamanoFuente.split(":")[0].split("(")[0].trim();
+  return fuente || null;
+}
+
 export const dynamic = "force-dynamic";
 
 // Antes de esta página, la única forma de ver los datos de una empresa era
@@ -74,11 +90,12 @@ export default async function PaginaDetalleEmpresa({
   const { data: empresa } = await supabase
     .from("empresas")
     .select(
-      "id, nif, nif_valido, razon_social, nombre_comercial, forma_juridica, es_persona_fisica, objeto_social, cnae_principal, cnae_version, estado, estado_confianza, confianza_global, empleados_min, empleados_max, sector_id, dominio_web, creado_en, actualizado_en"
+      "id, nif, nif_valido, razon_social, nombre_comercial, forma_juridica, es_persona_fisica, objeto_social, cnae_principal, cnae_version, estado, estado_confianza, confianza_global, empleados_min, empleados_max, tamano_fuente, sector_id, dominio_web, creado_en, actualizado_en"
     )
     .eq("id", id)
     .maybeSingle();
   if (!empresa) notFound();
+  const plantilla = textoPlantilla(empresa.empleados_min, empresa.empleados_max);
 
   // Varias consultas planas en vez de una sola anidada a varios niveles: el
   // cliente de Supabase no tiene tipos generados (createBrowserClient sin
@@ -182,6 +199,15 @@ export default async function PaginaDetalleEmpresa({
                   <ShieldCheck className="h-3.5 w-3.5" /> confianza {empresa.confianza_global.toFixed(2)}
                 </span>
               )}
+              {plantilla ? (
+                <span className="badge bg-violet-50 text-violet-700" title={empresa.tamano_fuente ?? ""}>
+                  <Users className="h-3.5 w-3.5" /> {plantilla} empleados
+                </span>
+              ) : (
+                <span className="badge bg-slate-100 text-slate-500" title="Ninguna fuente da todavía su número de empleados">
+                  <Users className="h-3.5 w-3.5" /> plantilla sin dato
+                </span>
+              )}
               {empresa.dominio_web && (
                 <a
                   href={`https://${empresa.dominio_web}`}
@@ -209,11 +235,20 @@ export default async function PaginaDetalleEmpresa({
             CNAE: {empresa.cnae_principal ? `${empresa.cnae_principal} (${empresa.cnae_version})` : "sin clasificar"}
             {cnae?.descripcion && ` — ${cnae.descripcion}`}
           </p>
-          {(empresa.empleados_min != null || empresa.empleados_max != null) && (
-            <p className="text-slate-500">
-              Empleados: {empresa.empleados_min ?? "?"}–{empresa.empleados_max ?? "?"}
-            </p>
-          )}
+          <p className="flex items-center gap-1.5 text-slate-500">
+            <Users className="h-3.5 w-3.5" />
+            {plantilla ? (
+              <span>
+                Plantilla: <span className="font-semibold text-slate-800">{plantilla} empleados</span>
+                {fuentePlantilla(empresa.tamano_fuente) && ` · según ${fuentePlantilla(empresa.tamano_fuente)}`}
+                {empresa.tamano_fuente?.includes(":") && (
+                  <span className="text-slate-400"> («{empresa.tamano_fuente.split(":").slice(1).join(":").trim()}»)</span>
+                )}
+              </span>
+            ) : (
+              <span>Plantilla: sin dato (ni LinkedIn ni su web dicen cuántos empleados tiene)</span>
+            )}
+          </p>
           {empresa.dominio_web && (
             <p className="flex items-center gap-1.5 text-slate-500">
               <Globe className="h-3.5 w-3.5" />

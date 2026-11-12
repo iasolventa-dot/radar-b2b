@@ -109,6 +109,13 @@ export function cancelarBusqueda(id: string): Promise<ConfirmarBusquedaOut> {
   return peticionJson<ConfirmarBusquedaOut>(`/busquedas/${id}/cancelar`, { method: "POST" });
 }
 
+/** POST /busquedas/{id}/reanudar — retoma una búsqueda que terminó en error o
+ * cancelada: verifica y completa lo ya descubierto (no vuelve a descubrir) con el
+ * presupuesto que le quedaba. */
+export function reanudarBusqueda(id: string): Promise<ConfirmarBusquedaOut> {
+  return peticionJson<ConfirmarBusquedaOut>(`/busquedas/${id}/reanudar`, { method: "POST" });
+}
+
 /** POST /empresas/{id}/profundizar — 1-4 búsquedas web dirigidas a esta empresa
  * concreta (nombre+NIF/municipio ya conocidos), no un descubrimiento abierto.
  * Presupuesto pequeño a propósito (por defecto 0,30€); responde en la misma

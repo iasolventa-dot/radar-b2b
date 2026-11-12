@@ -41,7 +41,7 @@ import { EstadoVacio, TarjetaCifra } from "@/components/encabezado-pagina";
 import { EstadoBusqueda } from "@/components/estado-busqueda";
 import { FuentesMarcadas } from "@/components/fuentes-marcadas";
 import { crearClienteNavegador } from "@/lib/supabase/client";
-import { cancelarBusqueda, confirmarBusqueda, descargarXmlSolventa } from "@/lib/api";
+import { cancelarBusqueda, confirmarBusqueda, descargarXmlSolventa, reanudarBusqueda } from "@/lib/api";
 import { describirFiltros } from "@/lib/filtros";
 import { exportarResultadosCsv } from "@/lib/exportar-csv";
 import {
@@ -62,6 +62,8 @@ const INTERVALO_SONDEO_MS = 4000;
 const ESTADOS_QUE_CAMBIAN_SOLOS = new Set(["en_curso"]);
 // Estados desde los que se puede pedir cancelar (radar.api.main::cancelar).
 const ESTADOS_CANCELABLES = new Set(["en_curso", "esperando_respuesta"]);
+// Estados desde los que se puede reanudar (radar.api.main::reanudar).
+const ESTADOS_REANUDABLES = new Set(["error", "cancelada"]);
 
 interface EmpresaResultado {
   empresa_id: string;
@@ -287,6 +289,7 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
   const [errorConfirmar, setErrorConfirmar] = useState<string | null>(null);
   const [cancelando, setCancelando] = useState(false);
   const [errorCancelar, setErrorCancelar] = useState<string | null>(null);
+  const [reanudando, setReanudando] = useState(false);
 
   useEffect(() => {
     let cancelado = false;
@@ -363,6 +366,20 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
     }
   }
 
+  async function reanudar() {
+    setReanudando(true);
+    setErrorCancelar(null);
+    try {
+      const resultado = await reanudarBusqueda(id);
+      // El sondeo se reactiva solo al volver a 'en_curso'.
+      setBusqueda((b) => ({ ...b, estado: resultado.estado }));
+    } catch (err) {
+      setErrorCancelar(err instanceof Error ? err.message : String(err));
+    } finally {
+      setReanudando(false);
+    }
+  }
+
   async function cancelar() {
     setCancelando(true);
     setErrorCancelar(null);
@@ -431,6 +448,18 @@ export function ProgresoBusqueda({ id, inicial }: { id: string; inicial: Busqued
               <button type="button" onClick={cancelar} disabled={cancelando} className="btn-danger">
                 {cancelando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}
                 Cancelar búsqueda
+              </button>
+            )}
+            {ESTADOS_REANUDABLES.has(busqueda.estado) && (
+              <button
+                type="button"
+                onClick={reanudar}
+                disabled={reanudando}
+                className="btn-primary"
+                title="Verifica y completa lo ya encontrado (sector, contacto, redes, CIF, filtros) con el presupuesto que quedaba"
+              >
+                {reanudando ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCw className="h-4 w-4" />}
+                Reanudar verificación
               </button>
             )}
             {errorCancelar && <p className="text-sm text-rose-600">{errorCancelar}</p>}

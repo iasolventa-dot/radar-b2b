@@ -884,9 +884,13 @@ async def descubrir_borme(
     hasta = datetime.now(UTC).date()
     desde = hasta - timedelta(days=min(dias, MAX_DIAS_BORME))
 
+    # La zona más precisa manda: si hay municipios, se filtra por ellos aunque
+    # también haya provincia (2026-11-12: «28108 Alcobendas» + «Madrid» metió
+    # 19.252 sociedades de toda la provincia porque solo se miraba la provincia).
     codigos_zona: list[str] = []
-    if filtros.ubicacion.municipios and not filtros.ubicacion.provincias:
+    if filtros.ubicacion.municipios:
         codigos_zona = resolver_codigos_municipio(filtros.ubicacion.municipios, conn)
+    codigos_postales = set(filtros.ubicacion.codigos_postales)
 
     contadores = {
         "candidatos": 0, "descartados_por_zona": 0, "descartados_municipio_desconocido": 0, "descartados_por_sector": 0,
@@ -916,6 +920,9 @@ async def descubrir_borme(
             if ine_acto is None or fuera_de_zona(ine_acto, codigos_zona):
                 contadores["descartados_por_zona"] += 1
                 continue
+        if codigos_postales and registro.campos.codigo_postal and registro.campos.codigo_postal not in codigos_postales:
+            contadores["descartados_por_zona"] += 1
+            continue
         contadores["candidatos"] += 1
         try:
             resultado = procesar_registro(
@@ -1158,11 +1165,11 @@ class ContextoHerramientas:
 
 
 MAX_OSM_SIN_FRUTO = 2
-# Más empresas no es mejor lista: a partir de aquí las herramientas de
-# descubrimiento no se ejecutan y el presupuesto queda para verificar (sector,
-# CIF, administradores, contacto). 2026-10-06: una búsqueda nacional llegó a
-# 1.740 empresas y solo pudo revisar 425.
-MAX_EMPRESAS_BUSQUEDA = 300
+# Sin tope fijo de empresas por búsqueda (decisión del usuario 2026-11-12: «no
+# debería haber un límite más allá del que apliquen los filtros»). El tope de
+# 300 que hubo desde 2026-10-06 lo sustituye `filtros.limite_resultados`, si la
+# petición pide uno («las 100 primeras»); si no, mandan los filtros y el
+# presupuesto.
 _HERRAMIENTAS_DESCUBRIMIENTO = {
     "descubrir_borme", "buscar_web", "descubrir_osm", "descubrir_places", "descubrir_apify_maps", "descubrir_google_search",
 }
@@ -1191,15 +1198,16 @@ def progreso_busqueda(conn: psycopg.Connection, busqueda_id: str) -> dict[str, i
 
 async def ejecutar_herramienta(nombre: str, argumentos: dict[str, Any], contexto: ContextoHerramientas) -> dict[str, Any]:
     busqueda_id = getattr(contexto, "busqueda_id", None)
-    if busqueda_id and nombre in _HERRAMIENTAS_DESCUBRIMIENTO:
+    limite = getattr(getattr(contexto, "filtros", None), "limite_resultados", None)
+    if busqueda_id and limite and nombre in _HERRAMIENTAS_DESCUBRIMIENTO:
         try:
             ya = progreso_busqueda(contexto.conn, busqueda_id).get("empresas", 0)
         except Exception:  # noqa: BLE001
             contexto.conn.rollback()
             ya = 0
-        if ya >= MAX_EMPRESAS_BUSQUEDA:
+        if ya >= limite:
             return {
-                "motivo_parada": f"la búsqueda ya tiene {ya} empresas (tope {MAX_EMPRESAS_BUSQUEDA}): termina para verificarlas",
+                "motivo_parada": f"la búsqueda ya tiene {ya} empresas (límite pedido: {limite}): termina para verificarlas",
                 "coste_eur": 0.0,
             }
     resultado = await _ejecutar_herramienta(nombre, argumentos, contexto)

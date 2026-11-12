@@ -21,6 +21,7 @@ búsqueda. Una decisión humana (aceptado/rechazado) nunca se reevalúa.
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Literal
 
 import psycopg
@@ -30,6 +31,7 @@ from radar.agente.interpretacion import FiltrosBusqueda
 from radar.llm_json import pedir_json
 
 MAX_POR_LLAMADA = 25
+LLAMADAS_EN_PARALELO = 6
 
 PROMPT = """Clasifica si cada empresa corresponde a lo que busca el usuario de una base de datos B2B de empresas españolas.
 
@@ -117,30 +119,44 @@ def evaluar_relevancia(
     conn: psycopg.Connection, filtros: FiltrosBusqueda, busqueda_id: str, *, max_coste_eur: float
 ) -> dict[str, Any]:
     filas = conn.execute(_SQL_PENDIENTES, (busqueda_id,)).fetchall()
+    conn.commit()
     contadores = {"evaluadas": 0, "relevante": 0, "dudoso": 0, "descartado": 0, "sin_evaluar": 0}
     coste = 0.0
     error: str | None = None
-    for i in range(0, len(filas), MAX_POR_LLAMADA):
-        if coste >= max_coste_eur:
-            contadores["sin_evaluar"] += len(filas) - i
-            break
-        perfiles = [perfil_para_prompt(f) for f in filas[i : i + MAX_POR_LLAMADA]]
-        r = pedir_json(construir_prompt(filtros, perfiles), RespuestaRelevancia)
-        coste += r.coste_eur
-        if r.datos is None:
-            error = r.error
-            contadores["sin_evaluar"] += len(perfiles)
-            continue
-        ids_lote = {p["id"] for p in perfiles}
-        for c in r.datos.clasificaciones:
-            if c.id not in ids_lote:
-                continue
-            conn.execute(
-                "update busqueda_resultados set clasificacion = %s, motivo_relevancia = %s, autonomo_ia = %s "
-                "where busqueda_id = %s and empresa_id = %s and not relevancia_revisada",
-                (c.relevancia, c.motivo[:300], c.autonomo, busqueda_id, c.id),
-            )
-            contadores["evaluadas"] += 1
-            contadores[c.relevancia] += 1
-        conn.commit()
+    lotes = [[perfil_para_prompt(f) for f in filas[i : i + MAX_POR_LLAMADA]] for i in range(0, len(filas), MAX_POR_LLAMADA)]
+    # Varias llamadas al modelo a la vez (2026-11-12): sin tope de empresas por
+    # búsqueda puede haber miles, y de una en una eran horas. La BD se escribe
+    # en este hilo, de una tanda en otra; el presupuesto se comprueba por tanda.
+    with ThreadPoolExecutor(max_workers=LLAMADAS_EN_PARALELO) as hilos:
+        for t in range(0, len(lotes), LLAMADAS_EN_PARALELO):
+            tanda = lotes[t : t + LLAMADAS_EN_PARALELO]
+            if coste >= max_coste_eur:
+                contadores["sin_evaluar"] += sum(len(lote) for lote in lotes[t:])
+                break
+            respuestas = list(hilos.map(lambda lote: pedir_json(construir_prompt(filtros, lote), RespuestaRelevancia), tanda))
+            for perfiles, r in zip(tanda, respuestas, strict=True):
+                coste += r.coste_eur
+                if r.datos is None:
+                    error = r.error
+                    contadores["sin_evaluar"] += len(perfiles)
+                    continue
+                _guardar(conn, busqueda_id, perfiles, r.datos, contadores)
+            conn.commit()
     return {**contadores, "error": error, "coste_eur": round(coste, 4)}
+
+
+def _guardar(
+    conn: psycopg.Connection, busqueda_id: str, perfiles: list[dict[str, Any]], datos: RespuestaRelevancia,
+    contadores: dict[str, int],
+) -> None:
+    ids_lote = {p["id"] for p in perfiles}
+    for c in datos.clasificaciones:
+        if c.id not in ids_lote:
+            continue
+        conn.execute(
+            "update busqueda_resultados set clasificacion = %s, motivo_relevancia = %s, autonomo_ia = %s "
+            "where busqueda_id = %s and empresa_id = %s and not relevancia_revisada",
+            (c.relevancia, c.motivo[:300], c.autonomo, busqueda_id, c.id),
+        )
+        contadores["evaluadas"] += 1
+        contadores[c.relevancia] += 1

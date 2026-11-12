@@ -522,17 +522,9 @@ async def planificar(
     (`_bucle_llm`) con el presupuesto restante; 3) `completar_contacto` sobre
     todo lo encontrado. `on_ronda`/`debe_cancelar`: ver docstring del módulo
     -- se aplican igual a las rondas de las fases 1 y 3."""
-    from radar.agente.autonomos import filtrar_autonomos
-    from radar.agente.completar_contacto import completar_contacto
-    from radar.agente.completar_identidad import completar_identidad
-    from radar.agente.costes_apify import conciliar_costes_apify
-    from radar.agente.cumplimiento import verificar_filtros
-    from radar.agente.enriquecer_borme import enriquecer_con_borme
     from radar.agente.fases import ejecutar_con_tope, planes_fuentes_marcadas
-    from radar.agente.redes_marcadas import fuentes_marcadas_finales, reserva_redes
-    from radar.agente.relevancia import evaluar_relevancia
-    from radar.agente.resolver_dudas import resolver_dudas
-    from radar.agente.tamano import filtrar_por_plantilla, tiene_filtro_de_plantilla
+    from radar.agente.redes_marcadas import reserva_redes
+    from radar.agente.tamano import tiene_filtro_de_plantilla
 
     # Parte del presupuesto reservada para los pasos finales (completar
     # contacto, relevancia con IA, resolver dudas): sin ella, el bucle LLM se
@@ -617,95 +609,204 @@ async def planificar(
     if llm.error or llm.motivo_fin == "cancelada_por_usuario" or busqueda_id is None:
         return cerrar()
 
+    motivo_llm = total.motivo_fin
+    await _fases_finales(
+        conn, cliente_http, filtros, contexto=contexto, registrar=registrar, busqueda_id=busqueda_id, actores=actores,
+        presupuesto_eur=presupuesto_eur, inicio=inicio,
+    )
+    if total.motivo_fin not in ("cancelada_por_usuario",) and not total.error:
+        total.motivo_fin = motivo_llm
+    return cerrar()
+
+
+Registrar = Callable[[str, dict[str, Any], dict[str, Any]], Awaitable[bool]]
+
+
+async def _fases_finales(
+    conn: psycopg.Connection,
+    cliente_http: httpx.AsyncClient,
+    filtros: FiltrosBusqueda,
+    *,
+    contexto: ContextoHerramientas,
+    registrar: Registrar,
+    busqueda_id: str,
+    actores: frozenset[str],
+    presupuesto_eur: float,
+    inicio: datetime,
+) -> None:
+    """Verificación y enriquecimiento de TODO lo descubierto (fases 3-5).
+
+    2026-11-12: cada fase va protegida (`fase`): si una falla (p. ej. «canceling
+    statement due to statement timeout» con 19.413 empresas), se registra con
+    su error y la búsqueda SIGUE con las demás. Antes un fallo en la primera
+    (el filtro de sector) dejaba sin ejecutar contacto, LinkedIn, Facebook,
+    rastreo, CIF, plantilla y la verificación de filtros. También se usa para
+    reanudar una búsqueda que terminó en error (`reanudar_fases_finales`)."""
+    from radar.agente.autonomos import filtrar_autonomos
+    from radar.agente.completar_contacto import completar_contacto
+    from radar.agente.completar_identidad import completar_identidad
+    from radar.agente.costes_apify import conciliar_costes_apify
+    from radar.agente.cumplimiento import verificar_filtros
+    from radar.agente.enriquecer_borme import enriquecer_con_borme
+    from radar.agente.redes_marcadas import fuentes_marcadas_finales, reserva_redes
+    from radar.agente.relevancia import evaluar_relevancia
+    from radar.agente.resolver_dudas import resolver_dudas
+    from radar.agente.tamano import filtrar_por_plantilla, tiene_filtro_de_plantilla
+
+    con_plantilla = tiene_filtro_de_plantilla(filtros)
+    reserva_ia = min(0.03, presupuesto_eur * 0.25) / 2
+    reserva_fase_redes = reserva_redes(actores, presupuesto_eur, con_plantilla=con_plantilla)
+    reserva_identidad = min(0.25, presupuesto_eur * 0.15)
+    reserva_relevancia = min(0.04, presupuesto_eur * 0.1)
+    reserva_posterior = reserva_ia + reserva_fase_redes + reserva_identidad
+
+    def restante() -> float:
+        return max(0.0, contexto.presupuesto_restante_eur)
+
+    async def fase(nombre: str, ejecutar: Callable[[], Awaitable[dict[str, Any]]], *, registrar_vacia: bool = True) -> bool:
+        """Ejecuta una fase sin dejar que un fallo pare las siguientes.
+        Devuelve `True` si hay que parar (cancelación o fallo guardando progreso)."""
+        try:
+            resultado = await ejecutar()
+        except Exception as exc:  # noqa: BLE001 -- se registra y se sigue con la siguiente fase
+            conn.rollback()
+            resultado = {"error": f"la fase falló: {exc}"[:500], "coste_eur": 0.0}
+        if not registrar_vacia and not resultado.get("evaluadas") and not resultado.get("error"):
+            return False
+        return await registrar(nombre, {}, resultado)
+
+    def en_hilo(funcion: Callable[..., dict[str, Any]], *args: Any, **kwargs: Any) -> Callable[[], Awaitable[dict[str, Any]]]:
+        return lambda: asyncio.to_thread(funcion, *args, **kwargs)
+
     # --- Fase 3: relevancia (IA), ANTES de completar contacto -----------------
     # Así no se gasta (Maps/Google por nombre, LinkedIn, Facebook, rastreo,
     # CIF, BORME) en empresas que no son del sector pedido (2026-10-02).
-    motivo_llm = total.motivo_fin
-    reserva_posterior = reserva_ia + reserva_fase_redes + reserva_identidad
-    resultado_relevancia = await asyncio.to_thread(
+    if await fase("evaluar_relevancia", en_hilo(
         evaluar_relevancia, conn, filtros, busqueda_id,
-        max_coste_eur=max(reserva_relevancia, (contexto.presupuesto_restante_eur - reserva_posterior) / 2),
-    )
-    if await registrar("evaluar_relevancia", {}, resultado_relevancia):
-        return cerrar()
+        max_coste_eur=max(reserva_relevancia, (restante() - reserva_posterior) / 2),
+    )):
+        return
 
     # --- Fase 3b: completar contacto (solo las no descartadas) --------------
-    resultado_contacto = await completar_contacto(
-        conn, cliente_http, filtros, busqueda_id=busqueda_id,
-        max_coste_eur=max(0.0, contexto.presupuesto_restante_eur - reserva_posterior),
-        apify_actores=actores,
-        telefonos_compartidos=contexto.telefonos_compartidos,
-    )
-    if await registrar("completar_contacto", {}, resultado_contacto):
-        return cerrar()
+    if await fase("completar_contacto", lambda: completar_contacto(
+        conn, cliente_http, filtros, busqueda_id=busqueda_id, max_coste_eur=max(0.0, restante() - reserva_posterior),
+        apify_actores=actores, telefonos_compartidos=contexto.telefonos_compartidos,
+    )):
+        return
 
     # --- Fase 3c: LinkedIn, Facebook y rastreo de webs, si están marcados ---
-    for nombre_fuente, args_fuente, resultado_fuente in await fuentes_marcadas_finales(
-        conn, cliente_http, busqueda_id=busqueda_id, actores=actores,
-        max_coste_eur=max(0.0, contexto.presupuesto_restante_eur - reserva_ia - reserva_identidad),
-        telefonos_compartidos=contexto.telefonos_compartidos, con_plantilla=con_plantilla,
-    ):
+    try:
+        rondas_redes = await fuentes_marcadas_finales(
+            conn, cliente_http, busqueda_id=busqueda_id, actores=actores,
+            max_coste_eur=max(0.0, restante() - reserva_ia - reserva_identidad),
+            telefonos_compartidos=contexto.telefonos_compartidos, con_plantilla=con_plantilla,
+        )
+    except Exception as exc:  # noqa: BLE001
+        conn.rollback()
+        rondas_redes = [("enriquecer_con_linkedin", {}, {"error": f"la fase de redes falló: {exc}"[:500], "coste_eur": 0.0})]
+    for nombre_fuente, args_fuente, resultado_fuente in rondas_redes:
         if await registrar(nombre_fuente, args_fuente, resultado_fuente):
-            return cerrar()
+            return
 
     # --- Fase 4: relevancia de las empresas nuevas de las fases 3b/3c --------
     # Solo evalúa las que aún no tienen clasificación (sin ellas no llama al LLM).
-    resultado_relevancia_2 = await asyncio.to_thread(
-        evaluar_relevancia, conn, filtros, busqueda_id,
-        max_coste_eur=max(0.005, (contexto.presupuesto_restante_eur - reserva_identidad) / 4),
-    )
-    if resultado_relevancia_2.get("evaluadas") and await registrar("evaluar_relevancia", {}, resultado_relevancia_2):
-        return cerrar()
+    if await fase("evaluar_relevancia", en_hilo(
+        evaluar_relevancia, conn, filtros, busqueda_id, max_coste_eur=max(0.005, (restante() - reserva_identidad) / 4),
+    ), registrar_vacia=False):
+        return
 
     # --- Fase 4b: CIF y razón social de las que no lo tienen -------------------
-    resultado_identidad = await completar_identidad(
-        conn, cliente_http, busqueda_id=busqueda_id,
-        max_coste_eur=max(0.0, contexto.presupuesto_restante_eur - reserva_ia),
+    if await fase("completar_identidad", lambda: completar_identidad(
+        conn, cliente_http, busqueda_id=busqueda_id, max_coste_eur=max(0.0, restante() - reserva_ia),
         telefonos_compartidos=contexto.telefonos_compartidos,
-    )
-    if await registrar("completar_identidad", {}, resultado_identidad):
-        return cerrar()
+    )):
+        return
 
     # --- Fase 4c: administradores desde el índice del BORME (gratis) -----------
     # Después de identificar: con la razón social ya conocida hay más actos.
-    resultado_borme = await asyncio.to_thread(
+    if await fase("enriquecer_borme", en_hilo(
         enriquecer_con_borme, conn, busqueda_id, telefonos_compartidos=contexto.telefonos_compartidos
-    )
-    if await registrar("enriquecer_borme", {}, resultado_borme):
-        return cerrar()
+    )):
+        return
 
     # --- Fase 4c-bis: omitir autónomos si la búsqueda lo pide (gratis) -------
     # Al final, con los CIF ya localizados y los administradores del BORME.
-    resultado_autonomos = await asyncio.to_thread(filtrar_autonomos, conn, filtros, busqueda_id)
-    if await registrar("filtrar_autonomos", {}, resultado_autonomos):
-        return cerrar()
+    if await fase("filtrar_autonomos", en_hilo(filtrar_autonomos, conn, filtros, busqueda_id)):
+        return
 
     # --- Fase 4c-ter: filtro de plantilla (gratis) ---------------------------
     # Con la plantilla de LinkedIn y de las webs ya consolidada.
-    if con_plantilla:
-        resultado_plantilla = await asyncio.to_thread(filtrar_por_plantilla, conn, filtros, busqueda_id)
-        if await registrar("filtrar_plantilla", {}, resultado_plantilla):
-            return cerrar()
+    if con_plantilla and await fase("filtrar_plantilla", en_hilo(filtrar_por_plantilla, conn, filtros, busqueda_id)):
+        return
 
     # --- Fase 4c-quater: verificación final de TODOS los filtros (gratis) ----
     # Zona (CP, municipio, provincia, país), estado, forma jurídica, requisitos
     # de contacto y que nada se quede sin pasar el filtro de sector: sea cual
     # sea la fuente que trajo cada empresa (radar.agente.cumplimiento).
-    resultado_filtros = await asyncio.to_thread(verificar_filtros, conn, filtros, busqueda_id)
-    if await registrar("verificar_filtros", {}, resultado_filtros):
-        return cerrar()
+    if await fase("verificar_filtros", en_hilo(verificar_filtros, conn, filtros, busqueda_id)):
+        return
 
     # --- Fase 4d: resolución de dudas --------------------------------------------
-    resultado_dudas = await resolver_dudas(
-        conn, cliente_http, busqueda_id=busqueda_id, max_coste_eur=max(0.0, contexto.presupuesto_restante_eur)
-    )
-    if await registrar("resolver_dudas", {}, resultado_dudas):
-        return cerrar()
+    if await fase("resolver_dudas", lambda: resolver_dudas(
+        conn, cliente_http, busqueda_id=busqueda_id, max_coste_eur=restante()
+    )):
+        return
 
     # --- Fase 5: gasto real de Apify (lo que cobró de verdad) ----------------
     if actores:
-        resultado_costes = await conciliar_costes_apify(conn, cliente_http, desde=inicio)
-        if await registrar("conciliar_costes_apify", {}, resultado_costes):
-            return cerrar()
-    total.motivo_fin = motivo_llm
-    return cerrar()
+        await fase("conciliar_costes_apify", lambda: conciliar_costes_apify(conn, cliente_http, desde=inicio))
+
+
+async def reanudar_fases_finales(
+    conn: psycopg.Connection,
+    cliente_http: httpx.AsyncClient,
+    filtros: FiltrosBusqueda,
+    *,
+    presupuesto_restante_eur: float,
+    presupuesto_total_eur: float,
+    busqueda_id: str,
+    usar_places: bool = False,
+    apify_actores: frozenset[str] | set[str] = frozenset(),
+    paso_inicial: int = 0,
+    on_ronda: OnRonda | None = None,
+    debe_cancelar: DebeCancelar | None = None,
+) -> ResultadoPlanificador:
+    """Reanuda una búsqueda que terminó en error (2026-11-12): ejecuta solo las
+    fases finales (verificar y completar lo ya descubierto), sin volver a
+    descubrir, con el presupuesto que le quedaba. Los pasos se numeran a
+    continuación de los que ya tenía."""
+    actores = frozenset(apify_actores)
+    contexto = ContextoHerramientas(
+        conn=conn, cliente_http=cliente_http, filtros=filtros, presupuesto_restante_eur=presupuesto_restante_eur,
+        busqueda_id=busqueda_id, usar_places=usar_places, apify_actores=actores,
+    )
+    total = ResultadoPlanificador(motivo_fin="cobertura_alcanzada", resumen="Reanudada: verificación y enriquecimiento de lo ya descubierto.")
+
+    async def registrar(nombre: str, argumentos: dict[str, Any], resultado: dict[str, Any]) -> bool:
+        coste = _coste_de(nombre, resultado)
+        contexto.presupuesto_restante_eur -= coste
+        total.coste_gastado_eur += coste
+        ronda = RondaPlanificador(paso_inicial + len(total.rondas) + 1, nombre, argumentos, resultado)
+        total.rondas.append(ronda)
+        if on_ronda is not None:
+            try:
+                await on_ronda(ronda)
+            except Exception as exc:  # noqa: BLE001
+                total.error = f"fallo guardando progreso: {exc}"
+                return True
+        if debe_cancelar is not None:
+            try:
+                if await debe_cancelar():
+                    total.motivo_fin = "cancelada_por_usuario"
+                    return True
+            except Exception as exc:  # noqa: BLE001
+                total.error = f"fallo comprobando cancelación: {exc}"
+                return True
+        return False
+
+    await _fases_finales(
+        conn, cliente_http, filtros, contexto=contexto, registrar=registrar, busqueda_id=busqueda_id, actores=actores,
+        presupuesto_eur=presupuesto_total_eur, inicio=datetime.now(UTC) - timedelta(seconds=5),
+    )
+    total.coste_gastado_eur = round(total.coste_gastado_eur, 4)
+    return total

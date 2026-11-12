@@ -119,6 +119,17 @@ def marcar_en_curso(
     conn.commit()
 
 
+def marcar_reanudada(conn: psycopg.Connection, busqueda_id: str) -> None:
+    """Vuelve a poner en curso una búsqueda que terminó en error o cancelada,
+    SIN borrar sus pasos ni su coste (a diferencia de `marcar_en_curso`)."""
+    conn.execute(
+        "update busquedas set estado = 'en_curso', cancelar_solicitado = false, finalizado_en = null, "
+        "estadisticas = estadisticas - 'error' where id = %s",
+        (busqueda_id,),
+    )
+    conn.commit()
+
+
 def guardar_progreso_ronda(conn: psycopg.Connection, busqueda_id: str, *, rondas_hasta_ahora: list[RondaPlanificador], max_rondas: int, coste_gastado_eur: float) -> None:
     """`on_ronda` de `radar.agente.planificador.planificar` llama a esto
     (a través de un cierre en `radar.api.main`) tras cada ronda — abre su

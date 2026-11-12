@@ -71,9 +71,9 @@ def test_buscar_web_sin_token_usa_el_buscador_del_modelo(monkeypatch) -> None:
     assert "via" not in r and r["nueva_empresa"] == 1
 
 
-def test_tope_de_empresas_por_busqueda(monkeypatch) -> None:
-    """2026-10-06: una búsqueda nacional llegó a 1.740 empresas y no pudo verificarlas."""
-    monkeypatch.setattr(h, "progreso_busqueda", lambda _c, _b: {"empresas": h.MAX_EMPRESAS_BUSQUEDA})
+def test_limite_de_empresas_solo_si_la_peticion_lo_pide(monkeypatch) -> None:
+    """2026-11-12: sin tope fijo; solo el `limite_resultados` que pida la petición."""
+    monkeypatch.setattr(h, "progreso_busqueda", lambda _c, _b: {"empresas": 100})
 
     async def no_debe(*_a: Any, **_k: Any) -> dict[str, Any]:
         raise AssertionError("no debería descubrir más")
@@ -81,8 +81,9 @@ def test_tope_de_empresas_por_busqueda(monkeypatch) -> None:
     monkeypatch.setattr(h, "descubrir_osm", no_debe)
     ctx = _contexto()
     ctx.busqueda_id = "b"
+    ctx.filtros.limite_resultados = 100
     r = asyncio.run(h.ejecutar_herramienta("descubrir_osm", {}, ctx))
-    assert "tope" in r["motivo_parada"] and r["coste_eur"] == 0.0
+    assert "límite pedido: 100" in r["motivo_parada"] and r["coste_eur"] == 0.0
 
 
 def test_empresas_extranjeras_fuera_de_zona() -> None:
