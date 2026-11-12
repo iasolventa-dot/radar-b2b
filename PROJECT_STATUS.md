@@ -364,3 +364,28 @@ Pendiente conocido: una identificación previa a la verificación de localidad (
   - completar contacto (25 → 80 empresas);
   - buscar CIF (20 → 60 empresas, reserva 0,08 → hasta 0,25 €).
 - **Pendiente:** OSM sin zona busca solo la primera provincia que se le indique; el coste del planificador LLM sigue siendo una parte grande del gasto en búsquedas sin Maps.
+
+### 13k. Búsqueda «Madrid CP 28108» con 19.413 empresas, sin tope fijo y búsquedas reanudables (2026-11-12)
+
+**Qué falló:**
+- El BORME solo filtraba por provincia si también había provincia en los filtros: metió 19.252 sociedades de toda Madrid; solo 208 eran de Alcobendas.
+- Con 19.413 empresas, el filtro de sector agotó el tiempo de la BD («statement timeout»). Faltaba un índice en `registros_brutos.empresa_id`.
+- Un fallo en una fase paraba todas las demás.
+
+**Arreglos:**
+- **Límite de empresas:** sin tope fijo (decisión del usuario); solo `limite_resultados` si la petición lo pide.
+- **BORME:** filtra por municipio o CP aunque haya provincia.
+- **Escala:** índices nuevos (migración 202611121000); filtro de sector con 6 llamadas en paralelo.
+- **Fases finales** (`planificador._fases_finales`): cada una protegida (si falla, se anota y se sigue).
+- **Búsquedas reanudables:** `POST /busquedas/{id}/reanudar` y botón «Reanudar verificación» en búsquedas con error o canceladas.
+- **Fase `quitar_repetidos`** (mismo CIF, misma web, o mismo teléfono con nombre parecido).
+- **Filtro de sector en búsquedas sin sector:** ya no deja todo «dudoso».
+- **Ficha de empresa:** plantilla visible; observaciones repetidas agrupadas («confirmado N veces»); fuera los «cambios de domicilio» que solo eran otra forma de escribir la misma dirección.
+
+**Limpieza de esa búsqueda y reanudación:**
+- 19.080 sociedades del BORME fuera de la zona o sin domicilio conocido (`scripts/limpiar_borme_fuera_de_zona.py`) y 69 fuera de los filtros: todas descartadas, recuperables.
+- Reanudada: completada con 240 empresas (131 relevantes, 109 dudosas por no constar el CP dentro de Alcobendas), 1,20 € en total.
+
+**Plantilla retroactiva:**
+- Relectura de 770 webs de empresas sin plantilla y filtro de empleados reaplicado a las búsquedas que lo pedían (`scripts/reaplicar_plantilla.py`).
+- Empresas con plantilla: 67 → 94 (41 de LinkedIn, 53 de su web). La cobertura sigue siendo baja: hace falta una fuente con plantilla para la mayoría.
