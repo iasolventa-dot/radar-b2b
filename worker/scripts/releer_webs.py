@@ -43,6 +43,14 @@ where e.fusionada_en is null and e.dominio_web is not null and (
              where c.empresa_id = e.id and c.vigente is not false and f.nombre = %(web)s))
 order by e.id
 """
+# --sin-plantilla (2026-11-12): empresas de búsquedas con web y sin plantilla,
+# para recoger lo que dicen sus webs («equipo de 40 profesionales»).
+_SQL_SIN_PLANTILLA = """
+select distinct e.id::text, e.dominio_web from busqueda_resultados br join empresas e on e.id = br.empresa_id
+where e.fusionada_en is null and e.dominio_web is not null and e.empleados_min is null and e.empleados_max is null
+  and coalesce(br.clasificacion, '') not in ('descartado', 'rechazado')
+order by 1
+"""
 _SQL_CANALES = """
 select c.id, c.tipo::text, c.valor,
   coalesce((select array_agg(distinct f.nombre) from observaciones o join fuentes f on f.id = o.fuente_id
@@ -92,11 +100,14 @@ def _retirar(conn: psycopg.Connection, empresa_id: str, leido: LeidoEnWeb, prueb
         conn.execute("update cargos set vigente = false where id = %s", (cargo_id,))
 
 
-async def main(limite: int | None, prueba: bool, lote: int) -> None:
+async def main(limite: int | None, prueba: bool, lote: int, sin_plantilla: bool = False) -> None:
     db_url = get_settings().supabase_db_url
     cuenta: Counter = Counter()
     with psycopg.connect(db_url) as conn:
-        empresas = conn.execute(_SQL_EMPRESAS, {"web": FUENTE_WEB}).fetchall()
+        empresas = (
+            conn.execute(_SQL_SIN_PLANTILLA).fetchall() if sin_plantilla
+            else conn.execute(_SQL_EMPRESAS, {"web": FUENTE_WEB}).fetchall()
+        )
         conn.commit()
         if limite:
             empresas = empresas[:limite]
@@ -132,5 +143,6 @@ if __name__ == "__main__":
     parser.add_argument("--limite", type=int, default=None)
     parser.add_argument("--prueba", action="store_true", help="solo informa: no escribe en la base de datos")
     parser.add_argument("--lote", type=int, default=20)
+    parser.add_argument("--sin-plantilla", action="store_true", help="empresas de búsquedas con web y sin plantilla")
     args = parser.parse_args()
-    asyncio.run(main(args.limite, args.prueba, args.lote))
+    asyncio.run(main(args.limite, args.prueba, args.lote, args.sin_plantilla))
