@@ -81,3 +81,12 @@ def test_municipio_con_provincia_al_lado_casa() -> None:
     c = Criterios(municipios={"dos hermanas"}, provincias={"41"})
     assert motivo_incumplimiento(DatosEmpresa(municipios=["Dos Hermanas (Sevilla)"]), c) is None
     assert motivo_incumplimiento(DatosEmpresa(municipios=["Dos Hermanas, Sevilla"]), c) is None
+
+
+def test_busqueda_sin_sector_no_deja_todo_en_dudoso() -> None:
+    from radar.agente.relevancia import busqueda_sin_sector
+
+    sin = FiltrosBusqueda(ubicacion=UbicacionFiltro(codigos_postales=["28108"]))
+    assert busqueda_sin_sector(sin) and "NO pide ningún sector" in construir_prompt(sin, [{"id": "1"}])
+    con = FiltrosBusqueda(sector=SectorFiltro(sector_interno="fontanería"))
+    assert not busqueda_sin_sector(con) and "NO pide ningún sector" not in construir_prompt(con, [{"id": "1"}])

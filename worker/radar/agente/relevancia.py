@@ -46,7 +46,7 @@ Búsqueda:
 Empresas (lo que sabemos de cada una):
 {empresas_json}
 
-Para cada empresa decide:
+{sin_sector}Para cada empresa decide:
 - "relevante": su actividad principal es la del sector buscado o una muy cercana que lo incluye (p. ej. "instalaciones" de fontanería y calefacción, o una empresa de reformas que hace fontanería, para "fontanería"). La categoría de Google Maps es una buena señal.
 - "descartado": solo si claramente NO es del sector: otra actividad (tienda o distribuidor de material, ferretería, persianas, aseguradora, agencia de marketing...), un organismo público, un directorio o portal de empresas, un medio de comunicación, una app o software, un marketplace, o un lugar que no es una empresa. También si consta que está en OTRA PROVINCIA.
 - "dudoso": no hay información suficiente sobre su actividad, o es del sector pero consta en otro municipio de la misma provincia (dilo en el motivo; no la descartes por eso). También si parece una web de captación de clientes (dominio genérico "servicio + ciudad", p. ej. desatascos-ciudad.es) y no consta quién es el titular.
@@ -57,6 +57,24 @@ Código postal: si la búsqueda pide códigos postales concretos y la empresa ti
 No inventes: decide solo con los datos dados. "motivo": una frase corta en español.
 
 Responde SOLO con JSON: {{"clasificaciones": [{{"id": "...", "relevancia": "relevante|dudoso|descartado", "autonomo": true|false|null, "motivo": "..."}}]}}"""
+
+
+# 2026-11-12 («empresas de Madrid con CP 28108»): sin sector, el modelo marcaba
+# «dudoso» 233 de 260 empresas porque no sabía contra qué sector compararlas.
+AVISO_SIN_SECTOR = (
+    "IMPORTANTE: esta búsqueda NO pide ningún sector concreto (quiere empresas de cualquier actividad de la zona). "
+    "Cualquier empresa o negocio real es \"relevante\". \"descartado\" solo si no es una empresa (organismo público, "
+    "directorio, medio, app, lugar), si es de otro país o si consta fuera de la zona; \"dudoso\" solo si no hay datos "
+    "para saber si es una empresa real.\n\n"
+)
+
+
+def busqueda_sin_sector(filtros: FiltrosBusqueda) -> bool:
+    s = filtros.sector
+    sector = (s.sector_interno or "").strip().lower()
+    return sector in {"", "todos", "todos los sectores", "cualquiera", "general"} and not (
+        s.codigos_cnae or s.palabras_clave or s.solo_si or s.descartar_si
+    )
 
 
 class ClasificacionLLM(BaseModel):
@@ -109,6 +127,7 @@ def construir_prompt(filtros: FiltrosBusqueda, perfiles: list[dict[str, Any]]) -
         palabras=", ".join(filtros.sector.palabras_clave) or "-",
         exclusiones=", ".join(filtros.sector.exclusiones) or "-",
         zona=zona,
+        sin_sector=AVISO_SIN_SECTOR if busqueda_sin_sector(filtros) else "",
         solo_si="; ".join(filtros.sector.solo_si) or "-",
         descartar_si="; ".join(filtros.sector.descartar_si) or "-",
         empresas_json=json.dumps(perfiles, ensure_ascii=False),
